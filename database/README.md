@@ -83,3 +83,17 @@ The results should include `To Do`, `Doing`, and `Done`.
 - `comments`
 
 The `due_date` column exists in both `projects` and `tasks`. Task priority values are `1 = High`, `2 = Medium`, and `3 = Low`.
+
+## Demo Data
+
+After applying the initial schema migration, run `database/seeds/demo.sql` with `psql` to insert sample data for local development. Replace the path below with the location of your local repository:
+
+```sql
+\i 'C:/path/to/MobG/database/seeds/demo.sql'
+```
+
+The demo user's `password_hash` is a placeholder and cannot be used to log in.
+
+## CRUD Examples
+
+Run `database/queries/crud_examples.sql` with `psql` to see example project create, read, update, and delete queries. The script ends with `ROLLBACK`, so the practice changes are not kept in the database.
