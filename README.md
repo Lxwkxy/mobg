@@ -39,9 +39,11 @@ docker compose up -d db
 - The backend provides a shared PostgreSQL connection pool.
 - The connection check successfully reads the demo project.
 
-## Pending Team Coordination
+## Remaining Integration Work
 
-- Confirm task due-date and assignee requirements.
-- Confirm whether assignees must be project members.
+- Validate required task due dates in the API.
+- Enforce at least one assignee when creating and updating tasks.
+- Restrict task assignees to project members.
+- Support multiple assignees per task.
 - Agree with the backend developer on module integration.
 - Have another teammate follow the setup guides.

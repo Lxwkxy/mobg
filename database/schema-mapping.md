@@ -22,7 +22,7 @@ This document maps database columns to the application's UI data requirements.
 | Task title | tasks.task_title | VARCHAR(200) | No | Task title |
 | Description | tasks.task_description | TEXT | Yes | Optional description |
 | Priority | tasks.priority | SMALLINT | No | CHECK constraint: 1 = High, 2 = Medium, 3 = Low |
-| Due date | tasks.due_date | DATE | Yes | Optional due date |
+| Due date | tasks.due_date | DATE | No | Required; enforced by migration 002 |
 | Creation time | tasks.task_create_date | TIMESTAMPTZ | No | Defaults to CURRENT_TIMESTAMP |
 | Project ID | tasks.project_id | BIGINT | No | Foreign key referencing projects.project_id |
 | Status ID | tasks.status_id | SMALLINT | No | Foreign key referencing task_statuses.status_id |
@@ -69,15 +69,23 @@ A task can have multiple assignees.
 When a task is deleted, its comments are deleted automatically
 because comments.task_id uses ON DELETE CASCADE.
 
-## Pending UI and API Decisions
+## Confirmed Task Requirements
 
-These items require confirmation with the team.
+| Requirement | Rule |
+|---|---|
+| Due date | Every task must have a due date. |
+| Minimum assignees | Every task must have at least one assignee. |
+| Multiple assignees | A task may have multiple assignees. |
+| Project membership | Every assignee must belong to the task's project. |
 
-| Item | Current database behavior | Decision needed |
-|---|---|---|
-| Task due date | tasks.due_date allows NULL; the Figma field label includes an asterisk | Must users provide a due date when creating a task? |
-| Task assignees | A task can have zero or multiple assignees; the Figma field label includes an asterisk | Is at least one assignee required? Can users select multiple assignees? |
-| Assignee membership | task_assignees.user_id references users; it does not enforce project membership | Must every assignee belong to the task's project? |
+These requirements apply when creating and updating tasks.
+The last assignee cannot be removed without assigning a replacement.
+
+## Implementation Status
+
+- Migration 002 enforces NOT NULL on tasks.due_date.
+- The composite primary key prevents duplicate task-user assignments.
+- Minimum assignee count and project membership are not yet enforced.
 
 ## Example Joined Task Record
 

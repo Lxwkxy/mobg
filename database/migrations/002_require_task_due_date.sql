@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE tasks
+    ALTER COLUMN due_date SET NOT NULL;
+
+COMMIT;

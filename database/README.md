@@ -65,6 +65,36 @@ There should be seven tables listed in the schema overview below. The initial st
 
 Starting the container and importing the application schema are separate steps. The initial schema file creates missing tables; it does not update the structure of tables that already exist.
 
+#### Apply migration 002
+
+For a new database, apply this migration after `001_initial_schema.sql`
+and before importing demo data.
+
+For an existing database, apply it once when upgrading to the schema
+that requires task due dates. Before applying it, check for tasks without
+a due date:
+
+```powershell
+docker compose exec -T db psql -U postgres -d mobg_db -c "SELECT task_id, task_title FROM tasks WHERE due_date IS NULL;"
+```
+
+Continue only when the query returns `(0 rows)`. If any tasks are listed,
+assign valid due dates to those tasks before continuing.
+
+Apply the migration:
+
+```powershell
+docker compose cp .\database\migrations\002_require_task_due_date.sql db:/tmp/002_require_task_due_date.sql
+docker compose exec -T db psql -U postgres -d mobg_db -v ON_ERROR_STOP=1 -f /tmp/002_require_task_due_date.sql
+```
+
+Successful execution reports `BEGIN`, `ALTER TABLE`, and `COMMIT`.
+If the migration fails, resolve the error before importing demo data or
+continuing with backend setup.
+
+This migration makes task due dates mandatory. Project due dates remain
+optional. Restarting the container does not require rerunning migrations.
+
 ### 4. Import demo data
 
 ```powershell
@@ -154,6 +184,35 @@ Replace the example path with your repository's actual location. Use forward sla
 \i 'C:/path/to/MobG/database/migrations/001_initial_schema.sql'
 ```
 
+#### Apply migration 002
+
+For a new database, run migration `002` after `001` and before importing
+demo data. For an existing database, first check for tasks without a due date:
+
+```sql
+SELECT task_id, task_title
+FROM tasks
+WHERE due_date IS NULL;
+```
+
+Continue only when the query returns `(0 rows)`. If any tasks are listed,
+assign valid due dates before applying the migration.
+
+At the `mobg_db=#` prompt, replace the example path with your repository's
+actual location and run:
+
+```text
+\set ON_ERROR_STOP on
+\i 'C:/path/to/MobG/database/migrations/002_require_task_due_date.sql'
+```
+
+Successful execution reports `BEGIN`, `ALTER TABLE`, and `COMMIT`.
+If execution fails and the session remains in an aborted transaction,
+run `ROLLBACK;`, resolve the error, and rerun the migration before continuing.
+
+Task due dates are required after this migration. Project due dates remain
+optional.
+
 ### 4. Verify the setup
 
 ```text
@@ -195,7 +254,7 @@ If the backend uses this local PostgreSQL installation, set its host, port, data
 | `task_assignees` | Users assigned to each task |
 | `comments` | Comments on tasks and their authors |
 
-The `due_date` column exists in both `projects` and `tasks`.
+The `due_date` column exists in both `projects` and `tasks`. After migration `002`, task due dates are required; project due dates remain optional.
 
 Task priority values are `1 = High`, `2 = Medium`, and `3 = Low`.
 
