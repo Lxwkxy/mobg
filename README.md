@@ -31,6 +31,21 @@ docker compose up -d db
 - [Schema and UI mapping](database/schema-mapping.md)
 - [Backend database connection](backend/README.md)
 
+## Current Implementation Status
+
+| Area | Current status |
+|---|---|
+| Frontend | A local Next.js, TypeScript, and Tailwind scaffold exists in web/ but is not yet committed. |
+| Backend database connection | Implemented using pg and dotenv in CommonJS JavaScript files. |
+| Express API | Not yet implemented in the shared repository. |
+| Backend TypeScript | Not yet configured. |
+| Database | PostgreSQL 17, schema migrations, and demo data are available. |
+| Setup documentation | Database and connection setup guides are available. |
+
+The database connection files are in backend/.
+Docker Compose and the environment template are at the repository root.
+Integration with the team's Express and TypeScript backend is still pending.
+
 ## Current Database Setup
 
 - PostgreSQL 17 runs in Docker.
