@@ -95,6 +95,31 @@ continuing with backend setup.
 This migration makes task due dates mandatory. Project due dates remain
 optional. Restarting the container does not require rerunning migrations.
 
+#### Apply migration 003
+
+Apply `003_add_project_start_date.sql` after migration `002` and before
+importing demo data into a new database. For an existing database, apply
+it once when upgrading to the project start-date rules.
+
+For the existing demo database, the migration uses each project's creation
+date in Asia/Bangkok as its initial start date. This is a backfill policy,
+not proof of the actual historical start date. Review this policy before
+applying the migration to a database containing real project records.
+
+```powershell
+docker compose cp .\database\migrations\003_add_project_start_date.sql db:/tmp/003_add_project_start_date.sql
+docker compose exec -T db psql -U postgres -d mobg_db -v ON_ERROR_STOP=1 -f /tmp/003_add_project_start_date.sql
+```
+
+Successful execution reports `BEGIN`, the schema changes, an `UPDATE`
+row count, and `COMMIT`. Stop and resolve any error before continuing.
+The migration rejects existing non-NULL end dates that are not strictly
+later than the backfilled start date; it does not change end dates.
+
+New projects default to today's date in Asia/Bangkok and cannot have a
+NULL start date. Users may choose another start date. End dates remain
+optional, but must be strictly later than the start date when provided.
+
 ### 4. Import demo data
 
 ```powershell
@@ -213,6 +238,26 @@ run `ROLLBACK;`, resolve the error, and rerun the migration before continuing.
 Task due dates are required after this migration. Project due dates remain
 optional.
 
+#### Apply migration 003
+
+Apply migration `003` after `002` and before importing demo data. It uses
+the creation date in Asia/Bangkok to backfill existing demo project start
+dates. Review this policy before applying it to real project data.
+
+At the `mobg_db=#` prompt, use your repository's actual path:
+
+```text
+\set ON_ERROR_STOP on
+\i 'C:/path/to/MobG/database/migrations/003_add_project_start_date.sql'
+```
+
+Continue only after a successful `COMMIT`. If the session remains in an
+aborted transaction after an error, run `ROLLBACK;` and resolve the error
+before rerunning the migration.
+
+Project start dates are required and default to today's date in Asia/Bangkok.
+An optional end date must be strictly later than the start date.
+
 ### 4. Verify the setup
 
 ```text
@@ -242,6 +287,32 @@ The demo user's password hash is a placeholder. The CRUD example script ends wit
 
 If the backend uses this local PostgreSQL installation, set its host, port, database, username, and password in the root `.env` to match that installation.
 
+## Week 1 Verification Record
+
+Verification date: 2026-10-07.
+
+Pai performed the fresh-database setup in the isolated mobg_w1_check
+database, using the existing PostgreSQL Docker service.
+
+Applied in order:
+
+1. 001_initial_schema.sql
+2. 002_require_task_due_date.sql
+3. 003_add_project_start_date.sql
+4. seeds/demo.sql
+
+Evidence and results:
+
+- The shared terminal screenshot shows the demo seed completed with COMMIT.
+- The screenshot lists all seven application tables.
+- The new demo project has start_date 2026-10-07 and due_date 2026-11-06.
+- Pai confirmed the date-column metadata: project start date and task due date are NOT NULL; project due date remains nullable; the start-date default uses Asia/Bangkok.
+- Pai confirmed inspection of the primary-key, foreign-key, CHECK, and UNIQUE definitions, including the composite keys, unique email, priority values, and strict project date ordering.
+
+These results cover the fresh import, demo data, and schema metadata.
+Backend integration and the shared account/membership contracts still
+require coordination with the backend developer.
+
 ## Schema overview
 
 | Table | Purpose |
@@ -254,7 +325,7 @@ If the backend uses this local PostgreSQL installation, set its host, port, data
 | `task_assignees` | Users assigned to each task |
 | `comments` | Comments on tasks and their authors |
 
-The `due_date` column exists in both `projects` and `tasks`. After migration `002`, task due dates are required; project due dates remain optional.
+The `due_date` column exists in both `projects` and `tasks`. After migration `002`, task due dates are required. Migration `003` adds a required project start date; project due dates remain optional, but must be strictly later than the start date when provided.
 
 Task priority values are `1 = High`, `2 = Medium`, and `3 = Low`.
 
