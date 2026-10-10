@@ -44,13 +44,16 @@ docker compose up -d db
 
 The database connection files are in backend/.
 Docker Compose and the environment template are at the repository root.
-Integration with the team's Express and TypeScript backend is still pending.
+Book's Express mock server, hash helper, and API contract are in
+[PR #5](https://github.com/Lxwkxy/mobg/pull/5), reviewed at commit 9c68bd7;
+they are not yet part of this branch. Pai accepted the Login/database
+contracts on 2026-10-10. Backend TypeScript remains unconfigured.
 
 ## Current Database Setup
 
 - PostgreSQL 17 runs in Docker.
 - A named volume preserves database data.
-- The schema contains seven tables.
+- The schema contains eight tables after migrations 001-004, including Login session storage.
 - The backend provides a shared PostgreSQL connection pool.
 - The connection check successfully reads the demo project.
 
@@ -60,5 +63,6 @@ Integration with the team's Express and TypeScript backend is still pending.
 - Enforce at least one assignee when creating and updating tasks.
 - Restrict task assignees to project members.
 - Support multiple assignees per task.
-- Agree with the backend developer on module integration.
+- Complete Book's environment connection check using the agreed backend/db.cjs pool.
+- Implement the agreed account/membership/session functions and usable account seeds in W2.
 - Have another teammate follow the setup guides.

@@ -20,23 +20,43 @@ The demo password hash is a placeholder and cannot be used to log in.
 Usable demo accounts require the password-hashing helper agreed with
 the backend developer.
 
-The Login identifier, account-lookup input/output, password-hashing
-library, and session storage requirements remain to be agreed with Book.
+### Week 1 Account Agreement
 
-### Proposed Account Lookup Contract
+Accepted by Pai on 2026-10-10 from Book's proposal in
+[PR #5](https://github.com/Lxwkxy/mobg/pull/5), reviewed at commit `9c68bd7`.
+This records Pai's acceptance of the Login/database contracts below; it
+does not mark every proposed API or permission rule in that PR as agreed.
 
-Status: proposed; requires agreement with the backend developer.
+- Login uses email. Before lookup, Book validates the input as a string
+  and normalizes it with `email.trim().toLowerCase()`.
+- Account inserts and updates, including future demo account seeds, must
+  store the same normalized email. PostgreSQL's current UNIQUE constraint
+  is case-sensitive; it does not enforce lowercase or case-insensitive uniqueness.
+- Before normalizing existing accounts, check for collisions using
+  `lower(btrim(email))` and resolve them explicitly; do not silently merge accounts.
+- Book uses `bcryptjs` with cost 10 to create/compare password hashes.
+  The existing TEXT column accommodates bcrypt hashes; no password-column
+  migration is required. Do not trim or lowercase passwords.
+- Book's `backend/hash-helper.cjs` is available in PR #5; it is not yet
+  on this branch. Real Login functions and usable account seeds remain W2 work.
+- Shared connection: use `backend/db.cjs`; keep Compose and `.env.example`
+  at the repository root. Book's PR imports this pool and closes it on shutdown.
+- Database-backed sessions use migration `004_add_sessions.sql` below.
+
+### Confirmed Account Lookup Contract
+
+Status: accepted by Pai from Book's PR #5 on 2026-10-10; implementation is W2.
 
 Function name: findUserForLoginByEmail
 
 Input:
-- email: string
+- email: string, already trimmed and lowercase by Book
 
 Return when an account exists:
-- user_id
-- user_name
-- email
-- password_hash
+- user_id: string (PostgreSQL BIGINT as returned by pg)
+- user_name: string
+- email: string
+- password_hash: string (internal authentication use only)
 
 Return when no account matches:
 - null
@@ -51,7 +71,7 @@ Responsibilities:
 - password_hash is for backend authentication only and must never
   be included in public API responses.
 
-Email matching and normalization rules must be agreed with Book.
+Lookup uses the normalized email to match users.email.
 The function is not implemented yet.
 
 ## Projects
@@ -108,22 +128,22 @@ Each user can appear only once within the same project.
 - projects.created_by records who created the project; project_members.role describes the user's project membership role.
 - The existing foreign keys do not automatically create the creator's membership row. The project-creation function must do this explicitly.
 - The demo seed already inserts the creator as Owner. The general project-creation function is not implemented yet.
-- These initial membership rules are confirmed by Pai; the team permission matrix and backend integration remain to be agreed with Book.
+- These initial membership rules and the Owner/Member role values are accepted by Pai. The complete permission matrix and member-removal policy in PR #5 require separate team confirmation; they are not approved by this account/schema agreement.
 
-### Proposed Membership Lookup Contract
+### Confirmed Membership Lookup Contract
 
-Status: proposed; requires agreement with the backend developer.
+Status: accepted by Pai from Book's PR #5 on 2026-10-10; implementation is W2.
 
 Function name: findProjectMembership
 
 Input:
-- project_id
-- user_id
+- project_id: number, positive safe integer validated by Book
+- user_id: number, positive safe integer from verified Login state
 
 Return when membership exists:
-- project_id
-- user_id
-- role
+- project_id: string (PostgreSQL BIGINT as returned by pg)
+- user_id: string (PostgreSQL BIGINT as returned by pg)
+- role: string; supported application values are exactly Owner and Member
 
 Return when no matching membership exists:
 - null
@@ -138,8 +158,65 @@ Responsibilities:
 - Returning a membership proves membership only; it does not itself authorize every operation.
 - A null result means no matching membership; it does not distinguish a nonexistent project from a nonmember without another lookup.
 
-The function is not implemented yet. Owner/Member permissions, ID types,
-and the final function signature remain to be agreed with Book.
+The function is not implemented yet. The current role column is VARCHAR(50)
+without a CHECK constraint; account/membership writes must use the agreed
+Owner/Member values. Unknown roles must not be granted permissions.
+
+### ID Boundaries
+
+- Keep BIGINT database values as decimal strings inside DB results; do not
+  change pg's global BIGINT parser or silently round a large ID.
+- Book maps DB snake_case results to public camelCase fields and converts IDs
+  to numbers only after validating `Number.isSafeInteger(id)` and `id > 0`.
+- Incoming numeric IDs must satisfy the same positive-safe-integer rule.
+  URL string IDs must be validated in full before conversion; partial parsing
+  of values such as `1abc` is not allowed.
+- Invalid request IDs produce a validation error. A stored ID outside the
+  public safe-integer range must cause an explicit backend error, not a
+  rounded or truncated identity. Do not issue a SQL lookup with a rounded ID.
+- The database retains its BIGINT schema; the numeric API supports only the
+  positive safe-integer subset. Session/account results follow this boundary.
+
+## Sessions
+
+Status: DB-backed session storage accepted by Pai from Book's PR #5 on
+2026-10-10. The schema is defined by migration `004_add_sessions.sql`;
+creation, lookup, logout, expiry enforcement, and cleanup functions are W2 work.
+
+| Data | Database column | Type | Allows NULL | Notes |
+|---|---|---|---|---|
+| Session ID | sessions.session_id | BIGINT | No | Identity primary key; internal session record ID |
+| User ID | sessions.user_id | BIGINT | No | Foreign key to users.user_id; ON DELETE CASCADE |
+| Token hash | sessions.token_hash | TEXT | No | UNIQUE; SHA-256 token digest encoded as 64 lowercase hexadecimal characters |
+| Created at | sessions.created_at | TIMESTAMPTZ | No | Defaults to CURRENT_TIMESTAMP |
+| Expires at | sessions.expires_at | TIMESTAMPTZ | No | Must be strictly after created_at; supplied by Book |
+
+- Book generates `token = crypto.randomBytes(32).toString('hex')` for the
+  cookie. Store only `crypto.createHash('sha256').update(token, 'utf8').digest('hex')`
+  in the DB. Hash the exact cookie-token text in the same way for lookup/logout;
+  hashing the original random Buffer would produce a different digest.
+  The raw cookie token must not be stored in this table.
+- Cookie: mobg_session, HttpOnly, SameSite=Lax, Path=/, Secure in production,
+  seven-day lifetime. Book owns cookie handling and session validation.
+- There is no expires_at default: Book supplies the expiry explicitly.
+- An expired row may remain in the table; reads must require
+  `expires_at > CURRENT_TIMESTAMP`. The table does not automatically expire
+  or delete rows, or enforce the seven-day lifetime by itself.
+- user_id and expires_at indexes support user-session removal and expiry cleanup.
+- User/account IDs must come from the validated session for authorization.
+  This table references users and does not grant project membership by itself.
+
+### Session Function Contracts (W2)
+
+| Function | Inputs | Returns |
+|---|---|---|
+| createSession(user_id, token_hash, expires_at) | Positive safe-integer user_id; SHA-256 hex token_hash; valid future Date expires_at | void after successful insert |
+| findSessionUser(token_hash) | SHA-256 hex token_hash | { user_id: string, user_name: string, email: string } for an unexpired matching session; otherwise null |
+| deleteSession(token_hash) | SHA-256 hex token_hash | void; deleting an absent token is successful |
+
+All DB failures propagate to Book. A lookup returning null means no usable
+matching session, not a swallowed database failure. Session lookup never
+returns password_hash. Logout deletes the matching row and Book clears the cookie.
 
 ## Task Assignees
 
@@ -272,6 +349,7 @@ Apply the following rules in order:
 
 - Migration 002 enforces NOT NULL on tasks.due_date.
 - Migration 003 adds projects.start_date, its default and NOT NULL constraint, and the project end-date constraint.
+- Migration 004 defines sessions with a user foreign key, unique SHA-256 token hashes, required timestamps, and strict expiry ordering. Runtime session functions remain W2 work.
 - The composite primary key prevents duplicate task-user assignments.
 - Minimum assignee count and project membership are not yet enforced.
 
