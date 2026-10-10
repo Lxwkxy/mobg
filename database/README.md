@@ -61,7 +61,7 @@ docker compose exec -T db psql -U postgres -d mobg_db -c "\dt"
 docker compose exec -T db psql -U postgres -d mobg_db -c "SELECT status_id, status_name FROM task_statuses ORDER BY status_id;"
 ```
 
-There should be seven tables listed in the schema overview below. The initial statuses should include `To Do`, `Doing`, and `Done`.
+At this step, migration 001 creates seven core tables. Migration 004 adds the eighth table, sessions. The initial statuses should include `To Do`, `Doing`, and `Done`.
 
 Starting the container and importing the application schema are separate steps. The initial schema file creates missing tables; it does not update the structure of tables that already exist.
 
@@ -119,6 +119,35 @@ later than the backfilled start date; it does not change end dates.
 New projects default to today's date in Asia/Bangkok and cannot have a
 NULL start date. Users may choose another start date. End dates remain
 optional, but must be strictly later than the start date when provided.
+
+#### Apply migration 004
+
+Apply `004_add_sessions.sql` after migration `003` and before importing
+demo data into a new database. For an existing database that already has
+migrations 001-003, apply only 004 once. Do not rerun earlier migrations.
+
+```powershell
+docker compose cp .\database\migrations\004_add_sessions.sql db:/tmp/004_add_sessions.sql
+docker compose exec -T db psql -U postgres -d mobg_db -v ON_ERROR_STOP=1 -f /tmp/004_add_sessions.sql
+```
+
+Successful execution reports BEGIN, CREATE TABLE, two CREATE INDEX results,
+and COMMIT. Stop on errors. If sessions already exists, inspect its schema
+and migration history before proceeding; do not drop it or mask a mismatch.
+
+```powershell
+docker compose exec -T db psql -U postgres -d mobg_db -c "\d sessions"
+```
+
+There are eight application tables after migration 004. It adds session
+storage without changing existing users, projects, tasks, or demo data.
+The earlier unexecuted activity-table draft numbered 004 was withdrawn;
+this migration is for sessions only.
+
+The database stores a unique SHA-256 token digest, not a raw cookie token.
+Session expiry must be after creation. The seven-day lifetime and checks
+that reject expired sessions belong to Book's W2 authentication code.
+No Login or session runtime function is implemented by this migration.
 
 ### 4. Import demo data
 
@@ -258,6 +287,20 @@ before rerunning the migration.
 Project start dates are required and default to today's date in Asia/Bangkok.
 An optional end date must be strictly later than the start date.
 
+#### Apply migration 004
+
+After 003, apply the session migration once using the actual repository path:
+
+```text
+\set ON_ERROR_STOP on
+\i 'C:/path/to/MobG/database/migrations/004_add_sessions.sql'
+\d sessions
+```
+
+Continue only after COMMIT. On an aborted transaction, run ROLLBACK and
+resolve the error. Do not rerun a migration already applied to this database.
+The final schema has eight tables; session runtime functions are W2 work.
+
 ### 4. Verify the setup
 
 ```text
@@ -309,9 +352,47 @@ Evidence and results:
 - Pai confirmed the date-column metadata: project start date and task due date are NOT NULL; project due date remains nullable; the start-date default uses Asia/Bangkok.
 - Pai confirmed inspection of the primary-key, foreign-key, CHECK, and UNIQUE definitions, including the composite keys, unique email, priority values, and strict project date ordering.
 
-These results cover the fresh import, demo data, and schema metadata.
-Backend integration and the shared account/membership contracts still
-require coordination with the backend developer.
+These results cover the fresh import, demo data, and schema metadata
+through migration 003. The session migration and current integration checks
+are recorded separately below.
+
+### Account/session agreement — 2026-10-10
+
+Pai accepted the Login/database proposal in Book's PR #5 (commit 9c68bd7):
+normalized email Login, bcryptjs cost 10, typed account/membership contracts,
+Owner/Member values, and DB-backed sessions. See schema-mapping.md for the
+exact inputs, outputs, ID conversion boundary, and session schema.
+
+Previous connection and persistence evidence reported by Pai:
+- Node.js check-db.cjs returned MobG Demo Project; the valid configuration
+  exited 0 and a deliberately invalid port exited 1 before being restored.
+- After ordinary docker compose down/up, the demo project and task data
+  remained available without reimporting schema or seed data.
+
+Book's PR reuses backend/db.cjs and retains check-db.cjs. A successful
+connection check from Book's environment and teammate confirmation of the
+setup guide still need to be recorded. Do not infer these from a mock
+health endpoint or from Pai's earlier check.
+
+### Session migration verification — 2026-10-10
+
+Pai applied migration 004 to the isolated mobg_w1_check database.
+
+Results:
+- Migration completed with COMMIT.
+- Inspected session columns, defaults, keys, constraints, and indexes.
+- A valid session with a seven-day expiry was inserted successfully.
+- Expiry equal to creation was rejected by sessions_expiry_after_creation.
+- A duplicate token hash was rejected by sessions_token_hash_key.
+- Test transactions were rolled back; no session rows remained.
+
+### Shared connection check — 2026-10-10
+
+- Pai ran backend/check-db.cjs using the shared backend/db.cjs pool.
+- The query returned MobG Demo Project and exited with code 0.
+- Book's environment check and teammate confirmation of the setup guide remain pending.
+
+These checks verify the schema. Runtime Login/session functions remain W2 work.
 
 ## Schema overview
 
@@ -324,8 +405,8 @@ require coordination with the backend developer.
 | `tasks` | Tasks within projects |
 | `task_assignees` | Users assigned to each task |
 | `comments` | Comments on tasks and their authors |
+| `sessions` | Hashed Login tokens and expiry timestamps (migration 004) |
 
 The `due_date` column exists in both `projects` and `tasks`. After migration `002`, task due dates are required. Migration `003` adds a required project start date; project due dates remain optional, but must be strictly later than the start date when provided.
 
 Task priority values are `1 = High`, `2 = Medium`, and `3 = Low`.
-
