@@ -10,12 +10,11 @@ Status indicators:
 - **[Confirmed]**: Already agreed upon in `schema-mapping.md` or existing code.
 - **[Confirmed by Pai]**: Proposed by Backend and accepted by Pai in `schema-mapping.md` (Book's PR #5, accepted 2026-10-10).
 - **[Confirmed by team]**: Confirmed by the whole team (Bar, Pai, and Book).
-- **[Confirmed by Pai · Bar pending]**: Accepted by Pai; it changes what the frontend sends or receives, so Bar still needs to confirm.
-- **[Proposed]**: Proposed by Backend; awaiting team confirmation from Bar / Pai.
+- **[Pending]**: Not decided yet.
 
 ## Confirmation Status
 
-Pai's written acceptance in `schema-mapping.md` covers the Login, database, and session contracts. Eight further items were then confirmed by the whole team:
+Pai's written acceptance in `schema-mapping.md` covers the Login, database, and session contracts. Eight further items, and then three more (listed after the table), were confirmed by the whole team:
 
 1. Permission matrix (section 5)
 2. Member-removal policy (section 8)
@@ -35,14 +34,15 @@ Pai's written acceptance in `schema-mapping.md` covers the Login, database, and 
 | Creator becomes `Owner` and project creation transaction; role values exactly `Owner` and `Member` | Accepted by Pai |
 | The eight items listed above | **Confirmed by team** |
 | Logout always succeeds (section 1) | **Confirmed by team** |
+| Numeric IDs in the API and `credentials: 'include'` on every frontend request (sections 0 and 4) | **Confirmed by team** |
+| Session refresh and expiry flow (section 2) | **Confirmed by team** |
+| `401 INVALID_CREDENTIALS` for both unknown email and wrong password (section 1) | **Confirmed by team** |
 
 Still open:
 
 | Item | Status |
 |---|---|
 | Dashboard `highPriorityCount` rule and dashboard user scope (section 10.9) | **Pending**; not yet decided in `schema-mapping.md` |
-| Numeric IDs in the API, `credentials: 'include'`, and the session lifecycle behavior (sections 2 and 4) | **Bar pending** |
-| `401 INVALID_CREDENTIALS` for both unknown email and wrong password (section 1) | **Proposed** |
 
 ---
 
@@ -78,7 +78,7 @@ Full setup steps are in [`README.md`](README.md) in this folder.
 - **Login Identifier**: `email` (unique constraint in `users.email`). `user_name` is non-unique and must not be used as an account identifier. **[Confirmed]**
 - **Account Status**: The database schema does not have an account status column; there is no "suspended account" state. **[Confirmed]**
 - **[Confirmed by Pai]** `email`: Validate it as a string, then apply `.trim().toLowerCase()` before the database lookup. Account inserts and updates, including demo seeds, must store the same normalized email (PostgreSQL's `UNIQUE` on `users.email` is case-sensitive). Before normalizing existing accounts, Pai checks for collisions with `lower(btrim(email))` and resolves them explicitly.
-- **[Proposed]** Return the generic message and code `401 INVALID_CREDENTIALS` for both non-existent emails and incorrect passwords to prevent account enumeration.
+- **[Confirmed by team]** Return the generic message and code `401 INVALID_CREDENTIALS` for both non-existent emails and incorrect passwords to prevent account enumeration.
 
 ---
 
@@ -93,7 +93,7 @@ Full setup steps are in [`README.md`](README.md) in this folder.
   - Reads must require `expires_at > CURRENT_TIMESTAMP`; an expired row may remain in the table.
   - Indexes on `user_id` and `expires_at` support removing a user's sessions and cleaning up expired rows.
   - The table does not grant project membership; use `findProjectMembership` for that.
-- **Lifecycle Behavior** **[Proposed · Bar pending]**:
+- **Lifecycle Behavior** **[Confirmed by team]**:
   - **Page Refresh**: Frontend invokes `GET /api/auth/me` on initial mount. If `200 OK`, keep current view.
   - **Logout**: Delete the database session record if the token matches, clear the cookie, and redirect to the Login view. It always responds `200` (section 1).
   - **Expired / Missing Session**: Protected endpoints respond with `401 UNAUTHENTICATED` (logout and login are not protected). Frontend redirects user to Login (no automated retries).
@@ -125,7 +125,7 @@ These five functions support Login, sessions, and permission checks. All are **[
 - Database errors must be **re-thrown**, not swallowed to return `null`. A return value of `null` strictly denotes "record not found" (or, for sessions, "no usable session").
 - `findProjectMembership` returns `null` for both non-existent projects and non-member users. Membership alone does not authorize all actions; the backend must inspect the returned `role`. `role` is exactly `Owner` or `Member`; an unknown role must not be granted any permission.
 - `password_hash` is for backend authentication only and is never returned by `findSessionUser` or included in any API response.
-- **ID Boundaries** **[Confirmed by Pai · Bar pending]**:
+- **ID Boundaries** **[Confirmed by team]**:
   - Database results keep `BIGINT` values as decimal strings (`pg` default). Do not change the global `pg` `BIGINT` parser and never round a large ID.
   - The backend converts an ID to a number only after checking `Number.isSafeInteger(id) && id > 0`. The API therefore supports only the positive safe-integer subset of `BIGINT`.
   - IDs from URLs or bodies must be validated in full before conversion (`1abc` is invalid, not `1`). An invalid request ID returns `400 VALIDATION_ERROR`. Do not run a SQL lookup with a rounded ID.
