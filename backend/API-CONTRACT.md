@@ -9,12 +9,22 @@ Status indicators:
 
 - **[Confirmed]**: Already agreed upon in `schema-mapping.md` or existing code.
 - **[Confirmed by Pai]**: Proposed by Backend and accepted by Pai in `schema-mapping.md` (Book's PR #5, accepted 2026-10-10).
+- **[Confirmed by team]**: Confirmed by the whole team (Bar, Pai, and Book).
 - **[Confirmed by Pai · Bar pending]**: Accepted by Pai; it changes what the frontend sends or receives, so Bar still needs to confirm.
 - **[Proposed]**: Proposed by Backend; awaiting team confirmation from Bar / Pai.
 
 ## Confirmation Status
 
-Pai's acceptance is limited to the Login, database, and session contracts. `schema-mapping.md` states that it does not approve every proposed API or permission rule in PR #5.
+Pai's written acceptance in `schema-mapping.md` covers the Login, database, and session contracts. Eight further items were then confirmed by the whole team:
+
+1. Permission matrix (section 5)
+2. Member-removal policy (section 8)
+3. Project deletion cascade (section 8)
+4. `isOverdue` calculation (section 7)
+5. Status filter parameter (section 7)
+6. Numeric `priority` in the API (section 6)
+7. Response field names (section 10)
+8. Endpoint and database function contracts for the feature endpoints (sections 10–11)
 
 | Area | Status |
 |---|---|
@@ -23,10 +33,16 @@ Pai's acceptance is limited to the Login, database, and session contracts. `sche
 | ID boundaries (decimal strings in DB results, safe positive integers in the API) | Accepted by Pai |
 | Database-backed sessions: `sessions` table (migration `004_add_sessions.sql`), cookie, and the three session functions | Accepted by Pai (functions in W2) |
 | Creator becomes `Owner` and project creation transaction; role values exactly `Owner` and `Member` | Accepted by Pai |
-| **Permission matrix** (section 5) and **member-removal policy** (section 8) | **Needs separate team confirmation** |
-| Project deletion cascade, `isOverdue`, status filter parameter, numeric `priority` in the API, response field names | **Proposed**; needs Bar and Pai |
-| Sections 10–11 (endpoint and database function contracts for the feature endpoints) | **Proposed**; needs Bar and Pai |
-| Bar | Pending. Please confirm the items tagged "Bar pending" (numeric IDs, `credentials: 'include'`) and review sections 5 and 8–10. |
+| The eight items listed above | **Confirmed by team** |
+| Logout always succeeds (section 1) | **Confirmed by team** |
+
+Still open:
+
+| Item | Status |
+|---|---|
+| Dashboard `highPriorityCount` rule and dashboard user scope (section 10.9) | **Pending**; not yet decided in `schema-mapping.md` |
+| Numeric IDs in the API, `credentials: 'include'`, and the session lifecycle behavior (sections 2 and 4) | **Bar pending** |
+| `401 INVALID_CREDENTIALS` for both unknown email and wrong password (section 1) | **Proposed** |
 
 ---
 
@@ -55,8 +71,9 @@ Full setup steps are in [`README.md`](README.md) in this folder.
 |---|---|---|---|
 | `POST /api/auth/login` | `{ email, password }` | `200` `{ success, user }` + sets session cookie | `400 VALIDATION_ERROR`, `401 INVALID_CREDENTIALS` |
 | `GET /api/auth/me` | None | `200` `{ success, user }` | `401 UNAUTHENTICATED` |
-| `POST /api/auth/logout` | None | `200` `{ success, message }` + clears cookie | Idempotent (no error on duplicate calls) |
+| `POST /api/auth/logout` | None | `200` `{ success, message }` + clears cookie | None. Always `200`, with or without a valid session (see below) |
 
+- **Logout is an exception to the session requirement** **[Confirmed by team]**: it needs no valid session and never returns `401`. With a valid session, delete the matching session row (`deleteSession`), clear the `mobg_session` cookie, and return `200`. With no cookie, an unknown token, an expired session, or a repeated call, clear the cookie and return the same `200` response. Only an unexpected database failure returns `500`.
 - **User Object**: `{ userId, userName, email }`. **[Confirmed]** `password_hash` must **never** be exposed in any API response.
 - **Login Identifier**: `email` (unique constraint in `users.email`). `user_name` is non-unique and must not be used as an account identifier. **[Confirmed]**
 - **Account Status**: The database schema does not have an account status column; there is no "suspended account" state. **[Confirmed]**
@@ -78,8 +95,8 @@ Full setup steps are in [`README.md`](README.md) in this folder.
   - The table does not grant project membership; use `findProjectMembership` for that.
 - **Lifecycle Behavior** **[Proposed · Bar pending]**:
   - **Page Refresh**: Frontend invokes `GET /api/auth/me` on initial mount. If `200 OK`, keep current view.
-  - **Logout**: Delete the database session record, clear the cookie, and redirect to the Login view.
-  - **Expired / Missing Session**: Protected endpoints respond with `401 UNAUTHENTICATED`. Frontend redirects user to Login (no automated retries).
+  - **Logout**: Delete the database session record if the token matches, clear the cookie, and redirect to the Login view. It always responds `200` (section 1).
+  - **Expired / Missing Session**: Protected endpoints respond with `401 UNAUTHENTICATED` (logout and login are not protected). Frontend redirects user to Login (no automated retries).
 - `user_id` used for authorization checks must be derived strictly from the validated backend session—never from the request body or query parameters. **[Confirmed]**
 
 ---
@@ -121,16 +138,16 @@ These five functions support Login, sessions, and permission checks. All are **[
 | Action | Authenticated User | Member | Owner | Status |
 |---|:---:|:---:|:---:|---|
 | Create Project | ✅ (Assigned Owner role) | - | - | [Confirmed] |
-| Read Project / Tasks / Member List | ❌ | ✅ | ✅ | [Proposed] |
-| Create / Edit Task (including status and assignees) | ❌ | ✅ | ✅ | [Proposed] |
-| Delete Task | ❌ | ❌ | ✅ | [Proposed] |
-| Edit / Delete Project | ❌ | ❌ | ✅ | [Proposed] |
-| Add / Remove Members | ❌ | ❌ | ✅ | [Proposed] |
-| Read / Add Comments | ❌ | ✅ | ✅ | [Proposed] |
-| Read Activity | ❌ | ✅ | ✅ | [Proposed] |
-| List Users (for member selection), Dashboard, My Tasks | ✅ (own scope) | - | - | [Proposed] |
+| Read Project / Tasks / Member List | ❌ | ✅ | ✅ | [Confirmed by team] |
+| Create / Edit Task (including status and assignees) | ❌ | ✅ | ✅ | [Confirmed by team] |
+| Delete Task | ❌ | ❌ | ✅ | [Confirmed by team] |
+| Edit / Delete Project | ❌ | ❌ | ✅ | [Confirmed by team] |
+| Add / Remove Members | ❌ | ❌ | ✅ | [Confirmed by team] |
+| Read / Add Comments | ❌ | ✅ | ✅ | [Confirmed by team] |
+| Read Activity | ❌ | ✅ | ✅ | [Confirmed by team] |
+| List Users (for member selection), Dashboard, My Tasks | ✅ (own scope) | - | - | [Confirmed by team] |
 
-Pai accepted the `Owner` / `Member` role values and the project creation rules below. The permission matrix itself, including who may edit or delete, still needs separate team confirmation.
+Pai accepted the `Owner` / `Member` role values and the project creation rules below. The permission matrix itself was then confirmed by the whole team.
 
 **Project Creation Rules** [Confirmed by Pai]:
 - `projects.created_by` is set from the authenticated session user.
@@ -138,7 +155,7 @@ Pai accepted the `Owner` / `Member` role values and the project creation rules b
 - If the creator is included in the selected members list, keep only one membership row with role `Owner` (do not overwrite with `Member`).
 - Project and member records must be created within a **single database transaction**, returning success only after a complete `COMMIT`.
 
-**Access Control Enforcement** **[Proposed]**:
+**Access Control Enforcement** **[Confirmed by team]**:
 - Unauthenticated request → `401 UNAUTHENTICATED`
 - Non-member or non-existent project → `404 NOT_FOUND` (do not disclose whether the project exists)
 - Project member with insufficient permissions → `403 FORBIDDEN`
@@ -160,7 +177,7 @@ The database preserves existing names; the API maps them to UI display labels:
 - New tasks default to `To Do`. The backend must supply the `status_id` explicitly (the schema has no default constraint).
 - There is no fourth status called "Not started".
 
-### Priority [Confirmed DB · Proposed API · Bar pending]
+### Priority [Confirmed DB · Confirmed by team API]
 The database stores `SMALLINT` (`1` = High, `2` = Medium, `3` = Low) with a `CHECK` constraint.  
 API sends and receives priority as numeric values (`1 | 2 | 3`). The frontend handles localization/labeling.
 
@@ -203,9 +220,9 @@ Evaluated sequentially using the following precedence rules:
 
 - Recalculated upon every project read. Frontend must re-fetch project details after task status updates.
 - Status filters (`All`, `To do`, `In progress`, `Done`) must be validated and applied by the backend **prior** to pagination.
-- Filter query parameter **[Proposed]** (`schema-mapping.md` leaves the exact parameter and response field names to be agreed): `GET /api/projects?status=To do|In progress|Done` (omitted returns all; URL-encode the value, e.g. `status=In%20progress`).
+- Filter query parameter **[Confirmed by team]**: `GET /api/projects?status=To do|In progress|Done` (omitted returns all; URL-encode the value, e.g. `status=In%20progress`).
 
-### Overdue Calculation (`isOverdue`) **[Proposed]**
+### Overdue Calculation (`isOverdue`) **[Confirmed by team]**
 - A task is overdue if `dueDate < today` (evaluated in `Asia/Bangkok` date comparison) **and** `status != 'Done'`. Completed tasks are never overdue.
 - The API delivers `isOverdue: boolean` computed by the backend; the frontend should not duplicate this calculation.
 - Extended Dashboard metrics (High priority counts, user-scoped metrics) will be finalized in W2.
@@ -215,8 +232,8 @@ Evaluated sequentially using the following precedence rules:
 ## 8. Cascading and Deletion Policies
 
 - **Deleting a Task**: Associated comments are automatically deleted via `ON DELETE CASCADE` on `comments.task_id` [Confirmed]. Assignee associations in `task_assignees` are removed (Pai to verify FK behavior).
-- **Deleting a Project** (`Owner` only) **[Proposed]**: Tasks, assignees, comments, and project membership rows are deleted within a single database transaction. The frontend must prompt for explicit confirmation before invocation. *(Pai must verify whether foreign keys for `tasks`, `project_members`, and `task_assignees` have `CASCADE` configured or require manual ordered deletion).*
-- **Removing a Member from a Project** (`Owner` only) **[Proposed]** (`schema-mapping.md` says the member-removal policy needs separate team confirmation):
+- **Deleting a Project** (`Owner` only) **[Confirmed by team]**: Tasks, assignees, comments, and project membership rows are deleted within a single database transaction. The frontend must prompt for explicit confirmation before invocation. *(Pai must verify whether foreign keys for `tasks`, `project_members`, and `task_assignees` have `CASCADE` configured or require manual ordered deletion).*
+- **Removing a Member from a Project** (`Owner` only) **[Confirmed by team]**:
   - If the member is the **sole assignee of any task in the project, regardless of the task's status (including `Done`)** → Reject with `409 CONFLICT` (`reason: SOLE_ASSIGNEE`). Every task must keep at least one assignee, so completed tasks are covered too. The response lists the affected tasks.
   - If every task the member is assigned to has at least one other assignee → Remove the member from those tasks and from the project within the same transaction.
   - The last remaining `Owner` cannot be removed from the project → Reject with `409 CONFLICT` (`reason: LAST_OWNER`).
@@ -233,7 +250,7 @@ Failure envelope: `{ "success": false, "error": { "code": string, "message": str
 |---|---|---|
 | `400` | `VALIDATION_ERROR` | Missing or invalid fields, malformed JSON, invalid ID, invalid query parameter, date ordering violation |
 | `401` | `INVALID_CREDENTIALS` | Invalid email or password |
-| `401` | `UNAUTHENTICATED` | Missing or expired session cookie |
+| `401` | `UNAUTHENTICATED` | Missing or expired session cookie on a protected endpoint (not returned by login or logout) |
 | `403` | `FORBIDDEN` | Insufficient permissions for the requested action |
 | `404` | `NOT_FOUND` | Route not found, project or task not found, or user is not a project member |
 | `409` | `CONFLICT` | Action violates business rules (removing a sole assignee of any task including `Done`, removing the last Owner, adding someone who is already a member) |
@@ -327,13 +344,13 @@ Failure envelope: `{ "success": false, "error": { "code": string, "message": str
 
 ---
 
-## 10. Endpoint Contracts **[Proposed]**
+## 10. Endpoint Contracts **[Confirmed by team]**
 
-Status: all endpoints below are contract only in W1. Only `GET /api/health` and the mock auth/project routes exist (see section 12).
+Status: all endpoints below are contract only in W1. Only `GET /api/health` and the mock auth/project routes exist (see section 12). The dashboard items marked **[Pending]** in 10.9 are the only open parts.
 
 **Conventions**
 - Base path `/api`. Requests and responses are JSON.
-- Every endpoint except `GET /api/health` and `POST /api/auth/login` requires a valid session (`401 UNAUTHENTICATED` otherwise).
+- Every endpoint except `GET /api/health`, `POST /api/auth/login`, and `POST /api/auth/logout` requires a valid session (`401 UNAUTHENTICATED` otherwise). Logout never returns `401` (section 1).
 - Endpoints with `:projectId` apply the access rules in section 5 (non-member or unknown project → `404`; insufficient role → `403`). A task is only reachable through the project it belongs to; a task from another project returns `404`.
 - IDs are numbers. Dates are `YYYY-MM-DD`. Timestamps are ISO 8601 UTC strings.
 - Status values in the API are the UI labels `To do | In progress | Done` (section 6).
@@ -344,7 +361,7 @@ Status: all endpoints below are contract only in W1. Only `GET /api/health` and 
 |---|---|---|---|---|
 | POST | `/api/auth/login` | Public | Log in | `findUserForLoginByEmail`, `createSession` |
 | GET | `/api/auth/me` | Logged in | Current user | `findSessionUser` |
-| POST | `/api/auth/logout` | Any | Log out | `deleteSession` |
+| POST | `/api/auth/logout` | Any (no session needed) | Log out; always `200` | `deleteSession` |
 | GET | `/api/users` | Logged in | Users to pick as members | `listUsers` |
 | GET | `/api/projects` | Logged in | My projects (filter, pagination) | `listProjectsForUser` |
 | POST | `/api/projects` | Logged in | Create project; creator becomes Owner | `createProjectWithMembers`, `getProjectById` |
@@ -379,7 +396,7 @@ Status: all endpoints below are contract only in W1. Only `GET /api/health` and 
 ```
 
 `GET /api/auth/me` → `200` `{ "success": true, "user": { "userId": 1, "userName": "Demo Member", "email": "demo@mobg.local" } }`  
-`POST /api/auth/logout` → `200` `{ "success": true, "message": "Logged out successfully" }`
+`POST /api/auth/logout` → `200` `{ "success": true, "message": "Logged out successfully" }`. The same response is returned when there is no session cookie, the session is unknown or expired, or the call is repeated; the cookie is cleared in every case.
 
 ### 10.3 Users
 
@@ -622,7 +639,7 @@ Activity object:
 
 ---
 
-## 11. Database Function Contracts for Feature Endpoints **[Proposed]**
+## 11. Database Function Contracts for Feature Endpoints **[Confirmed by team]**
 
 Owner of these functions: Pai. Called by the backend.
 
