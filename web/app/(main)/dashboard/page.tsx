@@ -29,7 +29,6 @@ export default function DashboardPage() {
     fetchData();
   }, []);
 
-  // คำนวณตัวเลขจากข้อมูลจริงผ่าน Service
   const totalProjects = projects.length;
   const inProgressTasks = tasks.filter((t) => t.status === 'In progress').length;
   const doneTasks = tasks.filter((t) => t.status === 'Done').length;
@@ -42,7 +41,6 @@ export default function DashboardPage() {
     { icon: '🕒', label: 'Overdue tasks', value: String(overdueTasks) },
   ];
 
-  // แปลง Priority ตัวเลข (1, 2, 3) เป็นข้อความสำหรับแสดงผล
   const getPriorityText = (priority: number) => {
     if (priority === 1) return 'High';
     if (priority === 2) return 'Medium';
@@ -85,8 +83,8 @@ export default function DashboardPage() {
               projects.map((p) => (
                 <article key={p.projectId} className="flex items-center justify-between py-4 border-b border-[#f0f0f0] last:border-none">
                   <div>
-                    <strong className="block text-[13px] text-[#222222]">{p.projectTitle}</strong>
-                    <p className="mt-1 text-[11px] text-[#888888]">{p.description}</p>
+                    <strong className="block text-[13px] text-[#222222]">{p.projectName}</strong>
+                    <p className="mt-1 text-[11px] text-[#888888]">{p.projectDescription}</p>
                   </div>
                   <div className="flex items-center gap-4 text-[11px] text-[#666666]">
                     <span>☑ {p.completedTasks} / {p.totalTasks} tasks</span>

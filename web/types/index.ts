@@ -1,6 +1,6 @@
 export interface User {
-  userId: number;       // ID ตัวเลข (1, 2)
-  userName: string;     // userName
+  userId: number;
+  userName: string;
   email: string;
 }
 
@@ -11,22 +11,31 @@ export interface LoginResult {
   isNetworkError?: boolean;
 }
 
+// Assignee Object Type ตาม Contract
+export interface Assignee {
+  userId: number;
+  userName: string;
+}
+
+// Project Contract: projectName & projectDescription
 export interface ProjectItem {
-  projectId: number;    // ID ตัวเลข
-  projectTitle: string;
-  description: string;
+  projectId: number;
+  projectName: string;
+  projectDescription: string;
   completedTasks: number;
   totalTasks: number;
   dueDate: string;
 }
 
+// Task Contract: taskDescription & assignees เป็น Array Of Objects
 export interface TaskItem {
-  taskId: number;       // taskId ตัวเลข
-  taskTitle: string;    // taskTitle
-  description?: string;
-  priority: number;     // 1, 2, 3
-  status: 'To do' | 'In progress' | 'Done'; // Status ตาม Contract
-  dueDate: string;      // YYYY-MM-DD
-  assignees: string;    // assignees
+  taskId: number;
+  taskTitle: string;
+  taskDescription?: string;
+  priority: number;
+  status: 'To do' | 'In progress' | 'Done';
+  dueDate: string;
+  assignees: Assignee[];
   projectName?: string;
+  projectId?: number;
 }
