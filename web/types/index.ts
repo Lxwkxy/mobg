@@ -1,11 +1,9 @@
-// User Contract
 export interface User {
-  userId: string;
-  userName: string;
+  userId: number;       // ID ตัวเลข (1, 2)
+  userName: string;     // userName
   email: string;
 }
 
-// Login Response Contract
 export interface LoginResult {
   success: boolean;
   user?: User;
@@ -13,13 +11,22 @@ export interface LoginResult {
   isNetworkError?: boolean;
 }
 
-// Data Contract (สำหรับ Tasks/Projects)
+export interface ProjectItem {
+  projectId: number;    // ID ตัวเลข
+  projectTitle: string;
+  description: string;
+  completedTasks: number;
+  totalTasks: number;
+  dueDate: string;
+}
+
 export interface TaskItem {
-  id: string;               // ID สตริง/ยูไอดี
-  title: string;
+  taskId: number;       // taskId ตัวเลข
+  taskTitle: string;    // taskTitle
   description?: string;
-  priority: number;         // Priority แบบตัวเลข (1 = High, 2 = Medium, 3 = Low)
-  status: 'TODO' | 'IN_PROGRESS' | 'DONE';
-  dueDate: string;          // ฟอร์แมต YYYY-MM-DD
-  assignedTo?: string;
+  priority: number;     // 1, 2, 3
+  status: 'To do' | 'In progress' | 'Done'; // Status ตาม Contract
+  dueDate: string;      // YYYY-MM-DD
+  assignees: string;    // assignees
+  projectName?: string;
 }

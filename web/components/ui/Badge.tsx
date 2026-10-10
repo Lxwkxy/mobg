@@ -1,6 +1,5 @@
 import React from 'react';
 
-// Priority Badge (รับค่า priority เป็นตัวเลข: 1=High, 2=Medium, 3=Low)
 export const PriorityBadge: React.FC<{ priority: number }> = ({ priority }) => {
   const priorityConfig: Record<number, { label: string; style: string }> = {
     1: { label: 'P1 - High', style: 'bg-red-100 text-red-700 border-red-200' },
@@ -17,12 +16,11 @@ export const PriorityBadge: React.FC<{ priority: number }> = ({ priority }) => {
   );
 };
 
-// Status Badge
-export const StatusBadge: React.FC<{ status: 'TODO' | 'IN_PROGRESS' | 'DONE' }> = ({ status }) => {
+export const StatusBadge: React.FC<{ status: 'To do' | 'In progress' | 'Done' }> = ({ status }) => {
   const statusConfig = {
-    TODO: { label: 'To Do', style: 'bg-gray-100 text-gray-600' },
-    IN_PROGRESS: { label: 'In Progress', style: 'bg-blue-100 text-blue-700' },
-    DONE: { label: 'Done', style: 'bg-emerald-100 text-emerald-700' },
+    'To do': { label: 'To do', style: 'bg-gray-100 text-gray-600' },
+    'In progress': { label: 'In progress', style: 'bg-blue-100 text-blue-700' },
+    'Done': { label: 'Done', style: 'bg-emerald-100 text-emerald-700' },
   };
 
   const config = statusConfig[status] || { label: status, style: 'bg-gray-100 text-gray-600' };

@@ -1,46 +1,33 @@
-import { TaskItem } from '@/types';
+import { TaskItem, ProjectItem } from '@/types';
 
-// Mock Data ตรงตาม API Contract (ID, Priority ตัวเลข, วันที่ YYYY-MM-DD)
-export const MOCK_TASKS: TaskItem[] = [
-  {
-    id: 'tsk_001',
-    title: 'Migrate Frontend to Next.js',
-    description: 'Convert legacy static HTML/CSS/JS to App Router',
-    priority: 1, // 1 = High
-    status: 'IN_PROGRESS',
-    dueDate: '2026-10-15',
-    assignedTo: 'Chinatip',
-  },
-  {
-    id: 'tsk_002',
-    title: 'Implement Authentication API',
-    description: 'Connect login form with backend authentication service',
-    priority: 2, // 2 = Medium
-    status: 'TODO',
-    dueDate: '2026-10-20',
-    assignedTo: 'Dev Team',
-  },
-  {
-    id: 'tsk_003',
-    title: 'Design Base UI Components',
-    description: 'Build reusable Button, Input, Card, and Badges',
-    priority: 3, // 3 = Low
-    status: 'DONE',
-    dueDate: '2026-10-10',
-    assignedTo: 'Chinatip',
-  },
+export const MOCK_PROJECTS: ProjectItem[] = [
+  { projectId: 1, projectTitle: 'Web Programming 1', description: 'this is description', completedTasks: 3, totalTasks: 10, dueDate: '2026-11-24' },
+  { projectId: 2, projectTitle: 'OS Project', description: 'this is description', completedTasks: 3, totalTasks: 10, dueDate: '2026-11-24' },
+  { projectId: 3, projectTitle: 'OOP Project', description: 'this is description', completedTasks: 3, totalTasks: 10, dueDate: '2026-11-24' },
+  { projectId: 4, projectTitle: 'GEN Project', description: 'this is description', completedTasks: 3, totalTasks: 10, dueDate: '2026-11-24' },
 ];
 
-// Data Service แยกส่วนอ่านข้อมูลจาก UI
+export const MOCK_TASKS: TaskItem[] = [
+  { taskId: 1, taskTitle: 'Wireframe', description: 'Design UI Wireframe', priority: 1, status: 'In progress', dueDate: '2026-09-27', assignees: 'Chinatip', projectName: 'Web Programming' },
+  { taskId: 2, taskTitle: 'Setup Next.js Project', description: 'Initialize App Router', priority: 1, status: 'In progress', dueDate: '2026-09-27', assignees: 'Chinatip', projectName: 'Web Programming' },
+  { taskId: 3, taskTitle: 'Authentication API', description: 'Implement mock login service', priority: 2, status: 'To do', dueDate: '2026-09-27', assignees: 'Dev Team', projectName: 'OS Project' },
+  { taskId: 4, taskTitle: 'Base UI Components', description: 'Create reusable components', priority: 3, status: 'Done', dueDate: '2026-09-27', assignees: 'Chinatip', projectName: 'OOP Project' },
+];
+
+export const projectService = {
+  getProjects: async (): Promise<ProjectItem[]> => {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    return MOCK_PROJECTS;
+  },
+};
+
 export const taskService = {
   getTasks: async (): Promise<TaskItem[]> => {
-    // จำลองการดึงข้อมูลจาก API
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) => setTimeout(resolve, 150));
     return MOCK_TASKS;
   },
-
-  getTaskById: async (id: string): Promise<TaskItem | undefined> => {
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    return MOCK_TASKS.find((task) => task.id === id);
+  getTaskById: async (taskId: number): Promise<TaskItem | undefined> => {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return MOCK_TASKS.find((t) => t.taskId === taskId);
   },
 };

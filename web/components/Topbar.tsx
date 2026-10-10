@@ -5,19 +5,19 @@ import { useRouter } from 'next/navigation';
 
 export default function Topbar() {
   const [isOpen, setIsOpen] = useState(false);
-  const [user, setUser] = useState({ name: 'Barzed', email: 'barzed@example.com' });
+  const [user, setUser] = useState({ userName: 'User', email: '' });
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  // ดึงข้อมูล User จาก localStorage
   useEffect(() => {
     const currentUserStr = localStorage.getItem('mobg_current_user');
     if (currentUserStr) {
       try {
         const parsed = JSON.parse(currentUserStr);
+        // อ่าน userName เป็นหลัก ตาม Login service
         setUser({
-          name: parsed.name || 'Barzed',
-          email: parsed.email || 'barzed@example.com',
+          userName: parsed.userName || parsed.name || 'User',
+          email: parsed.email || '',
         });
       } catch (e) {
         console.error('Error parsing user session:', e);
@@ -25,7 +25,6 @@ export default function Topbar() {
     }
   }, []);
 
-  // ปิด Dropdown เมื่อคลิกข้างนอก
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -67,7 +66,7 @@ export default function Topbar() {
             <div className="w-[34px] h-[34px] rounded-full bg-[#e0e0e0] flex items-center justify-center text-[16px]">
               👤
             </div>
-            <span className="text-[13px] font-semibold text-[#333333]">{user.name}</span>
+            <span className="text-[13px] font-semibold text-[#333333]">{user.userName}</span>
             <span className="flex items-center justify-center text-[#666666] w-[14px] h-[14px]">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="6 9 12 15 18 9" />
@@ -78,9 +77,11 @@ export default function Topbar() {
           {/* Dropdown Menu */}
           {isOpen && (
             <div className="absolute top-[calc(100%+8px)] right-0 bg-white border border-[#e0e0e0] rounded-xl shadow-[0_10px_25px_rgba(0,0,0,0.15)] w-[200px] p-2 z-[99999]">
-              <div className="p-2 text-[12px] text-[#666666] border-b border-[#f0f0f0] mb-1.5 break-all">
-                {user.email}
-              </div>
+              {user.email && (
+                <div className="p-2 text-[12px] text-[#666666] border-b border-[#f0f0f0] mb-1.5 break-all">
+                  {user.email}
+                </div>
+              )}
               <button
                 type="button"
                 onClick={handleLogout}
