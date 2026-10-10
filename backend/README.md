@@ -1,6 +1,8 @@
-# MobG Backend — Database Connection
+# MobG Backend
 
-This module connects the Node.js backend to PostgreSQL using `pg` and `dotenv`. It is intended for use by the team's Express API.
+This module runs the team's Node.js and Express API and connects it to PostgreSQL using `pg` and `dotenv`.
+
+In week 1 the `/api/auth` and `/api/projects` routes return fixed sample data (mock). The agreed API shapes, permissions, and data rules are in the [API contract](API-CONTRACT.md).
 
 The development database runs PostgreSQL 17 in Docker.
 
@@ -57,6 +59,41 @@ In PowerShell, inspect the exit code immediately after running the check:
 $LASTEXITCODE
 ```
 
+## Run the API server
+
+After the database check passes, start the server from the `backend` directory:
+
+```powershell
+npm start
+```
+
+`npm start` runs `node server.cjs`. The terminal prints `MobG Backend running on port 5000`.
+
+The server listens on port **5000** by default. Confirm that it is running:
+
+```powershell
+curl.exe http://localhost:5000/api/health
+```
+
+The response contains `"status": "OK"`. Stop the server with `Ctrl+C`; it closes the database pool before exiting.
+
+Optional variables in the root `.env`:
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `PORT` | Port the API listens on | `5000` |
+| `CORS_ORIGIN` | Exact origin of the web page that calls the API (scheme, host, and port) | `http://localhost:5173` |
+
+The web page must send requests with `credentials: 'include'` (Fetch API) or `withCredentials: true` (Axios).
+
+To try a mock route in PowerShell:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:5000/api/auth/login `
+  -ContentType 'application/json' `
+  -Body '{"email":"demo@mobg.local","password":"x"}'
+```
+
 ## Use the shared connection pool
 
 A CommonJS file in the same directory as `db.cjs` can load the pool with:
@@ -64,6 +101,8 @@ A CommonJS file in the same directory as `db.cjs` can load the pool with:
 ```javascript
 const pool = require("./db.cjs");
 ```
+
+Files in a subfolder such as `services/` load it with `require("../db.cjs")`.
 
 Call `await pool.query(...)` inside an async function and read the returned records from `result.rows`.
 
@@ -82,3 +121,8 @@ The check script prints an error message and exits with code `1` when its databa
 
 To reproduce the configuration error check, temporarily set `POSTGRES_PORT=1` in the root `.env` and run only `node check-db.cjs`. Restore `POSTGRES_PORT=5433` afterward and rerun the check.
 
+If the server fails to start:
+
+- `EADDRINUSE`: port 5000 is already in use. Stop the other program or set a different `PORT` in the root `.env`.
+- Browser CORS error: set `CORS_ORIGIN` to the exact address of the web page and restart the server.
+- `npm ci` fails: run `npm install` once, then commit the updated `package-lock.json`.
