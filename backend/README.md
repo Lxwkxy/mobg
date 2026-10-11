@@ -1,128 +1,78 @@
 # MobG Backend
 
-This module runs the team's Node.js and Express API and connects it to PostgreSQL using `pg` and `dotenv`.
+W1 foundation: Express 5 + TypeScript (ESM), a shared PostgreSQL pool and Better Auth 1.7.7.
+Project/member routes still return W1 sample data. The frontend Login remains a local mock.
+This branch prepares authentication; it does not claim that real Login or permissions work.
 
-In week 1 the `/api/auth` and `/api/projects` routes return fixed sample data (mock). The agreed API shapes, permissions, and data rules are in the [API contract](API-CONTRACT.md).
+## Local setup
 
-The development database runs PostgreSQL 17 in Docker.
+Use Node.js 22 or newer (the implementation environment uses Node.js 24).
+Copy the repository root `.env.example` to `.env` and set your database credentials.
+For an existing `.env`, add `BETTER_AUTH_URL` and `BETTER_AUTH_SECRET`, and set
+`CORS_ORIGIN=http://localhost:3000` for Next.js.
 
-## Prerequisites
-
-- Node.js and npm are installed.
-- Docker Desktop is running.
-- The database schema and demo data have been imported using the [database setup guide](../database/README.md).
-
-## Connection settings
-
-`db.cjs` reads the `.env` file at the MobG repository root, one directory above `backend`.
-
-| Variable | Development value |
-|---|---|
-| `POSTGRES_HOST` | `127.0.0.1` |
-| `POSTGRES_PORT` | `5433` |
-| `POSTGRES_DB` | `mobg_db` |
-| `POSTGRES_USER` | `postgres` |
-| `POSTGRES_PASSWORD` | The password configured on your machine |
-
-Use the root `.env.example` as a template. Keep the actual `.env` file out of Git.
-
-These settings apply when the backend runs on the development machine and PostgreSQL runs in Docker.
-
-## Start the database
-
-Run these commands from the MobG repository root, where `compose.yml` is located:
+Generate a random secret locally, then copy it into `.env`:
 
 ```powershell
-docker compose up -d
-docker compose exec -T db pg_isready -U postgres -d mobg_db
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
 ```
 
-Continue when the readiness check reports `accepting connections`. If the database is still starting, wait briefly and run the readiness check again.
+Keep the secret private. Never put it in a `NEXT_PUBLIC_` variable.
+`BETTER_AUTH_URL=http://localhost:5000` is the API origin, without `/api/auth`.
+`CORS_ORIGIN` must be the exact frontend origin; use localhost consistently for both apps.
 
-For a new database, follow the database setup guide to import the schema and demo data before running the connection check.
+Start PostgreSQL and follow [database setup](../database/README.md), including migration 005.
+The backend does not apply migrations automatically.
 
-## Install dependencies and check the connection
-
-Starting from the MobG repository root:
+From `backend/`:
 
 ```powershell
-cd backend
 npm ci
-node check-db.cjs
+npm run dev
 ```
 
-The output should include `MobG Demo Project`. A successful check exits with code `0`.
+Commands:
 
-In PowerShell, inspect the exit code immediately after running the check:
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Run TypeScript with tsx and restart on source edits |
+| `npm run typecheck` | TypeScript compilation diagnostics without emitting files |
+| `npm run build` | Compile src into dist |
+| `npm start` | Run compiled dist/server.js; build first |
+| `npm run check-db` | Read the demo project using src/check-db.ts; requires the DB |
 
-```powershell
-$LASTEXITCODE
-```
+`GET /api/health` is a server health endpoint, not a database or Login check.
+Better Auth owns `/api/auth/*` and is mounted before `express.json()`.
+Use `authClient.signIn.email`, `getSession`, and `signOut` in W2; old
+`/login`, `/me`, and `/logout` endpoints have been retired.
+Real accounts must be provisioned and linked first.
 
-## Run the API server
+## Shared pool and W2 handoff
 
-After the database check passes, start the server from the `backend` directory:
+Concrete server API, separate seed config, inputs and linking/reconciliation steps:
+[W2 account provisioning procedure](../docs/w2-account-provisioning.md).
 
-```powershell
-npm start
-```
+In a TypeScript service inside src/services, import `{ pool } from "../db.js"`.
+The .js extension is intentional for Node ESM after compilation.
+src/env.ts loads the repository root .env for both src and dist.
+The server closes this pool on shutdown; the standalone check closes it after its query.
 
-`npm start` runs `node server.cjs`. The terminal prints `MobG Backend running on port 5000`.
-
-The server listens on port **5000** by default. Confirm that it is running:
-
-```powershell
-curl.exe http://localhost:5000/api/health
-```
-
-The response contains `"status": "OK"`. Stop the server with `Ctrl+C`; it closes the database pool before exiting.
-
-Optional variables in the root `.env`:
-
-| Variable | Purpose | Default |
-|---|---|---|
-| `PORT` | Port the API listens on | `5000` |
-| `CORS_ORIGIN` | Exact origin of the web page that calls the API (scheme, host, and port) | `http://localhost:5173` |
-
-The web page must send requests with `credentials: 'include'` (Fetch API) or `withCredentials: true` (Axios).
-
-To try a mock route in PowerShell:
-
-```powershell
-Invoke-RestMethod -Method Post -Uri http://localhost:5000/api/auth/login `
-  -ContentType 'application/json' `
-  -Body '{"email":"demo@mobg.local","password":"x"}'
-```
-
-## Use the shared connection pool
-
-A CommonJS file in the same directory as `db.cjs` can load the pool with:
-
-```javascript
-const pool = require("./db.cjs");
-```
-
-Files in a subfolder such as `services/` load it with `require("../db.cjs")`.
-
-Call `await pool.query(...)` inside an async function and read the returned records from `result.rows`.
-
-Reuse the shared pool while the Express server is running. Close it when the server shuts down. The standalone `check-db.cjs` script closes its pool after the check finishes.
+Read [API contract](API-CONTRACT.md), [schema mapping](../database/schema-mapping.md),
+and [W1 scope / W2 checklist](../docs/better-auth-w1.md).
+Better Auth verifies sessions. Pai supplies the lookup from auth ID to the numeric
+MobG user ID; Book then checks project membership and Owner/Member permissions.
 
 ## Troubleshooting
 
-If the connection fails, check that:
+- Missing/placeholder auth secret: generate a secret and add it to root .env.
+- Missing auth tables: apply migration 005 after 001-004, then restart the backend.
+- Browser CORS: match CORS_ORIGIN, Better Auth trusted origin and Next.js URL.
+- Connection errors: check Docker, root .env and PostgreSQL port (default 5433).
+- Login unavailable: W1 mock users and the SQL demo hash are not Better Auth accounts.
 
-- Docker Desktop is running.
-- PostgreSQL reports `accepting connections`.
-- The host, port, database, username, and password in the root `.env` are correct.
-- The schema has been imported into `mobg_db`.
+## W1 types and validation
 
-The check script prints an error message and exits with code `1` when its database query fails.
-
-To reproduce the configuration error check, temporarily set `POSTGRES_PORT=1` in the root `.env` and run only `node check-db.cjs`. Restore `POSTGRES_PORT=5433` afterward and rerun the check.
-
-If the server fails to start:
-
-- `EADDRINUSE`: port 5000 is already in use. Stop the other program or set a different `PORT` in the root `.env`.
-- Browser CORS error: set `CORS_ORIGIN` to the exact address of the web page and restart the server.
-- `npm ci` fails: run `npm install` once, then commit the updated `package-lock.json`.
+Use src/contracts/api.ts for business DTOs; the frontend re-exports these types.
+src/validation.ts supplies runtime schemas and parseRequest for unknown request data.
+Current mock GET routes validate IDs, status and pagination; prepared body schemas
+will be mounted on write routes in W2/W3. See [verification record](../docs/w1-verification.md).

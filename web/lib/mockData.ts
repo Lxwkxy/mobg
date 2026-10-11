@@ -28,10 +28,10 @@ export const MOCK_PROJECTS: ProjectItem[] = [
   {
     projectId: 4,
     projectName: 'GEN Project',
-    projectDescription: 'this is description',
+    projectDescription: null,
     completedTasks: 3,
     totalTasks: 10,
-    dueDate: '2026-11-24',
+    dueDate: null,
   },
 ];
 

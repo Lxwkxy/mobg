@@ -1,8 +1,9 @@
-export interface User {
-  userId: number;
-  userName: string;
-  email: string;
-}
+import type { Project, Task, UserProfile } from "../../backend/src/contracts/api";
+
+// Business contracts are owned by the Express API. Type-only imports do not bundle
+// backend runtime/dependencies into Next.js. Better Auth keeps its own client types.
+export type * from "../../backend/src/contracts/api";
+export type User = UserProfile;
 
 export interface LoginResult {
   success: boolean;
@@ -11,31 +12,12 @@ export interface LoginResult {
   isNetworkError?: boolean;
 }
 
-// Assignee Object Type ตาม Contract
-export interface Assignee {
-  userId: number;
-  userName: string;
-}
-
-// Project Contract: projectName & projectDescription
-export interface ProjectItem {
-  projectId: number;
-  projectName: string;
-  projectDescription: string;
-  completedTasks: number;
-  totalTasks: number;
-  dueDate: string;
-}
-
-// Task Contract: taskDescription & assignees เป็น Array Of Objects
-export interface TaskItem {
-  taskId: number;
-  taskTitle: string;
-  taskDescription?: string;
-  priority: number;
-  status: 'To do' | 'In progress' | 'Done';
-  dueDate: string;
-  assignees: Assignee[];
-  projectName?: string;
-  projectId?: number;
-}
+// W1 screen projections intentionally use only fields currently displayed.
+// API DTOs above remain complete for W2 integration.
+export type ProjectItem = Pick<Project,
+  "projectId" | "projectName" | "projectDescription" | "completedTasks" | "totalTasks" | "dueDate"
+>;
+export type TaskItem = Pick<Task,
+  "taskId" | "taskTitle" | "taskDescription" | "priority" | "status" | "dueDate"
+  | "assignees" | "projectName" | "projectId"
+>;

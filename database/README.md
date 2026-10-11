@@ -145,9 +145,28 @@ The earlier unexecuted activity-table draft numbered 004 was withdrawn;
 this migration is for sessions only.
 
 The database stores a unique SHA-256 token digest, not a raw cookie token.
-Session expiry must be after creation. The seven-day lifetime and checks
-that reject expired sessions belong to Book's W2 authentication code.
+Session expiry must be after creation. This is the legacy custom-session schema, retained as history. Better Auth uses
+auth_sessions from 005 and handles the new session lifetime and validation.
 No Login or session runtime function is implemented by this migration.
+
+#### Apply migration 005 (Better Auth foundation)
+
+After 001-004, apply 005 once to the intended database. For an existing database,
+apply only missing migrations and keep its volume. Pai verified 005 on
+2026-10-11 in mobg_w1_auth_check_20261011; the main app DB is not marked migrated.
+See [W1 verification](../docs/w1-verification.md) for observed results.
+
+```powershell
+docker compose cp .\database\migrations\005_add_better_auth.sql db:/tmp/005_add_better_auth.sql
+docker compose exec -T db psql -U postgres -d mobg_db -v ON_ERROR_STOP=1 -f /tmp/005_add_better_auth.sql
+```
+
+Expected result: BEGIN, four new auth tables and indexes, ALTER TABLE, COMMIT.
+Stop on errors; inspect an existing/mismatched schema instead of rerunning or dropping it.
+005 adds auth_users/auth_sessions/auth_accounts/auth_verifications and a unique nullable
+users.auth_user_id link, and makes legacy password_hash nullable. Existing user IDs,
+foreign keys, domain data and sessions are preserved. There are twelve tables after 005.
+Better Auth owns new credentials and sessions. W2 seeds and links usable accounts explicitly.
 
 ### 4. Import demo data
 
@@ -299,7 +318,18 @@ After 003, apply the session migration once using the actual repository path:
 
 Continue only after COMMIT. On an aborted transaction, run ROLLBACK and
 resolve the error. Do not rerun a migration already applied to this database.
-The final schema has eight tables; session runtime functions are W2 work.
+The schema through 004 has eight tables; legacy sessions are unused by Better Auth.
+
+#### Apply migration 005
+
+After 004, apply the new auth migration once using the actual repository path:
+
+```sql
+\i 'C:/path/to/MobG/database/migrations/005_add_better_auth.sql'
+```
+
+005 creates four auth tables and adds the users.auth_user_id link. There are twelve
+tables afterwards. Existing domain IDs/data are preserved; provisioning is W2 work.
 
 ### 4. Verify the setup
 
@@ -331,6 +361,9 @@ The demo user's password hash is a placeholder. The CRUD example script ends wit
 If the backend uses this local PostgreSQL installation, set its host, port, database, username, and password in the root `.env` to match that installation.
 
 ## Week 1 Verification Record
+
+Historical checks below were performed before the Better Auth change. They do not
+verify migration 005, the TypeScript server or real Better Auth authentication.
 
 Verification date: 2026-10-07.
 
@@ -405,7 +438,11 @@ These checks verify the schema. Runtime Login/session functions remain W2 work.
 | `tasks` | Tasks within projects |
 | `task_assignees` | Users assigned to each task |
 | `comments` | Comments on tasks and their authors |
-| `sessions` | Hashed Login tokens and expiry timestamps (migration 004) |
+| `sessions` | Legacy custom-session storage (004); unused by Better Auth |
+| `auth_users` | Better Auth identities (005) |
+| `auth_sessions` | Better Auth sessions (005) |
+| `auth_accounts` | Better Auth credentials (005) |
+| `auth_verifications` | Better Auth verification records (005) |
 
 The `due_date` column exists in both `projects` and `tasks`. After migration `002`, task due dates are required. Migration `003` adds a required project start date; project due dates remain optional, but must be strictly later than the start date when provided.
 

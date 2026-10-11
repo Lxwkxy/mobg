@@ -84,11 +84,11 @@ export default function DashboardPage() {
                 <article key={p.projectId} className="flex items-center justify-between py-4 border-b border-[#f0f0f0] last:border-none">
                   <div>
                     <strong className="block text-[13px] text-[#222222]">{p.projectName}</strong>
-                    <p className="mt-1 text-[11px] text-[#888888]">{p.projectDescription}</p>
+                    <p className="mt-1 text-[11px] text-[#888888]">{p.projectDescription ?? 'No description'}</p>
                   </div>
                   <div className="flex items-center gap-4 text-[11px] text-[#666666]">
                     <span>☑ {p.completedTasks} / {p.totalTasks} tasks</span>
-                    <span>📅 Due {p.dueDate}</span>
+                    <span>📅 {p.dueDate ? `Due ${p.dueDate}` : 'No due date'}</span>
                     <span className="text-[16px] font-bold text-[#333333]">›</span>
                   </div>
                 </article>

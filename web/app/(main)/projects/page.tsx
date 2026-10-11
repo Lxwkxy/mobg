@@ -40,8 +40,9 @@ export default function ProjectsPage() {
 
         <select className="bg-white border border-[#dcdcdc] rounded-lg px-3.5 py-2 text-[13px] text-[#444] outline-none cursor-pointer">
           <option>All status</option>
-          <option>In Progress</option>
-          <option>Completed</option>
+          <option>To do</option>
+          <option>In progress</option>
+          <option>Done</option>
         </select>
 
         <select className="bg-white border border-[#dcdcdc] rounded-lg px-3.5 py-2 text-[13px] text-[#444] outline-none cursor-pointer">
@@ -71,7 +72,7 @@ export default function ProjectsPage() {
                   <h3 className="text-[20px] font-bold text-[#1f1f1f]">{item.projectName}</h3>
                   <button className="text-[16px] text-[#555] cursor-pointer">•••</button>
                 </div>
-                <p className="text-[13px] text-[#777777] leading-[1.5] mb-5">{item.projectDescription}</p>
+                <p className="text-[13px] text-[#777777] leading-[1.5] mb-5">{item.projectDescription ?? 'No description'}</p>
 
                 {/* Members & Due Date */}
                 <div className="flex items-center justify-between mb-5">
@@ -91,7 +92,7 @@ export default function ProjectsPage() {
                     <span className="text-[16px]">📅</span>
                     <div className="flex flex-col">
                       <span className="text-[10px] text-[#888]">Due date</span>
-                      <strong className="text-[11px] font-bold text-[#333]">{item.dueDate}</strong>
+                      <strong className="text-[11px] font-bold text-[#333]">{item.dueDate ?? 'No due date'}</strong>
                     </div>
                   </div>
                 </div>

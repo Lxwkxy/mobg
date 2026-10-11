@@ -1,3 +1,4 @@
+// W1 local mock only. W2 replaces it with auth-client and a linked MobG profile.
 import { User, LoginResult } from '@/types';
 
 export const MOCK_USERS = [
