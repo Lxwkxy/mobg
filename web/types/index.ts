@@ -1,3 +1,4 @@
+// Business profile: userId is the numeric MobG ID, not Better Auth user.id.
 export interface User {
   userId: number;
   userName: string;

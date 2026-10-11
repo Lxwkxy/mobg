@@ -4,75 +4,40 @@ This document maps database columns to the application's UI data requirements.
 
 ## Users and Login Data
 
-| Data | Database column | Type | Allows NULL | Notes |
+Updated by Pai for Better Auth on 2026-10-11. The bcrypt/account-lookup
+agreement of 2026-10-10 is superseded for new authentication.
+
+| Data | Column | Type | Allows NULL | Notes |
 |---|---|---|---|---|
-| User ID | users.user_id | BIGINT | No | Primary key; generated automatically |
-| Display name | users.user_name | VARCHAR(100) | No | Not unique; do not assume it uniquely identifies an account |
-| Email | users.email | VARCHAR(255) | No | Unique; supports account lookup by email |
-| Password hash | users.password_hash | TEXT | No | Backend-only; never include in public API responses |
+| MobG user ID | users.user_id | BIGINT | No | Existing numeric identity and domain foreign keys retained |
+| Display name | users.user_name | VARCHAR(100) | No | Business profile; non-unique |
+| Email | users.email | VARCHAR(255) | No | Existing unique business email |
+| Auth link | users.auth_user_id | TEXT | Yes | Added by 005; unique FK to auth_users.id |
+| Legacy password | users.password_hash | TEXT | Yes after 005 | Existing values preserved; unused by Better Auth |
 
-Users are linked to project membership through project_members.user_id
-and to task assignments through task_assignees.user_id.
+Better Auth owns auth_users (string id, name, email, email_verified, image,
+created_at, updated_at), auth_accounts, auth_sessions and auth_verifications.
+The configured model/column mapping is backend/src/auth.ts.
+Password hashes belong to auth_accounts.password; Better Auth handles hashing.
 
-The current schema has no account-status column.
+The link is nullable so existing project/member/task/comment data remains valid.
+Public signup is disabled. W2 must provision credentials through Better Auth
+and explicitly attach the returned ID to the intended domain row. Do not cast
+an auth ID to a number, automatically link by email, or duplicate the demo user.
+Resolve normalized-email collisions before provisioning. Existing password
+placeholders and custom sessions are not automatically migrated.
+The FK uses ON DELETE RESTRICT to prevent deleting an auth account linked to a
+domain user without an explicit reconciliation step.
 
-The demo password hash is a placeholder and cannot be used to log in.
-Usable demo accounts require the password-hashing helper agreed with
-the backend developer.
+### Domain Profile Lookup Contract (W2)
 
-### Week 1 Account Agreement
-
-Accepted by Pai on 2026-10-10 from Book's proposal in
-[PR #5](https://github.com/Lxwkxy/mobg/pull/5), reviewed at commit `9c68bd7`.
-This records Pai's acceptance of the Login/database contracts below; it
-does not mark every proposed API or permission rule in that PR as agreed.
-
-- Login uses email. Before lookup, Book validates the input as a string
-  and normalizes it with `email.trim().toLowerCase()`.
-- Account inserts and updates, including future demo account seeds, must
-  store the same normalized email. PostgreSQL's current UNIQUE constraint
-  is case-sensitive; it does not enforce lowercase or case-insensitive uniqueness.
-- Before normalizing existing accounts, check for collisions using
-  `lower(btrim(email))` and resolve them explicitly; do not silently merge accounts.
-- Book uses `bcryptjs` with cost 10 to create/compare password hashes.
-  The existing TEXT column accommodates bcrypt hashes; no password-column
-  migration is required. Do not trim or lowercase passwords.
-- Book's `backend/hash-helper.cjs` is available in PR #5; it is not yet
-  on this branch. Real Login functions and usable account seeds remain W2 work.
-- Shared connection: use `backend/db.cjs`; keep Compose and `.env.example`
-  at the repository root. Book's PR imports this pool and closes it on shutdown.
-- Database-backed sessions use migration `004_add_sessions.sql` below.
-
-### Confirmed Account Lookup Contract
-
-Status: accepted by Pai from Book's PR #5 on 2026-10-10; implementation is W2.
-
-Function name: findUserForLoginByEmail
-
-Input:
-- email: string, already trimmed and lowercase by Book
-
-Return when an account exists:
-- user_id: string (PostgreSQL BIGINT as returned by pg)
-- user_name: string
-- email: string
-- password_hash: string (internal authentication use only)
-
-Return when no account matches:
-- null
-
-Database failures:
-- Propagate the error to the backend; do not return null.
-
-Responsibilities:
-- Pai provides the database lookup.
-- Book validates Login input and verifies the supplied password
-  using the agreed hashing library.
-- password_hash is for backend authentication only and must never
-  be included in public API responses.
-
-Lookup uses the normalized email to match users.email.
-The function is not implemented yet.
+findDomainUserByAuthId(authUserId: string) returns
+{ user_id: string, user_name: string, email: string, auth_user_id: string }
+or null. Input must come from a validated Better Auth session.
+Propagate database errors; null means no linked domain row.
+Book rejects unlinked sessions with 403 and validates the MobG BIGINT before
+conversion. The business user profile remains { userId: number, userName, email }.
+Types: backend/src/services/authDb.ts. No lookup is implemented in W1.
 
 ## Projects
 
@@ -175,48 +140,24 @@ Owner/Member values. Unknown roles must not be granted permissions.
   public safe-integer range must cause an explicit backend error, not a
   rounded or truncated identity. Do not issue a SQL lookup with a rounded ID.
 - The database retains its BIGINT schema; the numeric API supports only the
-  positive safe-integer subset. Session/account results follow this boundary.
+  positive safe-integer subset. Domain profile IDs follow this boundary; Better Auth IDs remain strings.
 
 ## Sessions
 
-Status: DB-backed session storage accepted by Pai from Book's PR #5 on
-2026-10-10. The schema is defined by migration `004_add_sessions.sql`;
-creation, lookup, logout, expiry enforcement, and cleanup functions are W2 work.
+Current authentication uses auth_sessions from migration 005, owned by Better Auth.
+Its id and user_id are TEXT; user_id references auth_users.id with ON DELETE CASCADE.
+Columns: token (unique), expires_at, ip_address, user_agent, created_at and updated_at.
+The token is Better Auth's value; do not impose the old token_hash/SHA-256 contract.
+Indexes cover user_id and expires_at. The configured session lifetime is seven days.
 
-| Data | Database column | Type | Allows NULL | Notes |
-|---|---|---|---|---|
-| Session ID | sessions.session_id | BIGINT | No | Identity primary key; internal session record ID |
-| User ID | sessions.user_id | BIGINT | No | Foreign key to users.user_id; ON DELETE CASCADE |
-| Token hash | sessions.token_hash | TEXT | No | UNIQUE; SHA-256 token digest encoded as 64 lowercase hexadecimal characters |
-| Created at | sessions.created_at | TIMESTAMPTZ | No | Defaults to CURRENT_TIMESTAMP |
-| Expires at | sessions.expires_at | TIMESTAMPTZ | No | Must be strictly after created_at; supplied by Book |
+Better Auth validates sessions. Book obtains session.user.id using getSession and
+resolves users.auth_user_id before checking project membership.
+Pai does not implement custom createSession/findSessionUser/deleteSession functions.
+The session table proves identity only, not project permissions.
 
-- Book generates `token = crypto.randomBytes(32).toString('hex')` for the
-  cookie. Store only `crypto.createHash('sha256').update(token, 'utf8').digest('hex')`
-  in the DB. Hash the exact cookie-token text in the same way for lookup/logout;
-  hashing the original random Buffer would produce a different digest.
-  The raw cookie token must not be stored in this table.
-- Cookie: mobg_session, HttpOnly, SameSite=Lax, Path=/, Secure in production,
-  seven-day lifetime. Book owns cookie handling and session validation.
-- There is no expires_at default: Book supplies the expiry explicitly.
-- An expired row may remain in the table; reads must require
-  `expires_at > CURRENT_TIMESTAMP`. The table does not automatically expire
-  or delete rows, or enforce the seven-day lifetime by itself.
-- user_id and expires_at indexes support user-session removal and expiry cleanup.
-- User/account IDs must come from the validated session for authorization.
-  This table references users and does not grant project membership by itself.
-
-### Session Function Contracts (W2)
-
-| Function | Inputs | Returns |
-|---|---|---|
-| createSession(user_id, token_hash, expires_at) | Positive safe-integer user_id; SHA-256 hex token_hash; valid future Date expires_at | void after successful insert |
-| findSessionUser(token_hash) | SHA-256 hex token_hash | { user_id: string, user_name: string, email: string } for an unexpired matching session; otherwise null |
-| deleteSession(token_hash) | SHA-256 hex token_hash | void; deleting an absent token is successful |
-
-All DB failures propagate to Book. A lookup returning null means no usable
-matching session, not a swallowed database failure. Session lookup never
-returns password_hash. Logout deletes the matching row and Book clears the cookie.
+Migration 004 and legacy sessions remain unchanged as history. They are not read
+by Better Auth. Existing custom sessions are not converted into active auth sessions.
+W2 implements refresh/logout/expiry flows and provisioning; W1 only prepares schema.
 
 ## Task Assignees
 

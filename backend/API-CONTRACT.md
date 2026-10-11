@@ -1,135 +1,102 @@
 # MobG — API Contract, Authentication, Permissions, and Data Rules (W1)
 
-A shared contract for Bar (Frontend) and Pai (Database / Functions).  
-Reference schema: [`../database/schema-mapping.md`](../database/schema-mapping.md)
+Updated for Better Auth by Pai on 2026-10-11, before W2 starts.
+Reference: [schema mapping](../database/schema-mapping.md) and [W1 scope](../docs/better-auth-w1.md).
 
-Week 1 delivers this contract only. Real endpoints are implemented from week 2.
-
-Status indicators:
-
-- **[Confirmed]**: Already agreed upon in `schema-mapping.md` or existing code.
-- **[Confirmed by Pai]**: Proposed by Backend and accepted by Pai in `schema-mapping.md` (Book's PR #5, accepted 2026-10-10).
-- **[Confirmed by team]**: Confirmed by the whole team (Bar, Pai, and Book).
-- **[Pending]**: Not decided yet.
-
-## Confirmation Status
-
-Pai's written acceptance in `schema-mapping.md` covers the Login, database, and session contracts. Eight further items, and then three more (listed after the table), were confirmed by the whole team:
-
-1. Permission matrix (section 5)
-2. Member-removal policy (section 8)
-3. Project deletion cascade (section 8)
-4. `isOverdue` calculation (section 7)
-5. Status filter parameter (section 7)
-6. Numeric `priority` in the API (section 6)
-7. Response field names (section 10)
-8. Endpoint and database function contracts for the feature endpoints (sections 10–11)
-
-| Area | Status |
-|---|---|
-| Login by email, email normalization, `bcryptjs` with cost 10 | Accepted by Pai |
-| `findUserForLoginByEmail`, `findProjectMembership` contracts | Accepted by Pai (implementation in W2) |
-| ID boundaries (decimal strings in DB results, safe positive integers in the API) | Accepted by Pai |
-| Database-backed sessions: `sessions` table (migration `004_add_sessions.sql`), cookie, and the three session functions | Accepted by Pai (functions in W2) |
-| Creator becomes `Owner` and project creation transaction; role values exactly `Owner` and `Member` | Accepted by Pai |
-| The eight items listed above | **Confirmed by team** |
-| Logout always succeeds (section 1) | **Confirmed by team** |
-| Numeric IDs in the API and `credentials: 'include'` on every frontend request (sections 0 and 4) | **Confirmed by team** |
-| Session refresh and expiry flow (section 2) | **Confirmed by team** |
-| `401 INVALID_CREDENTIALS` for both unknown email and wrong password (section 1) | **Confirmed by team** |
-
-Still open:
-
-| Item | Status |
-|---|---|
-| Dashboard `highPriorityCount` rule and dashboard user scope (section 10.9) | **Pending**; not yet decided in `schema-mapping.md` |
-
----
+The previous bcrypt/custom-session agreement from Book's PR #5 is superseded for
+authentication. This update records Pai's requested implementation direction; it
+does not claim renewed confirmation from Bar and Book. Existing confirmed business
+rules in sections 5-11 are retained. Dashboard highPriorityCount and scope remain pending.
+W1 provides configuration and mocks; database-backed business endpoints are W2/W3 work.
 
 ## 0. Running the Backend
 
-```powershell
-docker compose up -d                 # From the repository root
-cd backend
-npm ci
-npm start                            # Runs node server.cjs
-```
+Follow [README.md](README.md). From backend: npm ci, then npm run dev.
+For compiled execution: npm run build, then npm start.
+The shared pool is src/db.ts and the connection command is npm run check-db.
 
-- **Port**: Configured via `PORT` in `.env` (default: **5000**).
-- **CORS**: Configured via `CORS_ORIGIN` (default: `http://localhost:5173`). Must specify an explicit origin (wildcard `*` is not permitted because cookies/credentials are used).
-- **Health Check**: `GET http://localhost:5000/api/health`
-- **Database Verification**: Run `node check-db.cjs` (must return `MobG Demo Project` with exit code 0).
-- **Frontend Requirement**: Must send `credentials: 'include'` (Fetch API) or `withCredentials: true` (Axios) on every request.
-
-Full setup steps are in [`README.md`](README.md) in this folder.
-
----
+- API origin: BETTER_AUTH_URL, default http://localhost:5000.
+- Web origin: CORS_ORIGIN, default http://localhost:3000.
+- BETTER_AUTH_SECRET: private random secret of at least 32 characters in root .env.
+- Frontend sends credentials: 'include'. The React client is web/lib/auth-client.ts.
+- GET /api/health checks the server only; it does not verify authentication or the DB.
+- Apply migrations 001-005 before using real auth. No migration runs at server startup.
 
 ## 1. Login / Logout / Current User
 
-| Endpoint | Request Body | Success Response | Error Response |
-|---|---|---|---|
-| `POST /api/auth/login` | `{ email, password }` | `200` `{ success, user }` + sets session cookie | `400 VALIDATION_ERROR`, `401 INVALID_CREDENTIALS` |
-| `GET /api/auth/me` | None | `200` `{ success, user }` | `401 UNAUTHENTICATED` |
-| `POST /api/auth/logout` | None | `200` `{ success, message }` + clears cookie | None. Always `200`, with or without a valid session (see below) |
+Better Auth owns /api/auth. Use its client methods and native response/error shapes;
+the business envelope in section 9 does not apply to these routes.
 
-- **Logout is an exception to the session requirement** **[Confirmed by team]**: it needs no valid session and never returns `401`. With a valid session, delete the matching session row (`deleteSession`), clear the `mobg_session` cookie, and return `200`. With no cookie, an unknown token, an expired session, or a repeated call, clear the cookie and return the same `200` response. Only an unexpected database failure returns `500`.
-- **User Object**: `{ userId, userName, email }`. **[Confirmed]** `password_hash` must **never** be exposed in any API response.
-- **Login Identifier**: `email` (unique constraint in `users.email`). `user_name` is non-unique and must not be used as an account identifier. **[Confirmed]**
-- **Account Status**: The database schema does not have an account status column; there is no "suspended account" state. **[Confirmed]**
-- **[Confirmed by Pai]** `email`: Validate it as a string, then apply `.trim().toLowerCase()` before the database lookup. Account inserts and updates, including demo seeds, must store the same normalized email (PostgreSQL's `UNIQUE` on `users.email` is case-sensitive). Before normalizing existing accounts, Pai checks for collisions with `lower(btrim(email))` and resolves them explicitly.
-- **[Confirmed by team]** Return the generic message and code `401 INVALID_CREDENTIALS` for both non-existent emails and incorrect passwords to prevent account enumeration.
-
----
-
-## 2. Session Management **[Confirmed by Pai]**
-
-- Use **Database-backed Sessions** (stateless JWT and in-memory session stores are avoided so that logouts invalidate sessions immediately, server restarts do not disconnect users, and no session library is required). Reading the cookie needs `cookie-parser` or a small manual parser; choose one in W2.
-- **Token**: `token = crypto.randomBytes(32).toString('hex')`, sent in the cookie. The database stores only `crypto.createHash('sha256').update(token, 'utf8').digest('hex')` (64 lowercase hex characters). Lookup and logout hash the exact cookie text the same way; hashing the original random Buffer gives a different digest. The raw token is never stored.
-- **Cookie Specification**: Name `mobg_session`, `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` in production, with a 7-day TTL.
-- **Database**: Migration `004_add_sessions.sql` creates the `sessions` table (accepted by Pai; the runtime functions are W2 work):
-  `session_id` (BIGINT identity PK), `user_id` (BIGINT FK → `users`, `ON DELETE CASCADE`), `token_hash` (TEXT UNIQUE), `created_at` (TIMESTAMPTZ, default `CURRENT_TIMESTAMP`), `expires_at` (TIMESTAMPTZ, no default; must be later than `created_at`).
-  - The backend supplies `expires_at` explicitly (now + 7 days). The table does not enforce the seven-day lifetime or delete expired rows by itself.
-  - Reads must require `expires_at > CURRENT_TIMESTAMP`; an expired row may remain in the table.
-  - Indexes on `user_id` and `expires_at` support removing a user's sessions and cleaning up expired rows.
-  - The table does not grant project membership; use `findProjectMembership` for that.
-- **Lifecycle Behavior** **[Confirmed by team]**:
-  - **Page Refresh**: Frontend invokes `GET /api/auth/me` on initial mount. If `200 OK`, keep current view.
-  - **Logout**: Delete the database session record if the token matches, clear the cookie, and redirect to the Login view. It always responds `200` (section 1).
-  - **Expired / Missing Session**: Protected endpoints respond with `401 UNAUTHENTICATED` (logout and login are not protected). Frontend redirects user to Login (no automated retries).
-- `user_id` used for authorization checks must be derived strictly from the validated backend session—never from the request body or query parameters. **[Confirmed]**
-
----
-
-## 3. Password Hashing
-
-- Use **bcryptjs** (already listed in `package.json`) with cost `10`. Verification is performed using `bcrypt.compare(plain, hash)`. Do not trim or lowercase passwords. The existing `TEXT` column fits bcrypt hashes, so no password-column migration is needed. **[Confirmed by Pai]**
-- **Credential Generation for Pai**: Run `node hash-helper.cjs "<sample_password>"` and copy the resulting hash into `users.password_hash`.
-- The hash in the demo seed is currently a placeholder. Valid accounts must be created using this script before Login testing in W2. **[Confirmed]**
-- Use sample passwords strictly for demonstration purposes.
-
----
-
-## 4. Core Database Function Contracts (Coordinated with Pai)
-
-These five functions support Login, sessions, and permission checks. All are **[Confirmed by Pai]**; implementation is W2 work. Functions for the feature endpoints are in section 11.
-
-| Function | Parameters | Returns |
+| Endpoint | Client method | Result |
 |---|---|---|
-| `findUserForLoginByEmail(email)` | `email: string`, already trimmed and lowercase | `{ user_id: string, user_name, email, password_hash }` or `null` |
-| `findProjectMembership(project_id, user_id)` | `project_id: number`, `user_id: number` (positive safe integers) | `{ project_id: string, user_id: string, role }` or `null` |
-| `createSession(user_id, token_hash, expires_at)` | `user_id: number`, `token_hash`: SHA-256 hex string, `expires_at`: future `Date` | `void` after the insert |
-| `findSessionUser(token_hash)` | `token_hash`: SHA-256 hex string | `{ user_id: string, user_name, email }` for an unexpired matching session, otherwise `null` |
-| `deleteSession(token_hash)` | `token_hash`: SHA-256 hex string | `void`; deleting an absent token succeeds |
+| POST /api/auth/sign-in/email | authClient.signIn.email({ email, password }) | Native Better Auth user/token result and session cookie |
+| GET /api/auth/get-session | authClient.getSession() / useSession() | Native { session, user }, or null when no session |
+| POST /api/auth/sign-out | authClient.signOut() | Native success result; library clears the cookie |
+| GET /api/me | Business API (W2, not mounted in W1) | { success: true, user: { userId, userName, email } } |
 
-- Database errors must be **re-thrown**, not swallowed to return `null`. A return value of `null` strictly denotes "record not found" (or, for sessions, "no usable session").
-- `findProjectMembership` returns `null` for both non-existent projects and non-member users. Membership alone does not authorize all actions; the backend must inspect the returned `role`. `role` is exactly `Owner` or `Member`; an unknown role must not be granted any permission.
-- `password_hash` is for backend authentication only and is never returned by `findSessionUser` or included in any API response.
-- **ID Boundaries** **[Confirmed by team]**:
-  - Database results keep `BIGINT` values as decimal strings (`pg` default). Do not change the global `pg` `BIGINT` parser and never round a large ID.
-  - The backend converts an ID to a number only after checking `Number.isSafeInteger(id) && id > 0`. The API therefore supports only the positive safe-integer subset of `BIGINT`.
-  - IDs from URLs or bodies must be validated in full before conversion (`1abc` is invalid, not `1`). An invalid request ID returns `400 VALIDATION_ERROR`. Do not run a SQL lookup with a rounded ID.
-  - A stored ID outside the safe-integer range is an explicit backend error (`500 INTERNAL_ERROR`), never a rounded or truncated ID.
+The old /api/auth/login, /me and /logout routes are retired.
+Auth users have string IDs. Business userId is a numeric MobG ID obtained through
+users.auth_user_id after the server validates the Better Auth session.
+Do not cast auth.user.id to a number or trust a localStorage identity.
+GET /api/me and business guards return 401 UNAUTHENTICATED for no usable session,
+403 FORBIDDEN for a session without a linked domain user, and 500 for database failures.
+No password, credential hash or token may be included in the business user profile.
+
+Public signup is disabled. The existing frontend Login/registration behavior is W1
+local demonstration code; it does not create Better Auth accounts.
+W2 provisioning must normalize email, resolve collisions and link accounts explicitly.
+Never trim or lowercase passwords. Better Auth owns credential validation and errors;
+W2 frontend displays a generic login error and handles network errors separately.
+
+## 2. Sessions
+
+Better Auth handles session creation, validation, renewal, cookies and sign-out.
+The configured lifetime is seven days; cookie cache is disabled so authorization
+reads database session state. Keep the library's HttpOnly/SameSite/Secure defaults.
+Use auth.api.getSession({ headers: fromNodeHeaders(req.headers) }) on Express.
+Session user.id refers to auth_users.id; resolve the MobG profile before checking roles.
+
+Migration 005 creates auth_sessions. Its token has Better Auth semantics, not the
+SHA-256 token_hash contract of legacy sessions. Do not copy or convert legacy sessions.
+Keep migration 004 and its table as history; the new handler never uses it.
+Refresh, missing/expired session redirects and logout flows are W2 integration work.
+Better Auth proves identity; Book must still enforce Owner/Member permissions.
+
+## 3. Passwords and Account Provisioning
+
+Use Better Auth's default password implementation. Credentials live in
+auth_accounts.password with provider_id = credential, not users.password_hash.
+The legacy password_hash column remains for existing data but is nullable after 005.
+The custom bcrypt helper and custom auth/session functions are retired.
+
+The SQL demo seed is domain data only and cannot log in.
+Pai provisions usable credentials with Better Auth's server API in W2, in an isolated
+seed process that is not the serving instance. Public signup stays disabled in the
+server. Capture the actual auth ID and explicitly link the intended domain row.
+Do not copy bcrypt/placeholder hashes into auth_accounts, print credentials, silently
+merge accounts by email, or create a second domain profile for the existing demo user.
+Profile name/email come from users for business responses; provisioning must reconcile
+them with the intended auth account and preserve the existing project owner identity.
+
+## 4. Core Database Contracts (W2 implementation)
+
+| Function | Input | Result |
+|---|---|---|
+| findDomainUserByAuthId(authUserId) | String ID from a validated Better Auth session | { user_id: string, user_name, email, auth_user_id } or null |
+| findProjectMembership(project_id, user_id) | Positive safe integer project ID and linked MobG user ID | { project_id: string, user_id: string, role } or null |
+
+Types are in src/services/authDb.ts and src/services/projectDb.ts.
+Database failures propagate; null means no matching row.
+Unknown roles grant no permission. The membership lookup cannot distinguish an
+unknown project from a nonmember; both are denied by the business guard.
+
+- pg BIGINT results remain decimal strings; do not change the global parser.
+- Convert a domain ID only after full decimal validation and Number.isSafeInteger(id) && id > 0.
+- Validate incoming IDs in full; 1abc is invalid. Invalid request IDs return 400.
+- A stored domain ID outside the safe integer range is 500, never a rounded ID.
+- Auth IDs remain strings and must only be used to look up users.auth_user_id.
+- The user ID for database writes comes from the validated session and its link,
+  never from a client identity claim.
 
 ---
 
@@ -241,7 +208,9 @@ Evaluated sequentially using the following precedence rules:
 
 ---
 
-## 9. Standard Response Envelope and Error Codes
+## 9. Business Response Envelope and Error Codes
+
+Applies to business endpoints only. Better Auth uses native responses/errors (section 1).
 
 Success envelope: `{ "success": true, ... }`  
 Failure envelope: `{ "success": false, "error": { "code": string, "message": string, "details"?: array } }`
@@ -249,8 +218,7 @@ Failure envelope: `{ "success": false, "error": { "code": string, "message": str
 | HTTP Status | Error Code | Trigger Condition |
 |---|---|---|
 | `400` | `VALIDATION_ERROR` | Missing or invalid fields, malformed JSON, invalid ID, invalid query parameter, date ordering violation |
-| `401` | `INVALID_CREDENTIALS` | Invalid email or password |
-| `401` | `UNAUTHENTICATED` | Missing or expired session cookie on a protected endpoint (not returned by login or logout) |
+| `401` | `UNAUTHENTICATED` | Missing or expired session cookie on a protected endpoint (business endpoints only) |
 | `403` | `FORBIDDEN` | Insufficient permissions for the requested action |
 | `404` | `NOT_FOUND` | Route not found, project or task not found, or user is not a project member |
 | `409` | `CONFLICT` | Action violates business rules (removing a sole assignee of any task including `Done`, removing the last Owner, adding someone who is already a member) |
@@ -259,14 +227,14 @@ Failure envelope: `{ "success": false, "error": { "code": string, "message": str
 ### Error JSON Payloads
 
 ```json
-// 400 Validation Error (e.g., POST /api/auth/login without password)
+// 400 Validation Error (e.g., POST /api/projects without projectName)
 {
   "success": false,
   "error": {
     "code": "VALIDATION_ERROR",
     "message": "Missing required fields",
     "details": [
-      { "field": "password", "message": "password is required" }
+      { "field": "projectName", "message": "projectName is required" }
     ]
   }
 }
@@ -283,21 +251,12 @@ Failure envelope: `{ "success": false, "error": { "code": string, "message": str
   }
 }
 
-// 401 Unauthenticated (e.g., GET /api/auth/me without valid cookie)
+// 401 Unauthenticated (e.g., GET /api/me without valid cookie)
 {
   "success": false,
   "error": {
     "code": "UNAUTHENTICATED",
     "message": "Authentication required. Please log in."
-  }
-}
-
-// 401 Invalid Credentials
-{
-  "success": false,
-  "error": {
-    "code": "INVALID_CREDENTIALS",
-    "message": "Email or password is incorrect"
   }
 }
 
@@ -344,24 +303,22 @@ Failure envelope: `{ "success": false, "error": { "code": string, "message": str
 
 ---
 
-## 10. Endpoint Contracts **[Confirmed by team]**
+## 10. Endpoint Contracts (business rules confirmed previously; auth revised by Pai)
 
-Status: all endpoints below are contract only in W1. Only `GET /api/health` and the mock auth/project routes exist (see section 12). The dashboard items marked **[Pending]** in 10.9 are the only open parts.
+Status: business endpoints remain contracts in W1; health and project/member mocks are mounted. Better Auth handler is configured, but accounts and real integration are W2. Dashboard items in 10.9 remain pending.
 
 **Conventions**
 - Base path `/api`. Requests and responses are JSON.
-- Every endpoint except `GET /api/health`, `POST /api/auth/login`, and `POST /api/auth/logout` requires a valid session (`401 UNAUTHENTICATED` otherwise). Logout never returns `401` (section 1).
+- Business endpoints require a valid session and linked MobG user in W2. W1 project routes remain mocks. Better Auth public routes follow library access rules; signup is disabled.
 - Endpoints with `:projectId` apply the access rules in section 5 (non-member or unknown project → `404`; insufficient role → `403`). A task is only reachable through the project it belongs to; a task from another project returns `404`.
-- IDs are numbers. Dates are `YYYY-MM-DD`. Timestamps are ISO 8601 UTC strings.
+- Business IDs are numbers; Auth IDs are strings. Dates are `YYYY-MM-DD`. Timestamps are ISO 8601 UTC strings.
 - Status values in the API are the UI labels `To do | In progress | Done` (section 6).
 
 ### 10.1 Endpoint summary
 
 | Method | URL | Role | Purpose | DB functions (section 11) |
 |---|---|---|---|---|
-| POST | `/api/auth/login` | Public | Log in | `findUserForLoginByEmail`, `createSession` |
-| GET | `/api/auth/me` | Logged in | Current user | `findSessionUser` |
-| POST | `/api/auth/logout` | Any (no session needed) | Log out; always `200` | `deleteSession` |
+| GET | `/api/me` | Logged in + linked profile | MobG current user | `findDomainUserByAuthId` |
 | GET | `/api/users` | Logged in | Users to pick as members | `listUsers` |
 | GET | `/api/projects` | Logged in | My projects (filter, pagination) | `listProjectsForUser` |
 | POST | `/api/projects` | Logged in | Create project; creator becomes Owner | `createProjectWithMembers`, `getProjectById` |
@@ -385,18 +342,8 @@ Status: all endpoints below are contract only in W1. Only `GET /api/health` and 
 
 ### 10.2 Auth
 
-`POST /api/auth/login`
-
-```json
-// Request
-{ "email": "demo@mobg.local", "password": "password123" }
-
-// 200 (also sets the mobg_session cookie)
-{ "success": true, "user": { "userId": 1, "userName": "Demo Member", "email": "demo@mobg.local" } }
-```
-
-`GET /api/auth/me` → `200` `{ "success": true, "user": { "userId": 1, "userName": "Demo Member", "email": "demo@mobg.local" } }`  
-`POST /api/auth/logout` → `200` `{ "success": true, "message": "Logged out successfully" }`. The same response is returned when there is no session cookie, the session is unknown or expired, or the call is repeated; the cookie is cleared in every case.
+Use the Better Auth endpoints and client methods in section 1. They use native payloads.
+GET /api/me supplies the numeric MobG profile in W2; it is outside /api/auth.
 
 ### 10.3 Users
 
@@ -704,6 +651,7 @@ Owner of these functions: Pai. Called by the backend.
 | Endpoint | Readiness Status |
 |---|---|
 | `GET /api/health` | Fully functional |
-| `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout` | Mock endpoints active (Live DB auth targeted for W2) |
+| `/api/auth/*` | Better Auth handler/config prepared; migration/account/client integration pending |
+| `GET /api/me` | W2 contract only; not mounted |
 | `GET /api/projects`, `GET /api/projects/:projectId/members` | Mock endpoints active (real versions in W2) |
 | All other endpoints in section 10 (users, project create/detail/edit/delete, member add/remove, tasks, My Tasks, comments, activity, dashboard) | Contract defined in sections 10–11; no code yet |
