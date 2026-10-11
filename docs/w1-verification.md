@@ -59,6 +59,9 @@ with Bar and Book. The W1 mock responses do not establish W2 authentication/perm
 
 ## Handoff
 
+Concrete server API, separate seed config, inputs and linking/reconciliation steps:
+[W2 account provisioning procedure](w2-account-provisioning.md).
+
 Canonical DTOs: backend/src/contracts/api.ts. Frontend imports from @/types.
 Schemas + parseRequest: backend/src/validation.ts. A failed parse throws
 RequestValidationError; server maps it to the business error envelope.

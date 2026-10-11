@@ -49,6 +49,9 @@ Real accounts must be provisioned and linked first.
 
 ## Shared pool and W2 handoff
 
+Concrete server API, separate seed config, inputs and linking/reconciliation steps:
+[W2 account provisioning procedure](../docs/w2-account-provisioning.md).
+
 In a TypeScript service inside src/services, import `{ pool } from "../db.js"`.
 The .js extension is intentional for Node ESM after compilation.
 src/env.ts loads the repository root .env for both src and dist.

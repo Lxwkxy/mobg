@@ -64,6 +64,9 @@ Better Auth proves identity; Book must still enforce Owner/Member permissions.
 
 ## 3. Passwords and Account Provisioning
 
+Concrete server API, separate seed config, inputs and linking/reconciliation steps:
+[W2 account provisioning procedure](../docs/w2-account-provisioning.md).
+
 Use Better Auth's default password implementation. Credentials live in
 auth_accounts.password with provider_id = credential, not users.password_hash.
 The legacy password_hash column remains for existing data but is nullable after 005.
