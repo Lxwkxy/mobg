@@ -5,6 +5,7 @@ import { auth } from "./auth.js";
 import { pool } from "./db.js";
 import { port, webOrigin } from "./env.js";
 import projectRoutes from "./routes/projects.js";
+import { RequestValidationError } from "./validation.js";
 
 const app = express();
 app.use(cors({ origin: webOrigin, credentials: true }));
@@ -25,6 +26,13 @@ app.use("/api", (_req, res) => {
 const handleError: ErrorRequestHandler = (error, _req, res, next) => {
   if (res.headersSent) {
     next(error);
+    return;
+  }
+  if (error instanceof RequestValidationError) {
+    res.status(400).json({
+      success: false,
+      error: { code: "VALIDATION_ERROR", message: error.message, details: error.details },
+    });
     return;
   }
   if (error?.type === "entity.parse.failed") {

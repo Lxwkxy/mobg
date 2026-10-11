@@ -152,7 +152,9 @@ No Login or session runtime function is implemented by this migration.
 #### Apply migration 005 (Better Auth foundation)
 
 After 001-004, apply 005 once to the intended database. For an existing database,
-apply only missing migrations and keep its volume. This change has not executed 005.
+apply only missing migrations and keep its volume. Pai verified 005 on
+2026-10-11 in mobg_w1_auth_check_20261011; the main app DB is not marked migrated.
+See [W1 verification](../docs/w1-verification.md) for observed results.
 
 ```powershell
 docker compose cp .\database\migrations\005_add_better_auth.sql db:/tmp/005_add_better_auth.sql

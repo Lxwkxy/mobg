@@ -85,7 +85,9 @@ them with the intended auth account and preserve the existing project owner iden
 | findDomainUserByAuthId(authUserId) | String ID from a validated Better Auth session | { user_id: string, user_name, email, auth_user_id } or null |
 | findProjectMembership(project_id, user_id) | Positive safe integer project ID and linked MobG user ID | { project_id: string, user_id: string, role } or null |
 
-Types are in src/services/authDb.ts and src/services/projectDb.ts.
+DB interface types are in src/services/authDb.ts and src/services/projectDb.ts.
+Canonical business request/response DTOs are in src/contracts/api.ts; Frontend
+re-exports them through web/types/index.ts.
 Database failures propagate; null means no matching row.
 Unknown roles grant no permission. The membership lookup cannot distinguish an
 unknown project from a nonmember; both are denied by the business guard.
@@ -147,6 +149,16 @@ The database preserves existing names; the API maps them to UI display labels:
 ### Priority [Confirmed DB · Confirmed by team API]
 The database stores `SMALLINT` (`1` = High, `2` = Medium, `3` = Low) with a `CHECK` constraint.  
 API sends and receives priority as numeric values (`1 | 2 | 3`). The frontend handles localization/labeling.
+
+### Runtime validation seam (W1)
+
+src/validation.ts exports ID/date/status/priority, body and query schemas plus parseRequest.
+Mounted W1 mock routes validate project list queries and project IDs at runtime.
+Bad values return 400 VALIDATION_ERROR with field details. Unknown query/body fields
+are rejected; pagination defaults to page 1/pageSize 10 and caps pageSize at 50.
+Body schemas are prepared for W2/W3; the mock server has no write endpoints.
+Membership/Owner checks, parameterized SQL, and merged stored date validation remain
+business service work. TypeScript DTOs do not replace these runtime checks.
 
 ### Required Fields & Constraints [Confirmed]
 
@@ -653,5 +665,5 @@ Owner of these functions: Pai. Called by the backend.
 | `GET /api/health` | Fully functional |
 | `/api/auth/*` | Better Auth handler/config prepared; migration/account/client integration pending |
 | `GET /api/me` | W2 contract only; not mounted |
-| `GET /api/projects`, `GET /api/projects/:projectId/members` | Mock endpoints active (real versions in W2) |
+| `GET /api/projects`, `GET /api/projects/:projectId/members` | Typed mock responses with runtime query/path validation (real versions in W2) |
 | All other endpoints in section 10 (users, project create/detail/edit/delete, member add/remove, tasks, My Tasks, comments, activity, dashboard) | Contract defined in sections 10–11; no code yet |

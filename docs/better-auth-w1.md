@@ -45,7 +45,11 @@ A valid session without a linked domain user must be denied access in W2.
 
 ## Execution status
 
-Migration 005 is prepared, not applied. No real account has been seeded.
-No runtime Login, database check, migration or automated test has been run for this change.
-The W1 project routes and local frontend authentication remain mocks and are unsuitable
-as production authorization.
+The initial foundation commit prepared migration 005 without applying it.
+During the subsequent guided W1 check, Pai applied it to the separate
+mobg_w1_auth_check_20261011 database and confirmed preserved domain IDs/FKs.
+Pai also confirmed the TypeScript connection check, backend health, frontend
+mock Login/error cases, navigation and refresh. No real auth account was seeded.
+Remaining W1 DTO/validation work and its verification record are documented in
+[w1-verification.md](w1-verification.md). The application DB is not marked migrated.
+W1 project routes and frontend authentication remain mocks.

@@ -66,3 +66,10 @@ MobG user ID; Book then checks project membership and Owner/Member permissions.
 - Browser CORS: match CORS_ORIGIN, Better Auth trusted origin and Next.js URL.
 - Connection errors: check Docker, root .env and PostgreSQL port (default 5433).
 - Login unavailable: W1 mock users and the SQL demo hash are not Better Auth accounts.
+
+## W1 types and validation
+
+Use src/contracts/api.ts for business DTOs; the frontend re-exports these types.
+src/validation.ts supplies runtime schemas and parseRequest for unknown request data.
+Current mock GET routes validate IDs, status and pagination; prepared body schemas
+will be mounted on write routes in W2/W3. See [verification record](../docs/w1-verification.md).

@@ -9,7 +9,7 @@ Team project for managing projects, tasks, members and comments.
 | Frontend | Next.js, TypeScript, Tailwind; W1 pages and local mock Login |
 | Backend | Express 5, TypeScript, ESM; project/member sample routes |
 | Authentication | Better Auth 1.7.7 configuration and client prepared; real integration in W2 |
-| Database | PostgreSQL 17 in Docker; migrations 001-004 plus new unapplied 005 |
+| Database | PostgreSQL 17 in Docker; migrations 001-004 plus 005 verified in a separate W1 test DB |
 | Identity | Better Auth string IDs link to existing numeric MobG users via users.auth_user_id |
 
 ## Setup
@@ -25,6 +25,7 @@ No migrations or accounts are created by starting the backend.
 ## Documentation
 
 - [W1 changes and W2 handoff](docs/better-auth-w1.md)
+- [W1 verification results and types/validation handoff](docs/w1-verification.md)
 - [API contract and permissions](backend/API-CONTRACT.md)
 - [Database setup](database/README.md)
 - [Schema mapping](database/schema-mapping.md)
