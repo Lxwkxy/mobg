@@ -8,7 +8,15 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "check-db": "tsx src/check-db.ts"
+    "check-db": "tsx src/check-db.ts",
+    "test:db": "tsx test/run-db-tests.ts",
+    "db:status": "tsx src/schema-status.ts",
+    "db:migrate": "tsx src/schema-status.ts --apply",
+    "setup:auth-secret": "tsx src/setup-auth-secret.ts",
+    "seed:accounts": "tsx src/seed-accounts.ts",
+    "seed:demo": "tsx src/seed-demo.ts",
+    "typecheck:tests": "tsc -p tsconfig.test.json",
+    "check:demo": "tsx src/check-demo.ts"
   },
   "keywords": [],
   "author": "",

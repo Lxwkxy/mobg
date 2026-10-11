@@ -2,7 +2,8 @@
 
 W1 foundation: Express 5 + TypeScript (ESM), a shared PostgreSQL pool and Better Auth 1.7.7.
 Project/member routes still return W1 sample data. The frontend Login remains a local mock.
-This branch prepares authentication; it does not claim that real Login or permissions work.
+W2 adds DB functions and non-serving account/demo provisioning scripts. Native
+Better Auth/DB tests pass; browser Login and HTTP permission integration still need Book/Bar.
 
 ## Local setup
 
@@ -11,10 +12,10 @@ Copy the repository root `.env.example` to `.env` and set your database credenti
 For an existing `.env`, add `BETTER_AUTH_URL` and `BETTER_AUTH_SECRET`, and set
 `CORS_ORIGIN=http://localhost:3000` for Next.js.
 
-Generate a random secret locally, then copy it into `.env`:
+From backend/, add a random secret privately when the key is absent:
 
 ```powershell
-node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
+npx tsx src/setup-auth-secret.ts
 ```
 
 Keep the secret private. Never put it in a `NEXT_PUBLIC_` variable.
@@ -37,9 +38,17 @@ Commands:
 |---|---|
 | `npm run dev` | Run TypeScript with tsx and restart on source edits |
 | `npm run typecheck` | TypeScript compilation diagnostics without emitting files |
+| `npm run typecheck:tests` | Strict typecheck for source and test files without emitting files |
 | `npm run build` | Compile src into dist |
 | `npm start` | Run compiled dist/server.js; build first |
 | `npm run check-db` | Read the demo project using src/check-db.ts; requires the DB |
+| `npm run db:status` | Inspect the configured DB's structural migration state |
+| `npm run db:migrate -- --database mobg_db` | Apply missing migrations to the explicitly named target; stop on partial schema |
+| `npm run setup:auth-secret` | Add a private root secret if absent; no value displayed |
+| `npm run seed:accounts -- --database mobg_db` | Provision one selected profile using private seed env |
+| `npm run seed:demo -- --database mobg_db` | Provision three accounts and shared/private project fixtures |
+| `npx tsx src/check-demo.ts --database mobg_db` | Verify native Login/profile/membership/list/Logout with original password env |
+| `npm run test:db` | Create a unique isolated DB, run integration/transaction tests, remove only that test DB |
 
 `GET /api/health` is a server health endpoint, not a database or Login check.
 Better Auth owns `/api/auth/*` and is mounted before `express.json()`.
@@ -61,6 +70,9 @@ Read [API contract](API-CONTRACT.md), [schema mapping](../database/schema-mappin
 and [W1 scope / W2 checklist](../docs/better-auth-w1.md).
 Better Auth verifies sessions. Pai supplies the lookup from auth ID to the numeric
 MobG user ID; Book then checks project membership and Owner/Member permissions.
+
+Implemented exports and examples: [W2 Pai handoff](../docs/w2-pai-handoff.md).
+Actual checks and pending team flows: [W2 verification](../docs/w2-pai-verification.md).
 
 ## Troubleshooting
 
