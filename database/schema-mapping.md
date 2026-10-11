@@ -37,7 +37,7 @@ or null. Input must come from a validated Better Auth session.
 Propagate database errors; null means no linked domain row.
 Book rejects unlinked sessions with 403 and validates the MobG BIGINT before
 conversion. The business user profile remains { userId: number, userName, email }.
-Types: backend/src/services/authDb.ts. No lookup is implemented in W1.
+Types and W2 implementation: backend/src/services/authDb.ts.
 
 ## Projects
 
@@ -92,12 +92,12 @@ Each user can appear only once within the same project.
 - Return creation success only after all required inserts commit.
 - projects.created_by records who created the project; project_members.role describes the user's project membership role.
 - The existing foreign keys do not automatically create the creator's membership row. The project-creation function must do this explicitly.
-- The demo seed already inserts the creator as Owner. The general project-creation function is not implemented yet.
+- The demo seed inserts the creator as Owner. W2 createProjectWithMembers implements the general rule in backend/src/services/projectDb.ts.
 - These initial membership rules and the Owner/Member role values are accepted by Pai. The complete permission matrix and member-removal policy in PR #5 require separate team confirmation; they are not approved by this account/schema agreement.
 
 ### Confirmed Membership Lookup Contract
 
-Status: accepted by Pai from Book's PR #5 on 2026-10-10; implementation is W2.
+Status: accepted by Pai from Book's PR #5 on 2026-10-10; implemented in W2.
 
 Function name: findProjectMembership
 
@@ -123,7 +123,7 @@ Responsibilities:
 - Returning a membership proves membership only; it does not itself authorize every operation.
 - A null result means no matching membership; it does not distinguish a nonexistent project from a nonmember without another lookup.
 
-The function is not implemented yet. The current role column is VARCHAR(50)
+The function is implemented in backend/src/services/projectDb.ts. The current role column is VARCHAR(50)
 without a CHECK constraint; account/membership writes must use the agreed
 Owner/Member values. Unknown roles must not be granted permissions.
 
@@ -283,14 +283,16 @@ Apply the following rules in order:
 - The backend validates the requested filter and applies it before pagination.
 - Count each distinct task once, regardless of the number of assignees.
 - Recalculate from task data when reading projects; the frontend must refresh relevant project data after task status changes.
-- The exact filter parameter and response field names remain to be agreed with the backend developer.
-- The rules are confirmed; database function, API, and frontend implementation remain pending for their feature cards.
+- Filter/response contracts are recorded in backend/API-CONTRACT.md section 11.1.
+- W2 DB functions calculate these fields and filter before paging. API/frontend integration remains pending.
 
 ## Implementation Status
 
 - Migration 002 enforces NOT NULL on tasks.due_date.
 - Migration 003 adds projects.start_date, its default and NOT NULL constraint, and the project end-date constraint.
-- Migration 004 defines sessions with a user foreign key, unique SHA-256 token hashes, required timestamps, and strict expiry ordering. Runtime session functions remain W2 work.
+- Migration 004 defines the legacy sessions table; it is retained as history and unused by Better Auth.
+- Migration 005 supplies Better Auth tables and the nullable unique domain link. Better Auth owns runtime authentication/session operations.
+- W2 implements profile/membership lookup, project CRUD/list/counts and user/member lists. See ../docs/w2-pai-handoff.md and ../docs/w2-pai-verification.md for evidence and pending API/browser flows.
 - The composite primary key prevents duplicate task-user assignments.
 - Minimum assignee count and project membership are not yet enforced.
 
@@ -345,5 +347,5 @@ Project Overview, Task List, Create Task, Edit Task, Task Details, and My Tasks.
 | Task status labels | The UI displays To do, In progress, and Done; the DB retains To Do, Doing, and Done. | Confirmed: new tasks start in To Do; replace the create-form label Not started with To do. Frontend/API implementation remains pending. |
 | Multiple assignees | Task lists show two assignees and +N; Task Details shows all assignees. | Confirmed: multi-select dropdown with removable name chips in Create/Edit forms. Frontend/API implementation remains pending. |
 | Activity history | Basic activity includes task creation and comments only, read from existing tables. | Confirmed: adjust Activity in the UI to this scope; no additional activity table is required. API/frontend integration remains pending. |
-| Progress and counts | Project progress is rounded Done-task count divided by distinct total-task count, multiplied by 100; zero tasks gives 0 percent. | Progress formula confirmed. Other counts and dashboard user scope remain pending; implementation is pending. |
-| Project status filter | Project status is derived from the statuses of its tasks. | Confirmed: retain the filter using To do, In progress, and Done; calculate from existing data and filter before pagination. Implementation remains pending. |
+| Progress and counts | Project progress is rounded Done-task count divided by distinct total-task count, multiplied by 100; zero tasks gives 0 percent. | Project DB progress/counts implemented in W2; Dashboard scope remains pending. |
+| Project status filter | Project status is derived from the statuses of its tasks. | DB calculation and filter before pagination implemented in W2. API/frontend integration pending. |
