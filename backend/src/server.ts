@@ -4,7 +4,10 @@ import { toNodeHandler } from "better-auth/node";
 import { auth } from "./auth.js";
 import { pool } from "./db.js";
 import { port, webOrigin } from "./env.js";
+import { ApiError } from "./errors.js";
+import meRoutes from "./routes/me.js";
 import projectRoutes from "./routes/projects.js";
+import userRoutes from "./routes/users.js";
 import { RequestValidationError } from "./validation.js";
 
 const app = express();
@@ -17,7 +20,9 @@ app.use(express.json());
 app.get("/api/health", (_req, res) => {
   res.json({ status: "OK", message: "MobG Backend is running", timestamp: new Date().toISOString() });
 });
-// W1 sample business routes. Session guards and database-backed routes are W2 work.
+// W2 business routes: each router applies requireAuth itself.
+app.use("/api/me", meRoutes);
+app.use("/api/users", userRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api", (_req, res) => {
   res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Endpoint not found" } });
@@ -26,6 +31,13 @@ app.use("/api", (_req, res) => {
 const handleError: ErrorRequestHandler = (error, _req, res, next) => {
   if (res.headersSent) {
     next(error);
+    return;
+  }
+  if (error instanceof ApiError) {
+    res.status(error.status).json({
+      success: false,
+      error: { code: error.code, message: error.message, details: error.details },
+    });
     return;
   }
   if (error instanceof RequestValidationError) {

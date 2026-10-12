@@ -7,7 +7,7 @@ The previous bcrypt/custom-session agreement from Book's PR #5 is superseded for
 authentication. This update records Pai's requested implementation direction; it
 does not claim renewed confirmation from Bar and Book. Existing confirmed business
 rules in sections 5-11 are retained. Dashboard highPriorityCount and scope remain pending.
-W1 provides configuration and mocks; database-backed business endpoints are W2/W3 work.
+As of W2-Book-01/02: /api/me, /api/users, project CRUD and the project member list are database-backed behind session guards. Tasks, comments, activity, dashboard and member add/remove are contract-only (W3 and later). See docs/w2-verification.md.
 
 ## 0. Running the Backend
 
@@ -32,7 +32,7 @@ the business envelope in section 9 does not apply to these routes.
 | POST /api/auth/sign-in/email | authClient.signIn.email({ email, password }) | Native Better Auth user/token result and session cookie |
 | GET /api/auth/get-session | authClient.getSession() / useSession() | Native { session, user }, or null when no session |
 | POST /api/auth/sign-out | authClient.signOut() | Native success result; library clears the cookie |
-| GET /api/me | Business API (W2, not mounted in W1) | { success: true, user: { userId, userName, email } } |
+| GET /api/me | Business API (mounted in W2) | { success: true, user: { userId, userName, email } } |
 
 The old /api/auth/login, /me and /logout routes are retired.
 Auth users have string IDs. Business userId is a numeric MobG ID obtained through
@@ -229,6 +229,7 @@ Applies to business endpoints only. Better Auth uses native responses/errors (se
 
 Success envelope: `{ "success": true, ... }`  
 Failure envelope: `{ "success": false, "error": { "code": string, "message": string, "details"?: array } }`
+For validation errors the top-level message may be generic ("Request validation failed"); details[].field and details[].message are authoritative. Clients should read details.
 
 | HTTP Status | Error Code | Trigger Condition |
 |---|---|---|
@@ -320,7 +321,7 @@ Failure envelope: `{ "success": false, "error": { "code": string, "message": str
 
 ## 10. Endpoint Contracts (business rules confirmed previously; auth revised by Pai)
 
-Status: business endpoints remain contracts in W1; health and project/member mocks are mounted. Better Auth handler is configured, but accounts and real integration are W2. Dashboard items in 10.9 remain pending.
+Status: implemented in W2: 10.3 users, 10.4 projects, GET 10.5 member list, and GET /api/me. Remaining endpoints are contracts. Dashboard items in 10.9 remain pending.
 
 **Conventions**
 - Base path `/api`. Requests and responses are JSON.
@@ -663,10 +664,10 @@ Owner of these functions: Pai. Called by the backend.
 
 ## 12. Endpoint Readiness Summary
 
-| Endpoint | Readiness Status |
-|---|---|
-| `GET /api/health` | Fully functional |
-| `/api/auth/*` | Better Auth handler/config prepared; migration/account/client integration pending |
-| `GET /api/me` | W2 contract only; not mounted |
-| `GET /api/projects`, `GET /api/projects/:projectId/members` | Typed mock responses with runtime query/path validation (real versions in W2) |
-| All other endpoints in section 10 (users, project create/detail/edit/delete, member add/remove, tasks, My Tasks, comments, activity, dashboard) | Contract defined in sections 10–11; no code yet |
+   | Endpoint | Readiness Status |
+   |---|---|
+   | `GET /api/health` | Fully functional |
+   | `/api/auth/*` | Better Auth; sign-in, get-session and sign-out checked with a provisioned account; signup disabled |
+   | `GET /api/me`, `GET /api/users` | Implemented, session-guarded |
+   | `GET /api/projects`, `POST /api/projects`, `GET/PATCH/DELETE /api/projects/:projectId`, `GET /api/projects/:projectId/members` | Implemented, database-backed, Owner/Member guards; manual curl checks only |
+   | All other endpoints in section 10 (member add/remove, tasks, My Tasks, comments, activity, dashboard) | Contract defined; no code yet |
