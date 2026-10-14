@@ -1,7 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { authClient } from '@/lib/auth-client';
+import { logoutApi } from '@/lib/authService';
 import type { LoadStatus } from '@/lib/useProtectedLoad';
 
 type Props = {
@@ -12,18 +13,30 @@ type Props = {
 };
 
 const buttonClass =
-  'rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px] text-[#333333] hover:bg-[#f4f4f4]';
+  'rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px] text-[#333333] hover:bg-[#f4f4f4] disabled:cursor-not-allowed disabled:opacity-60';
 
 export default function ProtectedState({ status, errorMessage, onRetry }: Props) {
   const router = useRouter();
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState('');
 
   const handleSignOut = async () => {
+    if (isSigningOut) return;
+
+    setIsSigningOut(true);
+    setSignOutError('');
+
     try {
-      await authClient.signOut();
+      await logoutApi();
+
+      // เปลี่ยนหน้าเฉพาะเมื่อออกจากระบบสำเร็จ
+      router.replace('/login');
+      router.refresh();
     } catch (error) {
       console.error('Sign out failed:', error);
+      setSignOutError('Sign out failed. Please try again.');
     } finally {
-      router.replace('/login');
+      setIsSigningOut(false);
     }
   };
 
@@ -45,6 +58,12 @@ export default function ProtectedState({ status, errorMessage, onRetry }: Props)
           (errorMessage ?? 'Unable to connect to the server. Please try again.')}
       </p>
 
+      {status === 'no-profile' && signOutError && (
+        <p role="alert" className="text-center text-[12px] text-red-600">
+          {signOutError}
+        </p>
+      )}
+
       {status === 'login-required' && (
         <button type="button" onClick={() => router.push('/login')} className={buttonClass}>
           Log in
@@ -52,8 +71,13 @@ export default function ProtectedState({ status, errorMessage, onRetry }: Props)
       )}
 
       {status === 'no-profile' && (
-        <button type="button" onClick={() => void handleSignOut()} className={buttonClass}>
-          Sign out
+        <button
+          type="button"
+          onClick={() => void handleSignOut()}
+          disabled={isSigningOut}
+          className={buttonClass}
+        >
+          {isSigningOut ? 'Signing out...' : signOutError ? 'Try sign out again' : 'Sign out'}
         </button>
       )}
 
