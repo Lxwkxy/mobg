@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
@@ -12,6 +13,18 @@ type FormErrors = {
   dueDate?: string;
   members?: string;
   general?: string;
+};
+
+type ServerFieldError = {
+  field?: string;
+  message?: string;
+};
+
+type RequestError = Error & {
+  status?: number;
+  code?: string;
+  details?: ServerFieldError[];
+  isNetworkError?: boolean;
 };
 
 function getBangkokToday(): string {
@@ -29,6 +42,39 @@ function getBangkokToday(): string {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+function getTomorrow(date: string): string {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + 1);
+  return value.toISOString().slice(0, 10);
+}
+
+function mapServerField(field: string): keyof FormErrors | null {
+  const normalized = field
+    .replace(/([a-z])([A-Z])/g, '$1_$2')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+
+  switch (normalized) {
+    case 'projectname':
+    case 'name':
+      return 'projectName';
+
+    case 'startdate':
+      return 'startDate';
+
+    case 'duedate':
+    case 'enddate':
+      return 'dueDate';
+
+    case 'memberids':
+    case 'members':
+      return 'members';
+
+    default:
+      return null;
+  }
+}
+
 export default function CreateProjectPage() {
   const router = useRouter();
 
@@ -40,19 +86,35 @@ export default function CreateProjectPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [memberIds, setMemberIds] = useState<number[]>([]);
   const [memberSearch, setMemberSearch] = useState('');
-  const [isMemberDropdownOpen, setIsMemberDropdownOpen] = useState(false);
+  const [isMemberDropdownOpen, setIsMemberDropdownOpen] =
+    useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
 
+  // รีเซ็ตข้อมูลฟอร์มทั้งหมด
+  function resetForm() {
+    setProjectName('');
+    setDescription('');
+    setStartDate(getBangkokToday());
+    setDueDate('');
+    setMemberIds([]);
+    setMemberSearch('');
+    setIsMemberDropdownOpen(false);
+    setErrors({});
+  }
+
   useEffect(() => {
     let active = true;
 
     async function initialize() {
-      try {
-        setStartDate((current) => current || getBangkokToday());
+      if (!active) return;
 
+      // กำหนดวันที่ใน Browser หลัง Component ทำงานแล้ว
+      setStartDate(getBangkokToday());
+
+      try {
         const currentUser = await getCurrentUser();
 
         if (!active) return;
@@ -64,22 +126,28 @@ export default function CreateProjectPage() {
 
         const availableUsers = await projectApi.getUsers();
 
-        if (active) {
-          // Exclude the logged-in user because the backend
-          // automatically adds the project creator as Owner.
-          setUsers(
-            availableUsers.filter(
-              (user) =>
-                Number(user.userId) !== Number(currentUser.userId),
-            ),
-          );
-        }
+        if (!active) return;
+
+        setUsers(
+          availableUsers.filter(
+            (user) =>
+              String(user.userId) !== String(currentUser.userId),
+          ),
+        );
       } catch (error) {
         console.error('Failed to initialize project form:', error);
 
         if (active) {
+          const requestError = error as RequestError;
+
+          if (requestError.status === 401) {
+            router.replace('/login');
+            return;
+          }
+
           setErrors({
             general:
+              requestError.message ||
               'Unable to load members. Please refresh and try again.',
           });
         }
@@ -103,14 +171,20 @@ export default function CreateProjectPage() {
         ? current.filter((id) => id !== userId)
         : [...current, userId],
     );
+
+    setErrors((current) => {
+      const next = { ...current };
+      delete next.members;
+      delete next.general;
+      return next;
+    });
   }
 
   function clearFieldError(field: keyof FormErrors) {
     setErrors((current) => {
-      if (!current[field]) return current;
-
       const next = { ...current };
       delete next[field];
+      delete next.general;
       return next;
     });
   }
@@ -125,7 +199,9 @@ export default function CreateProjectPage() {
     );
   });
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
 
     if (isSaving) return;
@@ -166,17 +242,44 @@ export default function CreateProjectPage() {
         memberIds,
       });
 
-      // Return to the Projects list after successful creation.
+      // ล้างข้อมูลหลังสร้าง Project สำเร็จ
+      resetForm();
       router.push('/projects');
     } catch (error) {
       console.error('Failed to create project:', error);
 
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Unable to create project. Please try again.';
+      const requestError = error as RequestError;
+      const nextServerErrors: FormErrors = {};
 
-      setErrors({ general: message });
+      for (const detail of requestError.details ?? []) {
+        if (!detail.field || !detail.message) continue;
+
+        const mappedField = mapServerField(detail.field);
+
+        if (mappedField) {
+          nextServerErrors[mappedField] = detail.message;
+        }
+      }
+
+      if (requestError.status === 401) {
+        router.replace('/login');
+        return;
+      }
+
+      if (requestError.status === 403) {
+        nextServerErrors.general =
+          'You do not have permission to create a project.';
+      } else if (Object.keys(nextServerErrors).length > 0) {
+        nextServerErrors.general =
+          requestError.message ||
+          'Please check the highlighted fields and try again.';
+      } else {
+        nextServerErrors.general =
+          requestError.message ||
+          'Unable to create project. Please try again.';
+      }
+
+      setErrors(nextServerErrors);
     } finally {
       setIsSaving(false);
     }
@@ -285,7 +388,7 @@ export default function CreateProjectPage() {
             </div>
           </div>
 
-          {/* PROJECT DESCRIPTION */}
+          {/* DESCRIPTION */}
           <div className="mb-5">
             <label
               htmlFor="description"
@@ -298,7 +401,10 @@ export default function CreateProjectPage() {
               id="description"
               rows={4}
               value={description}
-              onChange={(event) => setDescription(event.target.value)}
+              onChange={(event) => {
+                setDescription(event.target.value);
+                clearFieldError('general');
+              }}
               placeholder="Briefly describe the project goal or scope"
               className="w-full resize-y rounded-xl border border-[#dcdcdc] px-4 py-3 text-[13px] outline-none transition-colors focus:border-[#555555]"
             />
@@ -357,16 +463,7 @@ export default function CreateProjectPage() {
               <input
                 id="dueDate"
                 type="date"
-                min={
-                  startDate
-                    ? new Date(
-                        new Date(`${startDate}T00:00:00Z`).getTime() +
-                          86400000,
-                      )
-                        .toISOString()
-                        .slice(0, 10)
-                    : undefined
-                }
+                min={startDate ? getTomorrow(startDate) : undefined}
                 value={dueDate}
                 onChange={(event) => {
                   setDueDate(event.target.value);
@@ -408,7 +505,6 @@ export default function CreateProjectPage() {
               Search by name or email and select the people you want to add.
             </p>
 
-            {/* SELECTED MEMBERS */}
             {memberIds.length > 0 && (
               <div className="mb-3 flex flex-wrap gap-2">
                 {memberIds.map((memberId) => {
@@ -439,7 +535,6 @@ export default function CreateProjectPage() {
               </div>
             )}
 
-            {/* SEARCH INPUT */}
             <div className="relative">
               <div className="flex items-center gap-2 rounded-xl border border-[#dcdcdc] bg-white px-3.5 transition-colors focus-within:border-[#555555]">
                 <svg
@@ -465,6 +560,7 @@ export default function CreateProjectPage() {
                   onChange={(event) => {
                     setMemberSearch(event.target.value);
                     setIsMemberDropdownOpen(true);
+                    clearFieldError('members');
                   }}
                   onKeyDown={(event) => {
                     if (event.key === 'Escape') {
@@ -549,6 +645,12 @@ export default function CreateProjectPage() {
               )}
             </div>
 
+            {errors.members && (
+              <p role="alert" className="mt-2 text-[12px] text-red-600">
+                {errors.members}
+              </p>
+            )}
+
             <p className="mt-2 text-[11px] text-[#888888]">
               The project creator is automatically added as Owner.
             </p>
@@ -559,7 +661,10 @@ export default function CreateProjectPage() {
             <button
               type="button"
               disabled={isSaving}
-              onClick={() => router.push('/projects')}
+              onClick={() => {
+                resetForm();
+                router.push('/projects');
+              }}
               className="rounded-xl border border-[#dcdcdc] bg-white px-6 py-2.5 text-[13px] font-semibold text-[#333333] transition-colors hover:bg-[#f4f4f4] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Cancel
@@ -590,7 +695,6 @@ export default function CreateProjectPage() {
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#f0f0f0] text-[12px] font-bold text-[#444444]">
                 1
               </div>
-
               <div>
                 <strong className="block text-[13px] font-bold text-[#222222]">
                   Add tasks
@@ -605,7 +709,6 @@ export default function CreateProjectPage() {
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#f0f0f0] text-[12px] font-bold text-[#444444]">
                 2
               </div>
-
               <div>
                 <strong className="block text-[13px] font-bold text-[#222222]">
                   Assign work
@@ -620,7 +723,6 @@ export default function CreateProjectPage() {
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#f0f0f0] text-[12px] font-bold text-[#444444]">
                 3
               </div>
-
               <div>
                 <strong className="block text-[13px] font-bold text-[#222222]">
                   View priorities
