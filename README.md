@@ -62,14 +62,9 @@ ruleset for the default branch, if supported by the repository's GitHub plan,
 requiring **Web checks** and **Backend checks** before merging. The workflow
 reports results; enforcing them requires that GitHub setting.
 
-For an optional AI review that invokes Matt's `code-review` skill, follow the
-[Matt review setup guide](docs/matt-review.md). It requires an OpenAI API key and
-the `MATT_REVIEW_ENABLED` repository variable; it is disabled until configured.
-Its primary spec is the shared [Trello task plan](docs/specs/MobG_Trello_Tasks_Detailed.md).
-List the relevant card IDs in each PR, for example `Trello cards: W2-Pai-01, W2-Pai-02`.
-
 ## Documentation
 
+- [Shared Trello task plan](docs/specs/MobG_Trello_Tasks_Detailed.md)
 - [W1 changes and W2 handoff](docs/better-auth-w1.md)
 - [W1 verification results](docs/w1-verification.md)
 - [W2 verification and handoff](docs/w2-verification.md)
