@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { projectService, taskService } from '@/lib/mockData';
-import { ProjectItem, TaskItem } from '@/types';
+import type { ProjectSummary, TaskItem } from '@/types';
 
 export default function DashboardPage() {
-  const [projects, setProjects] = useState<ProjectItem[]>([]);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 

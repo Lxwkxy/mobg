@@ -1,8 +1,12 @@
-import type { Project, Task, UserProfile } from "../../backend/src/contracts/api";
+import type {
+  Project,
+  Task,
+  UserProfile,
+  UserResponse,
+} from "../../backend/src/contracts/api";
 
-// Business contracts are owned by the Express API. Type-only imports do not bundle
-// backend runtime/dependencies into Next.js. Better Auth keeps its own client types.
 export type * from "../../backend/src/contracts/api";
+
 export type User = UserProfile;
 
 export interface LoginResult {
@@ -12,12 +16,38 @@ export interface LoginResult {
   isNetworkError?: boolean;
 }
 
-// W1 screen projections intentionally use only fields currently displayed.
-// API DTOs above remain complete for W2 integration.
-export type ProjectItem = Pick<Project,
-  "projectId" | "projectName" | "projectDescription" | "completedTasks" | "totalTasks" | "dueDate"
+export type CurrentUserResponse = UserResponse;
+
+/**
+ * ใช้ Project type จาก backend โดยตรง
+ * เพื่อให้หน้า Projects และ Project Detail
+ * เข้าถึงฟิลด์ต่าง ๆ ได้ครบตาม API contract
+ */
+export type ProjectItem = Project;
+
+/**
+ * Projection สำหรับหน้าที่ยังใช้ mock (Dashboard)
+ * ใช้เฉพาะ field ที่แสดงจริง
+ */
+export type ProjectSummary = Pick<
+  Project,
+  | "projectId"
+  | "projectName"
+  | "projectDescription"
+  | "completedTasks"
+  | "totalTasks"
+  | "dueDate"
 >;
-export type TaskItem = Pick<Task,
-  "taskId" | "taskTitle" | "taskDescription" | "priority" | "status" | "dueDate"
-  | "assignees" | "projectName" | "projectId"
+
+export type TaskItem = Pick<
+  Task,
+  | "taskId"
+  | "taskTitle"
+  | "taskDescription"
+  | "priority"
+  | "status"
+  | "dueDate"
+  | "assignees"
+  | "projectName"
+  | "projectId"
 >;
