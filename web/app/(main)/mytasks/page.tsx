@@ -1,113 +1,27 @@
-
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { taskService } from '@/lib/mockData';
-import { getCurrentUser } from '@/lib/authService';
-import type { TaskItem } from '@/types';
+import { useProtectedLoad } from '@/lib/useProtectedLoad';
+import ProtectedState from '@/components/ProtectedState';
+
+// อยู่นอก component เพื่อให้ identity คงที่ (hook จะโหลดครั้งเดียวตอนเปิดหน้า)
+const loadTasks = () => taskService.getTasks();
 
 export default function MyTasksPage() {
   const [activeTab, setActiveTab] = useState('All');
-  const [tasksList, setTasksList] = useState<TaskItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isAuthorized, setIsAuthorized] = useState(false);
-  const [isLoginRequired, setIsLoginRequired] = useState(false);
-  const [pageError, setPageError] = useState('');
-  const router = useRouter();
+  const { status, data, retry } = useProtectedLoad(loadTasks);
 
-  const loadTasks = useCallback(async () => {
-    setIsLoading(true);
-    setPageError('');
-    setIsAuthorized(false);
-    setIsLoginRequired(false);
+  if (status !== 'ready' || data === null) {
+    return (
+      <ProtectedState
+        status={status === 'ready' ? 'loading' : status}
+        onRetry={retry}
+      />
+    );
+  }
 
-    try {
-      const currentUser = await getCurrentUser();
-
-      if (!currentUser) {
-        setTasksList([]);
-        setIsLoginRequired(true);
-        return;
-      }
-
-      // Keep the existing task service and UI unchanged.
-      const data = await taskService.getTasks();
-
-      setTasksList(data);
-      setIsLoginRequired(false);
-      setIsAuthorized(true);
-    } catch (error) {
-      console.error(
-        'Failed to verify session or fetch tasks:',
-        error,
-      );
-
-      setTasksList([]);
-      setIsAuthorized(false);
-      setIsLoginRequired(false);
-      setPageError(
-        'Unable to connect to the server. Please try again.',
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function verifySessionAndFetchTasks() {
-      setIsLoading(true);
-      setPageError('');
-      setIsAuthorized(false);
-      setIsLoginRequired(false);
-
-      try {
-        const currentUser = await getCurrentUser();
-
-        if (!isMounted) return;
-
-        if (!currentUser) {
-          setTasksList([]);
-          setIsLoginRequired(true);
-          return;
-        }
-
-        const data = await taskService.getTasks();
-
-        if (!isMounted) return;
-
-        setTasksList(data);
-        setIsLoginRequired(false);
-        setIsAuthorized(true);
-      } catch (error) {
-        console.error(
-          'Failed to verify session or fetch tasks:',
-          error,
-        );
-
-        if (isMounted) {
-          setTasksList([]);
-          setIsAuthorized(false);
-          setIsLoginRequired(false);
-          setPageError(
-            'Unable to connect to the server. Please try again.',
-          );
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    void verifySessionAndFetchTasks();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  const tasksList = data;
 
   const getPriorityLabel = (priority: number) => {
     if (priority === 1) return 'High';
@@ -115,21 +29,12 @@ export default function MyTasksPage() {
     return 'Low';
   };
 
-  const countHigh = tasksList.filter(
-    (task) => task.priority === 1,
-  ).length;
-
+  const countHigh = tasksList.filter((task) => task.priority === 1).length;
   const countInProgress = tasksList.filter(
     (task) => task.status === 'In progress',
   ).length;
-
-  const countTodo = tasksList.filter(
-    (task) => task.status === 'To do',
-  ).length;
-
-  const countDone = tasksList.filter(
-    (task) => task.status === 'Done',
-  ).length;
+  const countTodo = tasksList.filter((task) => task.status === 'To do').length;
+  const countDone = tasksList.filter((task) => task.status === 'Done').length;
 
   const tabs = [
     { name: 'All', count: tasksList.length },
@@ -146,44 +51,6 @@ export default function MyTasksPage() {
     if (activeTab === 'Done') return task.status === 'Done';
     return true;
   });
-
-  if (isLoading || !isAuthorized) {
-    return (
-      <div className="flex min-h-[200px] flex-col items-center justify-center gap-3">
-        <p
-          role={pageError || isLoginRequired ? 'alert' : undefined}
-          className="text-[13px] text-[#888888]"
-        >
-          {isLoading
-            ? 'Checking your session...'
-            : pageError ||
-              (isLoginRequired
-                ? 'You need to log in to view this page.'
-                : 'Unable to verify your session. Please try again.')}
-        </p>
-
-        {!isLoading && isLoginRequired && (
-          <button
-            type="button"
-            onClick={() => router.push('/login')}
-            className="rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px] text-[#333333] hover:bg-[#f4f4f4]"
-          >
-            Log in
-          </button>
-        )}
-
-        {!isLoading && pageError && (
-          <button
-            type="button"
-            onClick={() => void loadTasks()}
-            className="rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px] text-[#333333] hover:bg-[#f4f4f4]"
-          >
-            Try again
-          </button>
-        )}
-      </div>
-    );
-  }
 
   return (
     <div>
@@ -261,8 +128,7 @@ export default function MyTasksPage() {
             </div>
           ) : (
             filteredTasks.map((row) => {
-              const assigneeName =
-                row.assignees?.[0]?.userName || 'Unassigned';
+              const assigneeName = row.assignees?.[0]?.userName || 'Unassigned';
 
               return (
                 <div

@@ -1,6 +1,6 @@
-import { TaskItem, ProjectItem } from '@/types';
+import type { TaskItem, ProjectSummary } from '@/types';
 
-export const MOCK_PROJECTS: ProjectItem[] = [
+export const MOCK_PROJECTS: ProjectSummary[] = [
   {
     projectId: 1,
     projectName: 'Web Programming 1',
@@ -83,11 +83,11 @@ export const MOCK_TASKS: TaskItem[] = [
 ];
 
 export const projectService = {
-  getProjects: async (): Promise<ProjectItem[]> => {
+  getProjects: async (): Promise<ProjectSummary[]> => {
     await new Promise((resolve) => setTimeout(resolve, 150));
     return MOCK_PROJECTS;
   },
-  getProjectById: async (projectId: number): Promise<ProjectItem | undefined> => {
+  getProjectById: async (projectId: number): Promise<ProjectSummary | undefined> => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     return MOCK_PROJECTS.find((p) => p.projectId === projectId);
   },

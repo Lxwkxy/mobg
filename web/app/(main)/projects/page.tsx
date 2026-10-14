@@ -1,101 +1,31 @@
-
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { projectApi } from '@/lib/projectApi';
-import { getCurrentUser } from '@/lib/authService';
-import type { ProjectItem } from '@/types';
+import { useProtectedLoad } from '@/lib/useProtectedLoad';
+import ProtectedState from '@/components/ProtectedState';
+import { StatusBadge } from '@/components/ui/Badge';
 
 export default function ProjectsPage() {
-  const [projectsList, setProjectsList] = useState<ProjectItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isAuthorized, setIsAuthorized] = useState(false);
-  const [isLoginRequired, setIsLoginRequired] = useState(false);
-  const [pageError, setPageError] = useState('');
+  const [page, setPage] = useState(1);
   const router = useRouter();
 
-  const loadProjects = useCallback(async () => {
-    setIsLoading(true);
-    setPageError('');
-    setIsAuthorized(false);
-    setIsLoginRequired(false);
+  // เปลี่ยน page -> load เปลี่ยน identity -> hook โหลดใหม่และคงเนื้อหาเดิมไว้ระหว่างรอ
+  const load = useCallback(() => projectApi.getProjects({ page }), [page]);
+  const { status, data, isRefreshing, retry } = useProtectedLoad(load);
 
-    try {
-      // Verify the real Better Auth session through GET /api/me.
-      const currentUser = await getCurrentUser();
-
-      if (!currentUser) {
-        setProjectsList([]);
-        setIsLoginRequired(true);
-        return;
-      }
-
-      // Load real project data from Backend API.
-      const data = await projectApi.getProjects();
-
-      setProjectsList(data);
-      setIsLoginRequired(false);
-      setIsAuthorized(true);
-    } catch (error) {
-      console.error(
-        'Failed to verify session or fetch projects:',
-        error,
-      );
-
-      setProjectsList([]);
-      setIsAuthorized(false);
-      setIsLoginRequired(false);
-      setPageError(
-        'Unable to connect to the server. Please try again.',
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadProjects();
-  }, [loadProjects]);
-
-  if (isLoading || !isAuthorized) {
+  if (status !== 'ready' || data === null) {
     return (
-      <div className="flex min-h-[200px] flex-col items-center justify-center gap-3">
-        <p
-          role={pageError || isLoginRequired ? 'alert' : undefined}
-          className="text-[13px] text-[#888888]"
-        >
-          {isLoading
-            ? 'Checking your session...'
-            : pageError ||
-              (isLoginRequired
-                ? 'You need to log in to view this page.'
-                : 'Unable to verify your session. Please try again.')}
-        </p>
-
-        {!isLoading && isLoginRequired && (
-          <button
-            type="button"
-            onClick={() => router.push('/login')}
-            className="rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px] text-[#333333] hover:bg-[#f4f4f4]"
-          >
-            Log in
-          </button>
-        )}
-
-        {!isLoading && pageError && (
-          <button
-            type="button"
-            onClick={() => void loadProjects()}
-            className="rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px] text-[#333333] hover:bg-[#f4f4f4]"
-          >
-            Try again
-          </button>
-        )}
-      </div>
+      <ProtectedState
+        status={status === 'ready' ? 'loading' : status}
+        onRetry={retry}
+      />
     );
   }
+
+  const { projects: projectsList, pagination } = data;
 
   return (
     <div>
@@ -147,39 +77,43 @@ export default function ProjectsPage() {
           No projects found.
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-5">
+        <div
+          className={`grid grid-cols-2 gap-5 transition-opacity ${
+            isRefreshing ? 'opacity-60' : ''
+          }`}
+        >
           {projectsList.map((item) => {
-            const progress =
-              item.totalTasks > 0
-                ? Math.round(
-                    (item.completedTasks / item.totalTasks) * 100,
-                  )
-                : 0;
+            // ใช้ค่าที่ backend คำนวณมาแล้ว ไม่คำนวณซ้ำฝั่ง frontend
+            const progress = Math.max(0, Math.min(100, item.progressPercent));
 
             return (
               <article
                 key={item.projectId}
                 className="bg-white rounded-xl border border-[#e0e0e0] p-6 flex flex-col"
               >
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between mb-2 gap-3">
                   <h3 className="text-[20px] font-bold text-[#1f1f1f]">
                     {item.projectName}
                   </h3>
 
-                  <button
-                    type="button"
-                    aria-label={`More options for ${item.projectName}`}
-                    className="text-[16px] text-[#555] cursor-pointer"
-                  >
-                    •••
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <StatusBadge status={item.derivedStatus} />
+
+                    <button
+                      type="button"
+                      aria-label={`More options for ${item.projectName}`}
+                      className="text-[16px] text-[#555] cursor-pointer"
+                    >
+                      •••
+                    </button>
+                  </div>
                 </div>
 
                 <p className="text-[13px] text-[#777777] leading-[1.5] mb-5">
                   {item.projectDescription ?? 'No description'}
                 </p>
 
-                {/* Members & Due Date */}
+                {/* Members & Dates */}
                 <div className="flex items-center justify-between mb-5">
                   <div className="flex items-center">
                     <div
@@ -194,15 +128,29 @@ export default function ProjectsPage() {
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-[16px]">📅</span>
-                    <div className="flex flex-col">
-                      <span className="text-[10px] text-[#888]">
-                        Due date
-                      </span>
-                      <strong className="text-[11px] font-bold text-[#333]">
-                        {item.dueDate ?? 'No due date'}
-                      </strong>
+                  <div className="flex items-center gap-5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[16px]">🚀</span>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-[#888]">
+                          Start date
+                        </span>
+                        <strong className="text-[11px] font-bold text-[#333]">
+                          {item.startDate}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-[16px]">📅</span>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-[#888]">
+                          Due date
+                        </span>
+                        <strong className="text-[11px] font-bold text-[#333]">
+                          {item.dueDate ?? 'No due date'}
+                        </strong>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -211,9 +159,7 @@ export default function ProjectsPage() {
                 <div className="mb-5">
                   <div className="flex justify-between text-[11px] text-[#555555] mb-1.5">
                     <span>Progress</span>
-                    <strong className="text-[#111111]">
-                      {progress}%
-                    </strong>
+                    <strong className="text-[#111111]">{progress}%</strong>
                   </div>
 
                   <div className="w-full h-[7px] bg-[#e5e5e5] rounded-full overflow-hidden">
@@ -249,9 +195,7 @@ export default function ProjectsPage() {
                     </span>
 
                     <div className="flex flex-col">
-                      <strong className="text-[13px] text-[#1f1f1f]">
-                        —
-                      </strong>
+                      <strong className="text-[13px] text-[#1f1f1f]">—</strong>
                       <span className="text-[10px] text-[#777]">
                         High priority
                       </span>
@@ -268,6 +212,33 @@ export default function ProjectsPage() {
               </article>
             );
           })}
+        </div>
+      )}
+
+      {/* PAGINATION */}
+      {pagination.totalPages > 1 && (
+        <div className="mt-6 flex items-center justify-center gap-3 text-[12px]">
+          <button
+            type="button"
+            disabled={isRefreshing || page <= 1}
+            onClick={() => setPage(page - 1)}
+            className="rounded-lg border border-[#dcdcdc] bg-white px-3.5 py-2 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            ← Previous
+          </button>
+
+          <span className="text-[#555]">
+            Page {pagination.page} of {pagination.totalPages}
+          </span>
+
+          <button
+            type="button"
+            disabled={isRefreshing || page >= pagination.totalPages}
+            onClick={() => setPage(page + 1)}
+            className="rounded-lg border border-[#dcdcdc] bg-white px-3.5 py-2 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Next →
+          </button>
         </div>
       )}
     </div>

@@ -1,68 +1,37 @@
-
 import { API_BASE_URL } from '@/lib/auth-client';
-import type { ProjectItem, User } from '@/types';
+import type {
+  ApiFailure,
+  CreateProjectRequest,
+  ErrorDetail,
+  ProjectItem,
+  ProjectListQuery,
+  ProjectResponse,
+  ProjectsResponse,
+  UserProfile,
+  UsersResponse,
+} from '@/types';
 
-type ApiErrorBody = {
-  success: false;
-  error?: {
-    code?: string;
-    message?: string;
-    details?: Array<{
-      field?: string;
-      message?: string;
-    }>;
-  };
-};
+type Success<T> = Extract<T, { success: true }>;
+type ApiErrorBody = ApiFailure['error'];
 
-type ProjectsResponse = {
-  success: true;
-  projects: ProjectItem[];
-  pagination?: {
-    page: number;
-    pageSize: number;
-    totalItems: number;
-    totalPages: number;
-  };
-};
-
-type UsersResponse = {
-  success: true;
-  users: User[];
-};
-
-type CreateProjectInput = {
-  projectName: string;
-  projectDescription: string | null;
-  startDate: string;
-  dueDate: string | null;
-  memberIds: number[];
-};
-
-type CreateProjectResponse = {
-  success: true;
-  project: ProjectItem;
-};
+export type ProjectListResult = Pick<
+  Success<ProjectsResponse>,
+  'projects' | 'pagination'
+>;
 
 export class ApiRequestError extends Error {
-  status: number;
-  code?: string;
-  details?: Array<{ field?: string; message?: string }>;
-
   constructor(
     message: string,
-    status: number,
-    code?: string,
-    details?: Array<{ field?: string; message?: string }>,
+    public readonly status: number,
+    public readonly code?: ApiErrorBody['code'],
+    public readonly details?: ErrorDetail[],
   ) {
     super(message);
     this.name = 'ApiRequestError';
-    this.status = status;
-    this.code = code;
-    this.details = details;
   }
 }
 
-async function request<T>(
+async function request<T extends { success: true }>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
@@ -85,10 +54,10 @@ async function request<T>(
     );
   }
 
-  let body: unknown;
+  let body: T | ApiFailure;
 
   try {
-    body = await response.json();
+    body = (await response.json()) as T | ApiFailure;
   } catch {
     throw new ApiRequestError(
       `Invalid server response (HTTP ${response.status})`,
@@ -96,22 +65,14 @@ async function request<T>(
     );
   }
 
-  const data = body as {
-    success?: boolean;
-    error?: {
-      code?: string;
-      message?: string;
-      details?: Array<{ field?: string; message?: string }>;
-    };
-  };
+  if (!response.ok || body.success !== true) {
+    const error = (body as ApiFailure).error;
 
-  if (!response.ok || data.success !== true) {
     throw new ApiRequestError(
-      data.error?.message ??
-        `Request failed (HTTP ${response.status})`,
+      error?.message ?? `Request failed (HTTP ${response.status})`,
       response.status,
-      data.error?.code,
-      data.error?.details,
+      error?.code,
+      error?.details,
     );
   }
 
@@ -119,10 +80,20 @@ async function request<T>(
 }
 
 export const projectApi = {
-  async getProjects(): Promise<ProjectItem[]> {
-    const body = await request<ProjectsResponse>('/api/projects');
+  async getProjects(query: ProjectListQuery = {}): Promise<ProjectListResult> {
+    const params = new URLSearchParams();
 
-    // คืนค่า Array เสมอ เพื่อให้หน้าเว็บเรียก .map() ได้
+    // URLSearchParams จะ encode ค่าให้เอง (เช่น "In progress")
+    if (query.status) params.set('status', query.status);
+    if (query.page) params.set('page', String(query.page));
+    if (query.pageSize) params.set('pageSize', String(query.pageSize));
+
+    const qs = params.toString();
+
+    const body = await request<Success<ProjectsResponse>>(
+      `/api/projects${qs ? `?${qs}` : ''}`,
+    );
+
     if (!Array.isArray(body.projects)) {
       throw new ApiRequestError(
         'The server returned an invalid projects list.',
@@ -130,11 +101,11 @@ export const projectApi = {
       );
     }
 
-    return body.projects;
+    return { projects: body.projects, pagination: body.pagination };
   },
 
-  async getUsers(): Promise<User[]> {
-    const body = await request<UsersResponse>('/api/users');
+  async getUsers(): Promise<UserProfile[]> {
+    const body = await request<Success<UsersResponse>>('/api/users');
 
     if (!Array.isArray(body.users)) {
       throw new ApiRequestError(
@@ -146,24 +117,17 @@ export const projectApi = {
     return body.users;
   },
 
-  async createProject(
-    input: CreateProjectInput,
-  ): Promise<ProjectItem> {
-    const body = await request<CreateProjectResponse>(
-      '/api/projects',
-      {
-        method: 'POST',
-        body: JSON.stringify(input),
-      },
-    );
+  async createProject(input: CreateProjectRequest): Promise<ProjectItem> {
+    const body = await request<Success<ProjectResponse>>('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
 
     return body.project;
   },
 
-  async getProjectById(
-    projectId: number,
-  ): Promise<ProjectItem> {
-    const body = await request<{ success: true; project: ProjectItem }>(
+  async getProjectById(projectId: number): Promise<ProjectItem> {
+    const body = await request<Success<ProjectResponse>>(
       `/api/projects/${projectId}`,
     );
 

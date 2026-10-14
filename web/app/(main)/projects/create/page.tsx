@@ -570,8 +570,6 @@ export default function CreateProjectPage() {
                   placeholder="Search members by name or email..."
                   autoComplete="off"
                   className="w-full border-0 bg-transparent py-3 text-[13px] text-[#222222] outline-none placeholder:text-[#888888]"
-                  aria-expanded={isMemberDropdownOpen}
-                  aria-controls="member-search-results"
                 />
 
                 {memberSearch && (

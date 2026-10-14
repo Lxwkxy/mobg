@@ -1,6 +1,6 @@
-
 import type { User, LoginResult, UserResponse } from '@/types';
 import { API_BASE_URL, authClient } from '@/lib/auth-client';
+import { ApiRequestError } from '@/lib/projectApi';
 
 // ใช้สำหรับแสดง Quick Test Accounts ในหน้า Login เท่านั้น
 // ไม่ใช้ตรวจสอบว่าผู้ใช้ Login สำเร็จหรือไม่
@@ -19,25 +19,50 @@ export const MOCK_USERS = [
   },
 ];
 
+/**
+ * GET /api/me
+ * - 200 -> User
+ * - 401 -> null (ยังไม่ได้ Login / session หมดอายุ)
+ * - 403 และอื่น ๆ -> โยน ApiRequestError ที่มี status
+ *   (status 0 = เชื่อมต่อเซิร์ฟเวอร์ไม่ได้)
+ */
 export async function getCurrentUser(): Promise<User | null> {
-  const response = await fetch(`${API_BASE_URL}/api/me`, {
-    method: 'GET',
-    credentials: 'include',
-    cache: 'no-store',
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}/api/me`, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    });
+  } catch {
+    throw new ApiRequestError(
+      'Unable to connect to the server. Please try again.',
+      0,
+    );
+  }
 
   if (response.status === 401) {
     return null;
   }
 
-  if (!response.ok) {
-    throw new Error(`Unable to verify session (HTTP ${response.status})`);
+  let body: UserResponse | undefined;
+
+  try {
+    body = (await response.json()) as UserResponse;
+  } catch {
+    body = undefined;
   }
 
-  const body: UserResponse = await response.json();
+  if (!response.ok || !body || !body.success) {
+    const error = body && !body.success ? body.error : undefined;
 
-  if (!body.success) {
-    throw new Error(body.error.message || 'Unable to verify session');
+    throw new ApiRequestError(
+      error?.message ?? `Unable to verify session (HTTP ${response.status})`,
+      response.status,
+      error?.code,
+      error?.details,
+    );
   }
 
   return body.user;
@@ -86,7 +111,33 @@ export const loginApi = async (
       success: true,
       user,
     };
-  } catch {
+  } catch (error) {
+    const status = (error as { status?: number }).status;
+
+    // Login ผ่านแต่ยังไม่มีโปรไฟล์ MobG ผูกอยู่: ออกจากระบบเพื่อไม่ให้ค้าง session
+    if (status === 403) {
+      try {
+        await authClient.signOut();
+      } catch {
+        // ไม่ต้องทำอะไร ข้อความด้านล่างบอกผู้ใช้อยู่แล้ว
+      }
+
+      return {
+        success: false,
+        error: 'Your account has not been set up yet. Please contact your team administrator.',
+        isNetworkError: false,
+      };
+    }
+
+    // มี HTTP status จากเซิร์ฟเวอร์ แปลว่าเชื่อมต่อได้ แต่ตรวจ session ไม่สำเร็จ
+    if (typeof status === 'number' && status > 0) {
+      return {
+        success: false,
+        error: 'Unable to verify your session. Please try again.',
+        isNetworkError: false,
+      };
+    }
+
     return {
       success: false,
       error: 'Cannot connect to server. Please check your network connection.',

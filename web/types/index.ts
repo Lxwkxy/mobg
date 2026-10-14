@@ -25,6 +25,20 @@ export type CurrentUserResponse = UserResponse;
  */
 export type ProjectItem = Project;
 
+/**
+ * Projection สำหรับหน้าที่ยังใช้ mock (Dashboard)
+ * ใช้เฉพาะ field ที่แสดงจริง
+ */
+export type ProjectSummary = Pick<
+  Project,
+  | "projectId"
+  | "projectName"
+  | "projectDescription"
+  | "completedTasks"
+  | "totalTasks"
+  | "dueDate"
+>;
+
 export type TaskItem = Pick<
   Task,
   | "taskId"

@@ -1,48 +1,30 @@
-
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { getCurrentUser, logoutApi } from '@/lib/authService';
-import type { User } from '@/types';
+import { logoutApi } from '@/lib/authService';
+import { useProtectedLoad } from '@/lib/useProtectedLoad';
+
+// Topbar ต้องการแค่ user จาก /api/me จึงไม่มีข้อมูลอื่นให้โหลด
+// อยู่นอก component เพื่อให้ identity คงที่
+const loadNothing = async () => null;
 
 export default function Topbar() {
   const [isOpen, setIsOpen] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [authError, setAuthError] = useState('');
+  const [logoutError, setLogoutError] = useState('');
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  const loadCurrentUser = useCallback(async () => {
-    setIsLoading(true);
-    setAuthError('');
+  const { status, user, retry } = useProtectedLoad(loadNothing);
 
-    try {
-      const currentUser = await getCurrentUser();
-
-      if (!currentUser) {
-        setUser(null);
-        setIsOpen(false);
-        router.replace('/login');
-        return;
-      }
-
-      setUser(currentUser);
-    } catch (error) {
-      console.error('Unable to verify current user:', error);
-      setUser(null);
-      setAuthError('Unable to connect to the server. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [router]);
-
+  // ยังไม่ได้ Login / session หมดอายุ -> ไปหน้า Login (ไม่มี setState)
   useEffect(() => {
-    void loadCurrentUser();
-  }, [loadCurrentUser]);
+    if (status === 'login-required') {
+      router.replace('/login');
+    }
+  }, [status, router]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -65,23 +47,23 @@ export default function Topbar() {
     if (isLoggingOut) return;
 
     setIsLoggingOut(true);
-    setAuthError('');
+    setLogoutError('');
 
     try {
       await logoutApi();
 
-      setUser(null);
       setIsOpen(false);
-
       router.replace('/login');
       router.refresh();
     } catch (error) {
       console.error('Logout failed:', error);
-      setAuthError('Logout failed. Please try again.');
+      setLogoutError('Logout failed. Please try again.');
     } finally {
       setIsLoggingOut(false);
     }
   };
+
+  const isLoading = status === 'loading';
 
   return (
     <header className="h-[72px] bg-white flex items-center justify-end px-[36px] border-b border-[#e0e0e0] relative">
@@ -140,18 +122,18 @@ export default function Topbar() {
                 </div>
               )}
 
-              {authError && (
+              {logoutError && (
                 <p
                   role="alert"
                   className="p-2 text-[12px] text-red-600 break-words"
                 >
-                  {authError}
+                  {logoutError}
                 </p>
               )}
 
               <button
                 type="button"
-                onClick={handleLogout}
+                onClick={() => void handleLogout()}
                 disabled={isLoggingOut}
                 className="w-full p-2 text-left text-[#dc2626] text-[13px] font-medium rounded-md hover:bg-[#fef2f2] flex items-center gap-2 cursor-pointer transition-colors disabled:opacity-60"
               >
@@ -163,19 +145,42 @@ export default function Topbar() {
         </div>
       </div>
 
-      {/* Session / Connection Error */}
-      {!isLoading && authError && !user && (
+      {/* Login ได้แต่ยังไม่มีโปรไฟล์ MobG (403): ต้องมีทางออกจากระบบ */}
+      {status === 'no-profile' && (
+        <div
+          role="alert"
+          className="absolute top-[calc(100%+8px)] right-9 max-w-[320px] rounded-lg border border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-800 shadow-sm z-50"
+        >
+          <p>
+            Your account has not been set up yet. Please contact your team
+            administrator, or sign out and use another account.
+          </p>
+
+          {logoutError && <p className="mt-1 text-red-600">{logoutError}</p>}
+
+          <button
+            type="button"
+            onClick={() => void handleLogout()}
+            disabled={isLoggingOut}
+            className="mt-2 rounded-md bg-white border border-amber-200 px-3 py-1.5 font-medium hover:bg-amber-100 disabled:opacity-60"
+          >
+            {isLoggingOut ? 'Logging out...' : 'Sign out'}
+          </button>
+        </div>
+      )}
+
+      {/* เชื่อมต่อเซิร์ฟเวอร์ไม่ได้จริง */}
+      {status === 'error' && (
         <div
           role="alert"
           className="absolute top-[calc(100%+8px)] right-9 max-w-[320px] rounded-lg border border-red-200 bg-red-50 p-3 text-[12px] text-red-700 shadow-sm z-50"
         >
-          <p>{authError}</p>
+          <p>Unable to connect to the server. Please try again.</p>
 
           <button
             type="button"
-            onClick={() => void loadCurrentUser()}
-            disabled={isLoading}
-            className="mt-2 rounded-md bg-white border border-red-200 px-3 py-1.5 font-medium hover:bg-red-100 disabled:opacity-60"
+            onClick={retry}
+            className="mt-2 rounded-md bg-white border border-red-200 px-3 py-1.5 font-medium hover:bg-red-100"
           >
             Try again
           </button>
