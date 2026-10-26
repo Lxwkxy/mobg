@@ -635,6 +635,15 @@ Owner of these functions: Pai. Called by the backend.
 
 ### 11.3 Tasks
 
+W3 DB implementation: `src/services/taskDb.ts` exports `listTasksByProject`,
+`getTaskById`, `createTask`, `updateTask`, and `deleteTask` with the signatures below.
+`listTasksForAssignee` remains W4. Task HTTP routes are still pending Book's integration.
+See [Pai's W3 handoff](../docs/w3-pai-handoff.md) and [DB verification](../docs/w3-pai-verification.md).
+Before calling update/delete by task ID, the backend must check the role and use
+`getTaskById(project_id, task_id)` to reject a task belonging to another project.
+Omitted/undefined PATCH fields stay unchanged; only `task_description` accepts null.
+Membership and minimum-assignee validation remain backend responsibilities.
+
 `task` row: `{ task_id, task_title, task_description, priority, due_date, task_create_date, project_id, project_name, status_name, is_overdue, created_by, created_by_name, assignees: [{ user_id, user_name }] }` with `assignees` ordered by `user_name`, `user_id`.
 
 | Function | Input | Output |
@@ -670,4 +679,5 @@ Owner of these functions: Pai. Called by the backend.
    | `/api/auth/*` | Better Auth; sign-in, get-session and sign-out checked with a provisioned account; signup disabled |
    | `GET /api/me`, `GET /api/users` | Implemented, session-guarded |
    | `GET /api/projects`, `POST /api/projects`, `GET/PATCH/DELETE /api/projects/:projectId`, `GET /api/projects/:projectId/members` | Implemented, database-backed, Owner/Member guards; manual curl checks only |
-   | All other endpoints in section 10 (member add/remove, tasks, My Tasks, comments, activity, dashboard) | Contract defined; no code yet |
+   | Project task endpoints in section 10.6 | DB list/detail/create/update/delete implemented and directly tested; HTTP routes/UI integration pending |
+   | All other endpoints in section 10 (member add/remove, My Tasks, comments, activity, dashboard) | Contract defined; no endpoint implementation yet |

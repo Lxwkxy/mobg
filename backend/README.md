@@ -57,7 +57,7 @@ Run `npm run typecheck` before committing; `npm run dev` does not report type er
 | `src/errors.ts`, `src/pgErrors.ts` | `ApiError` and PostgreSQL error helpers |
 | `src/mappers/` | DB rows to public DTOs (BIGINT strings to numbers, dates, roles) |
 | `src/routes/` | `me.ts`, `users.ts`, `projects.ts` |
-| `src/services/` | Database functions (`authDb.ts`, `projectDb.ts`, `dbHelpers.ts`) |
+| `src/services/` | Database functions (`authDb.ts`, `projectDb.ts`, `taskDb.ts`, `dbHelpers.ts`) |
 | `src/provisioning/`, `src/seed-accounts.ts` | Account provisioning (not part of the serving app) |
 
 ## Authentication and permissions
@@ -111,3 +111,13 @@ The server closes this pool on shutdown; standalone scripts close it themselves.
 [API contract](API-CONTRACT.md), [schema mapping](../database/schema-mapping.md),
 [W1 scope](../docs/better-auth-w1.md), [W2 verification](../docs/w2-verification.md),
 [frontend handoff](../docs/w2-frontend-handoff.md).
+
+W3 task DB reads/CRUD are ready for Book in `src/services/taskDb.ts`; task HTTP
+routes and browser CRUD are still pending. See [W3 Pai handoff](../docs/w3-pai-handoff.md)
+for signatures, validation/permission responsibilities and the joint checklist,
+and [W3 verification](../docs/w3-pai-verification.md) for actual test results.
+
+From `backend`, run `npm run test:db -- taskDb.test.ts` for the task DB tests,
+or `npm run test:db` for the full suite. Both create and verify a uniquely named
+`mobg_w2_test_<pid>_<random>` database before fixtures run, and remove only that
+database afterward. The W2 prefix is retained for compatibility with existing tests.

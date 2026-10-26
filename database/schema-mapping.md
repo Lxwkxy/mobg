@@ -295,6 +295,13 @@ Apply the following rules in order:
 - W2 implements profile/membership lookup, project CRUD/list/counts and user/member lists. See ../docs/w2-pai-handoff.md and ../docs/w2-pai-verification.md for evidence and pending API/browser flows.
 - The composite primary key prevents duplicate task-user assignments.
 - Minimum assignee count and project membership are not yet enforced.
+- W3 implements task list/detail/create/update/delete in `backend/src/services/taskDb.ts`
+  against migrations 001–005; no new migration is required. Task/assignee/comment
+  cascade, rollback, Bangkok overdue and project summaries are tested directly.
+  Minimum assignees and membership remain Backend checks, including Done tasks.
+  Task HTTP routes and browser CRUD remain pending. See [W3 handoff](../docs/w3-pai-handoff.md)
+  and [verification](../docs/w3-pai-verification.md); these supersede older pending
+  DB implementation notes above without claiming API/UI completion.
 
 ## Example Joined Task Record
 
