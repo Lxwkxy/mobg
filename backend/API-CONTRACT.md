@@ -7,7 +7,7 @@ The previous bcrypt/custom-session agreement from Book's PR #5 is superseded for
 authentication. This update records Pai's requested implementation direction; it
 does not claim renewed confirmation from Bar and Book. Existing confirmed business
 rules in sections 5-11 are retained. Dashboard highPriorityCount and scope remain pending.
-As of W2-Book-01/02: /api/me, /api/users, project CRUD and the project member list are database-backed behind session guards. Tasks, comments, activity, dashboard and member add/remove are contract-only (W3 and later). See docs/w2-verification.md.
+As of W2-Book-01/02: /api/me, /api/users, project CRUD and the project member list are database-backed behind session guards. As of W3-Book-01/02: the project task endpoints (section 10.6, except `GET /api/tasks/mine`) are implemented behind the same guards and covered by automated HTTP tests; they have not been checked from the web UI yet. Comments, activity, dashboard, My Tasks and member add/remove are contract-only (W4 and later). See docs/w2-verification.md and docs/w3-verification.md.
 
 ## 0. Running the Backend
 
@@ -321,7 +321,7 @@ For validation errors the top-level message may be generic ("Request validation 
 
 ## 10. Endpoint Contracts (business rules confirmed previously; auth revised by Pai)
 
-Status: implemented in W2: 10.3 users, 10.4 projects, GET 10.5 member list, and GET /api/me. Remaining endpoints are contracts. Dashboard items in 10.9 remain pending.
+Status: implemented in W2: 10.3 users, 10.4 projects, GET 10.5 member list, and GET /api/me. Implemented in W3: the project task endpoints of 10.6 (not `GET /api/tasks/mine`). Remaining endpoints are contracts. Dashboard items in 10.9 remain pending.
 
 **Conventions**
 - Base path `/api`. Requests and responses are JSON.
@@ -637,7 +637,8 @@ Owner of these functions: Pai. Called by the backend.
 
 W3 DB implementation: `src/services/taskDb.ts` exports `listTasksByProject`,
 `getTaskById`, `createTask`, `updateTask`, and `deleteTask` with the signatures below.
-`listTasksForAssignee` remains W4. Task HTTP routes are still pending Book's integration.
+`listTasksForAssignee` remains W4. The task HTTP routes are implemented in `src/routes/tasks.ts`
+(W3-Book-01/02; see [W3 verification](../docs/w3-verification.md)); browser CRUD is not verified yet.
 See [Pai's W3 handoff](../docs/w3-pai-handoff.md) and [DB verification](../docs/w3-pai-verification.md).
 Before calling update/delete by task ID, the backend must check the role and use
 `getTaskById(project_id, task_id)` to reject a task belonging to another project.
@@ -679,5 +680,6 @@ Membership and minimum-assignee validation remain backend responsibilities.
    | `/api/auth/*` | Better Auth; sign-in, get-session and sign-out checked with a provisioned account; signup disabled |
    | `GET /api/me`, `GET /api/users` | Implemented, session-guarded |
    | `GET /api/projects`, `POST /api/projects`, `GET/PATCH/DELETE /api/projects/:projectId`, `GET /api/projects/:projectId/members` | Implemented, database-backed, Owner/Member guards; manual curl checks only |
-   | Project task endpoints in section 10.6 | DB list/detail/create/update/delete implemented and directly tested; HTTP routes/UI integration pending |
-   | All other endpoints in section 10 (member add/remove, My Tasks, comments, activity, dashboard) | Contract defined; no endpoint implementation yet |
+   | Project task endpoints in section 10.6 (`GET` list/detail, `POST`, `PATCH`, `DELETE` under `/api/projects/:projectId/tasks`) | Implemented, database-backed, Owner/Member guards; covered by automated HTTP tests (docs/w3-verification.md). Web UI flow not verified yet |
+   | `GET /api/tasks/mine` | Contract defined; no endpoint implementation yet (W4) |
+   | All other endpoints in section 10 (member add/remove, comments, activity, dashboard) | Contract defined; no endpoint implementation yet |

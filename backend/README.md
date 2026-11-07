@@ -2,7 +2,9 @@
 
 Express 5 + TypeScript (ESM), a shared PostgreSQL pool and Better Auth 1.7.7.
 Session guards, `GET /api/me`, `GET /api/users` and the project routes are backed by
-PostgreSQL. Tasks, comments, activity and dashboard endpoints are not implemented yet.
+PostgreSQL. The project task routes (`/api/projects/:projectId/tasks`) are implemented and
+covered by HTTP tests; they are not verified from the web UI yet. Comments, activity,
+dashboard, My Tasks and member add/remove endpoints are not implemented yet.
 The frontend Login is still a local mock until Bar integrates the auth client.
 
 ## Local setup
@@ -56,7 +58,7 @@ Run `npm run typecheck` before committing; `npm run dev` does not report type er
 | `src/guards.ts`, `src/middleware/auth.ts` | `requireAuth` and `requireProjectRole("Member" \| "Owner")` |
 | `src/errors.ts`, `src/pgErrors.ts` | `ApiError` and PostgreSQL error helpers |
 | `src/mappers/` | DB rows to public DTOs (BIGINT strings to numbers, dates, roles) |
-| `src/routes/` | `me.ts`, `users.ts`, `projects.ts` |
+| `src/routes/` | `me.ts`, `users.ts`, `projects.ts`, `tasks.ts` |
 | `src/services/` | Database functions (`authDb.ts`, `projectDb.ts`, `taskDb.ts`, `dbHelpers.ts`) |
 | `src/provisioning/`, `src/seed-accounts.ts` | Account provisioning (not part of the serving app) |
 
@@ -112,12 +114,15 @@ The server closes this pool on shutdown; standalone scripts close it themselves.
 [W1 scope](../docs/better-auth-w1.md), [W2 verification](../docs/w2-verification.md),
 [frontend handoff](../docs/w2-frontend-handoff.md).
 
-W3 task DB reads/CRUD are ready for Book in `src/services/taskDb.ts`; task HTTP
-routes and browser CRUD are still pending. See [W3 Pai handoff](../docs/w3-pai-handoff.md)
-for signatures, validation/permission responsibilities and the joint checklist,
-and [W3 verification](../docs/w3-pai-verification.md) for actual test results.
+W3 task DB reads/CRUD are in `src/services/taskDb.ts`, and the task HTTP routes are in
+`src/routes/tasks.ts` (mounted at `/api/projects/:projectId/tasks`, mapper in
+`src/mappers/task.ts`). The API is covered by automated HTTP tests; browser CRUD has not
+been checked yet. See [W3 Pai handoff](../docs/w3-pai-handoff.md) for DB signatures and the
+joint checklist, [W3 DB verification](../docs/w3-pai-verification.md) and
+[W3 API verification](../docs/w3-verification.md) for actual test results.
 
 From `backend`, run `npm run test:db -- taskDb.test.ts` for the task DB tests,
-or `npm run test:db` for the full suite. Both create and verify a uniquely named
+`npm run test:db -- taskRoutes.test.ts` for the task HTTP tests (they start `src/server.ts`
+on a random port against the isolated database), or `npm run test:db` for the full suite. Both create and verify a uniquely named
 `mobg_w2_test_<pid>_<random>` database before fixtures run, and remove only that
 database afterward. The W2 prefix is retained for compatibility with existing tests.

@@ -7,7 +7,7 @@ Team project for managing projects, tasks, members and comments.
 | Part | Technology / status |
 |---|---|
 | Frontend | Next.js, TypeScript, Tailwind. Login, Topbar and all screens still use local mocks; real integration is Bar's W2/W3 work |
-| Backend | Express 5, TypeScript, ESM. Session guards, `GET /api/me`, `GET /api/users` and project CRUD + member list are database-backed. Tasks, comments, activity and dashboard are contract-only |
+| Backend | Express 5, TypeScript, ESM. Session guards, `GET /api/me`, `GET /api/users` and project CRUD + member list are database-backed. Project task routes (list/detail/create/edit/status/delete) are implemented and covered by HTTP tests; comments, activity, dashboard and My Tasks are contract-only |
 | Authentication | Better Auth 1.7.7. Sign-in, session and sign-out work with provisioned accounts; public signup is disabled |
 | Database | PostgreSQL 17 in Docker. Migrations 001-005; each developer applies them to their own database |
 | Identity | Better Auth string IDs link to numeric MobG users through `users.auth_user_id` |
@@ -70,9 +70,11 @@ reports results; enforcing them requires that GitHub setting.
 - [W2 verification and handoff](docs/w2-verification.md)
 - [W2 frontend handoff](docs/w2-frontend-handoff.md)
 - [W2 account provisioning](docs/w2-account-provisioning.md)
+- [W3 API verification and handoff](docs/w3-verification.md)
 - [API contract and permissions](backend/API-CONTRACT.md)
 - [Database setup](database/README.md)
 - [Schema mapping](database/schema-mapping.md)
 
-Next: W3 adds members management, tasks, comments and activity. Responsive coding
-remains scheduled for W4.
+Next: connect the task screens to the task API (W3-Bar-01/02) and check the web flow
+together; members management, comments, activity, My Tasks and Dashboard follow in W4.
+Responsive coding remains scheduled for W4.

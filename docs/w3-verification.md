@@ -1,7 +1,8 @@
 # W3 verification and handoff (W3-Book-01, W3-Book-02)
 
-Branch: w3-task-api (suggested name; use the actual branch). Base: eb2e21a (merge of PR #15, Pai's W3 task DB work).
-Record date: 2026-11-05. This record separates results observed by the implementing
+PR #16, branch w3-task-api. Base: eb2e21a (merge of PR #15, Pai's W3 task DB work).
+First review was made against 39ff18a; the follow-up changes recorded below sit on top of it.
+Record date: 2026-11-07. This record separates results observed by the implementing
 agent, results reported from the team's terminal, and items not verified.
 
 ## Scope delivered
@@ -13,6 +14,24 @@ agent, results reported from the team's terminal, and items not verified.
 - HTTP integration tests that start the real server against the isolated test database.
 
 No change was made to `taskDb.ts`, the W2 guards, `errors.ts`, migrations or the frontend.
+
+## Review follow-up (changes on top of 39ff18a)
+
+1. `routes/tasks.ts`: a foreign-key violation becomes a 400 `assigneeIds` error only when
+   the code is 23503 **and** the constraint is `task_assignees_user_id_fkey` (a user that
+   disappeared after the membership check). FK violations on the project, creator, status
+   or task, and every other database error, are passed on to the error handler (500).
+2. New tests for the three cases: assignee FK gives 400; project/creator/status/task FK
+   (and an FK without a constraint name) are not assignee errors; unknown database errors
+   give 500 without SQL or secret text. A further test checks that the five constraint
+   names the route relies on exist in the migrated schema.
+3. `taskRoutes.test.ts`: the fixed due date `2026-12-01` is replaced by dates computed at
+   run time (Bangkok today + 30 and + 60 days), so `isOverdue` assertions cannot expire.
+4. New HTTP tests: PATCH of title, date and description leaves every other field
+   unchanged; anonymous detail/PATCH/DELETE, a garbage cookie and an expired session give
+   401; a valid session without a linked MobG profile gives 403 on every task route.
+5. Documentation that still described the Task API as pending now separates "API
+   implemented and HTTP-tested" from "web flow not checked" (see "Docs updated").
 
 ## Where the code lives
 
@@ -57,48 +76,64 @@ The suite provisions Owner, Member and Outsider through Better Auth, seeds the s
 (Owner + Member) and private (Owner only) fixture projects, starts `src/server.ts` as a
 child process on a random port against the isolated test database, signs in over HTTP and
 calls the API with real cookies. It runs through the existing `npm run test:db` runner.
+Due dates are computed at run time. Server stderr is captured and shown only if startup fails.
 
-| Test | Covers |
-|---|---|
-| authentication, membership and ID validation come first | 401 without cookie; 404 for Outsider (GET and POST) and unknown project; 400 for `1abc` project and task IDs |
-| empty project returns an empty list; invalid status is rejected | `[]` response; 400 for `status=Doing` and unknown query key |
-| Member creates a task as To do with the session creator; invalid input is rejected | 201 DTO (status, creator, dates, assignees); forged `createdBy`/`status`; no/duplicate/non-member assignees; null and impossible dates; empty and long title; bad priority; no row created by any rejected request; Member cannot create in a project they do not belong to |
-| PATCH changes only sent fields, clears with null, replaces assignees, rejects bad input | Status-only and priority-only changes leave every other field identical; status filter; `null` description; assignee replacement; 400 cases leave the task unchanged; Outsider and unknown task get 404 |
-| a task is only reachable through its own project | GET, PATCH and DELETE of a private-project task through the shared-project URL return 404 and change nothing |
-| only an Owner deletes; related rows are removed and repeats return 404 | Member 403, Outsider 404, no session 401; cascade verified in SQL for comments and assignees; repeat GET/DELETE 404 |
-| project summary reflects task changes made through the API | `totalTasks` and `completedTasks` of the project change after create and status change |
+| # | Test | Covers |
+|---|---|---|
+| 1 | authentication, membership and ID validation come first | 401 without cookie; 404 for Outsider (GET and POST) and unknown project; 400 for `1abc` project and task IDs |
+| 2 | empty project returns an empty list; invalid status is rejected | `[]` response; 400 for `status=Doing` and an unknown query key |
+| 3 | Member creates a task as To do with the session creator; invalid input is rejected | 201 DTO; forged `createdBy`/`status`; no/duplicate/non-member assignees; null and impossible dates; empty and long title; bad priority; rejected requests create no row |
+| 4 | PATCH changes only sent fields, clears with null, replaces assignees, rejects bad input | Status-only and priority-only changes; status filter; `null` description; assignee replacement; 400 cases change nothing; Outsider and unknown task get 404 |
+| 5 | a task is only reachable through its own project | GET, PATCH and DELETE through another project's URL return 404 and change nothing |
+| 6 | only an Owner deletes; related rows are removed and repeats return 404 | Member 403, Outsider 404, no session 401; cascade checked in SQL; repeats 404 |
+| 7 | project summary reflects task changes made through the API | `totalTasks` and `completedTasks` change after create and status change |
+| 8 | the foreign keys the route relies on keep their expected names | `pg_constraint` check of the five FK names and the tables they join |
+| 9 | only the assignee user FK becomes a 400 on create; other database errors are a safe 500 | Trigger-simulated errors on create: assignee user FK gives 400; project, creator and status FK, an FK without constraint name, the task FK of `task_assignees`, a duplicate-key error, `P0001` and a connection-class code (08006) give 500 with exactly the generic body and no SQL/secret/constraint text; no task row is left |
+| 10 | PATCH maps only the assignee user FK to 400; other database errors are a safe 500 and change nothing | Same on PATCH, including the assignee constraint name raised without `assigneeIds` in the request (500); the task is unchanged afterwards |
+| 11 | PATCH of title, date or description leaves every other field unchanged | Starts from status `In progress` and priority 1; each PATCH (title with spaces, due date, description, empty description) keeps the other fields identical |
+| 12 | anonymous requests, garbage cookies and an expired session get 401 on detail and PATCH | GET/PATCH/DELETE without cookie; a made-up session cookie; a real session whose `expires_at` is moved to the past (GET /api/me, list, detail, PATCH, DELETE) |
+| 13 | a valid session without a linked MobG profile gets 403 on every task route | Better Auth account created without a `users` link; `/api/me`, list, detail, POST, PATCH, DELETE all 403; the task is unchanged |
+
+Database errors in tests 9 and 10 are simulated with triggers that exist only for the
+duration of a call, in the isolated test database created by the runner. A mutation check
+confirmed the tests are effective: with the previous `tasks.ts` (any 23503 becomes 400),
+tests 9 and 10 fail and the other 11 pass.
 
 ## Observed results
 
-Observed by the implementing agent (Linux sandbox, PostgreSQL 16, Node.js with the repo
-lockfile), on base eb2e21a plus the four changed files:
+Observed by the implementing agent on the follow-up changes (Linux sandbox, PostgreSQL 16,
+dependencies from the repo lockfile), from the PR head 39ff18a plus the changes above:
 
 - `npm run typecheck`, `npm run typecheck:tests` and `npm run build`: no errors.
-- `npm run test:db`: 39 tests passed, 0 failed (32 existing + 7 new).
+- `npm run test:db`: **45 tests passed, 0 failed, 0 skipped** (32 existing + 13 task route
+  tests). No `mobg_w2_test_*` database remained afterwards.
+- `git diff --check`: no findings.
 
-Reported from the team terminal (Book, Windows):
-
-- `npm run typecheck` and `npm run typecheck:tests`: no errors.
-- `npm run test:db -- taskRoutes.test.ts`: 7 of 7 passed against the isolated database
-  `mobg_w2_test_31644_c2f043c1`.
+Reported earlier from the team terminal (Book, Windows), on head 39ff18a **before** the
+follow-up changes: `npm run test:db` 39 of 39 passed and `npm run build` completed without
+errors. That result does not cover the follow-up changes and is not reused for them.
 
 ## Not verified / open items
 
+- The follow-up changes have not been run on the team machine or in CI yet. The 45-test
+  result above comes from the agent's sandbox (PostgreSQL 16); CI runs PostgreSQL 17.
 - No browser or frontend check. W3-Bar-01/02 still use mock task data, so cookie/CORS
   behaviour, refresh, account switching and the create -> open -> edit -> status -> delete
   path from the web are untested.
-- Not run on the team machine yet: the full `npm run test:db` and `npm run build`
-  (the 39-test result above is from the agent's sandbox only). CI on the pull request
-  gives the result on PostgreSQL 17.
-- No manual curl/PowerShell checklist was run; evidence is the automated HTTP tests only.
+- The assignee FK mapping is tested with trigger-simulated errors and a schema check of the
+  constraint name. A real race (a user deleted between the membership check and the
+  insert) was not reproduced with concurrent requests. In that case the 400 lists every
+  requested assignee ID, because the database does not say which one is missing.
+- The expired-session case is simulated by moving `auth_sessions.expires_at` into the past,
+  the same technique as the W2 provisioning tests; natural expiry was not waited for.
 - The membership check and the write are separate database operations. Removing a member
   does not remove their `task_assignees` rows, and member removal is not implemented yet,
   so the FK backstop only covers deleted users. W4 member removal must follow the policy
   in docs/w3-pai-handoff.md (reject sole assignee and last Owner, remove assignments in
   the same transaction).
 - PATCH and DELETE load the task, then write in a second operation. A concurrent delete
-  between the two returns 404 from `updateTask`/`deleteTask` (handled), but concurrent
-  PATCHes are last-write-wins per field, except `assigneeIds`, which Pai's function locks.
+  between the two returns 404 from `updateTask`/`deleteTask` (handled); concurrent PATCHes
+  are last-write-wins per field, except `assigneeIds`, which Pai's function locks.
 - The test picks a random port in 5100-5899 and needs `CORS_ORIGIN` to match the Origin it
   sends (default `http://localhost:3000`). A port clash would fail the suite; rerun it.
 - The list has no pagination and only the `status` filter, as agreed for W3. Keyword and
@@ -106,15 +141,16 @@ Reported from the team terminal (Book, Windows):
 - Task `isOverdue` comes from the database (Asia/Bangkok, false when Done); the API does
   not recompute it.
 
-## Docs still to update
+## Docs updated
 
-- backend/API-CONTRACT.md section 12 and the header note still list the task HTTP routes
-  as pending.
-- backend/README.md and the root README.md describe tasks as contract-only.
-- database/schema-mapping.md ("Implementation Status") still says Task HTTP routes are
-  pending.
-- docs/w3-pai-handoff.md and docs/w3-pai-verification.md list API/permission checks as
-  waiting for Book; they can point to this record for the API part.
+These files described the Task API as pending and now say: API implemented and covered by
+HTTP tests, web flow not verified. Historical records dated before W3 were left as written.
+
+- backend/API-CONTRACT.md (header note, section 10 status, 11.3 note, section 12 readiness)
+- backend/README.md and README.md (status, source layout, test commands, next steps)
+- database/schema-mapping.md ("Implementation Status")
+- docs/w2-frontend-handoff.md ("Not available yet")
+- docs/w3-pai-handoff.md and docs/w3-pai-verification.md (status notes and checklist owners)
 
 ## Notes for Bar (W3-Bar-01, W3-Bar-02)
 
