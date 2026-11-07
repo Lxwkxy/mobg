@@ -18,6 +18,13 @@ const router = Router({ mergeParams: true });
 router.use(requireAuth);
 
 const taskNotFound = () => notFound("Task not found");
+// Only the assignee -> user foreign key means "an assignee no longer exists". FK violations on the
+// project, creator, status or task are server-side problems and must not be reported as input errors.
+const ASSIGNEE_USER_FKEY = "task_assignees_user_id_fkey";
+function isAssigneeUserFkViolation(error: unknown): boolean {
+  const { code, constraint } = pgErrorInfo(error);
+  return code === FOREIGN_KEY_VIOLATION && constraint === ASSIGNEE_USER_FKEY;
+}
 const assigneeError = (ids: number[]) => new ApiError(400, "VALIDATION_ERROR",
   "Assignees must be members of this project",
   ids.map((id) => ({ field: "assigneeIds", message: `User ${id} is not a member of this project` })));
@@ -72,7 +79,7 @@ router.post("/", requireProjectRole("Member"), async (req: Request, res: Respons
     taskId = domainIdToNumber(created.task_id);
   } catch (error) {
     // A user deleted between the membership check and the insert; the transaction rolled back.
-    if (pgErrorInfo(error).code === FOREIGN_KEY_VIOLATION) throw assigneeError(body.assigneeIds);
+    if (isAssigneeUserFkViolation(error)) throw assigneeError(body.assigneeIds);
     throw error;
   }
   const row = await getTaskById(projectId, taskId);
@@ -99,7 +106,7 @@ router.patch("/:taskId", requireProjectRole("Member"), async (req: Request, res:
   try {
     if (!(await updateTask(taskId, changes))) throw taskNotFound();
   } catch (error) {
-    if (pgErrorInfo(error).code === FOREIGN_KEY_VIOLATION && body.assigneeIds) throw assigneeError(body.assigneeIds);
+    if (body.assigneeIds && isAssigneeUserFkViolation(error)) throw assigneeError(body.assigneeIds);
     throw error;
   }
   const row = await getTaskById(projectId, taskId);
