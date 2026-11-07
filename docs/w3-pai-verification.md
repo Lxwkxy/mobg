@@ -88,11 +88,13 @@ npm run test:db
 
 ## ส่วนที่ยังไม่ถือว่าผ่าน
 
-- Task routes ยังไม่ได้ mount ใน backend; ยังไม่มี task mapper/API CRUD ให้ตรวจ HTTP.
+- (ณ วันที่บันทึกนี้) Task routes ยังไม่ได้ mount; ภายหลัง Book เพิ่ม task routes/mapper และ
+  HTTP tests แล้ว ผลอยู่ใน [w3-verification.md](w3-verification.md) ส่วนเว็บยังไม่ได้ตรวจ.
 - หน้า project detail ปัจจุบันอ่านรายละเอียด/summary ของโปรเจกต์ แต่ไม่มี Task CRUD.
   taskService เดิมใน mockData ยังเป็น mock. ไม่มีการกล่าวอ้างว่า browser flow ผ่าน.
-- ยังไม่ตรวจ task authorization HTTP 401/403/404, nonmember, cross-project URL,
-  cookie/session/CORS, create/edit/status/priority/assignee/delete จากเว็บ.
+- task authorization HTTP (401/403/404, nonmember, cross-project URL) ตรวจด้วย HTTP tests ของ
+  Book แล้ว (w3-verification.md); ยังไม่ตรวจ cookie/session/CORS และ
+  create/edit/status/priority/assignee/delete จากเว็บ.
 - [Handoff](w3-pai-handoff.md) มีตัวอย่างเรียก, validation/permission checks และ
   checklist ที่ต้องทำร่วมกับ Book/Bar. เมื่อ API พร้อมสามารถใช้ DB functions ได้ทันที.
 - W3-Pai-01 DB scope เสร็จ; W3-Pai-02 DB scope เสร็จแต่ทั้งการ์ดยังรอ integration.

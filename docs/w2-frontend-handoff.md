@@ -94,8 +94,10 @@ After task status changes (W3), re-fetch the project because `derivedStatus` and
 
 ## Not available yet
 
-Add/remove members, tasks, My Tasks, comments, activity and dashboard endpoints are
-still contract-only (W3 and later). Keep the existing mock data for those screens.
+Add/remove members, My Tasks, comments, activity and dashboard endpoints are still
+contract-only (W4 and later). Keep the existing mock data for those screens. The project
+task endpoints (list, detail, create, edit, change status, delete) are available since W3;
+see [W3 verification](w3-verification.md) for the request and response notes.
 Dashboard `highPriorityCount` and scope are not agreed yet.
 
 ## Quick manual check

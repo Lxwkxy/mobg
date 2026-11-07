@@ -33,8 +33,9 @@ timestamp ใช้ `.toISOString()`. ห้าม `Number(...)` โดยไม
 overdue เมื่อวาน/วันนี้/พรุ่งนี้/Done ผ่าน direct PostgreSQL tests.
 ทดสอบ overdue โดยตั้งวันใน session DB ให้ต่างจากกรุงเทพด้วย.
 
-API งานยังไม่มีใน `server.ts`/`routes`; หน้า project detail มีเฉพาะข้อมูลโปรเจกต์.
-ความพร้อมนี้เป็น DB functions ไม่ใช่ผลผ่านการตรวจสิทธิ์ HTTP หรือ CRUD หน้าเว็บ.
+อัปเดตภายหลัง: Book เพิ่ม task routes ใน `backend/src/routes/tasks.ts` แล้ว (ผล HTTP tests ดู
+[w3-verification.md](w3-verification.md)); ส่วนนี้ ณ วันที่ 2026-10-26 ยังไม่มี API.
+หน้า project detail มีเฉพาะข้อมูลโปรเจกต์ และ CRUD หน้าเว็บยังไม่ได้ตรวจ.
 
 ## ส่วนบันทึกพร้อมใช้
 
@@ -155,10 +156,10 @@ keyword/priority search และ My Tasks เป็น W4 ไม่เพิ่
 
 | ขั้นตอน | ผลที่ต้องได้ | เจ้าของ / สถานะ |
 |---|---|---|
-| Login Owner/Member แล้ว GET tasks/detail, status filter | 200, DTO ครบ, ไม่ซ้ำ, เรียงตรง DB | Book; รอ task routes |
-| ไม่มี/หมดอายุ session, Outsider, taskId ผิดโปรเจกต์ | 401 / 404 / 404 ไม่มีข้อมูลงานรั่ว | Book; ยังไม่ตรวจ HTTP |
-| Member POST/PATCH; Member DELETE; Owner DELETE | สร้าง/แก้ได้; 403 เมื่อลบโดย Member; Owner ลบได้ | Book; รอ routes |
-| ส่ง title/date/priority/status ผิด, assignees ว่าง/ซ้ำ/nonmember, identity ปลอม | 400 พร้อม field details; DB ไม่เปลี่ยน | Book |
+| Login Owner/Member แล้ว GET tasks/detail, status filter | 200, DTO ครบ, ไม่ซ้ำ, เรียงตรง DB | Book; API ตรวจด้วย HTTP tests แล้ว (w3-verification.md); เว็บยังไม่ตรวจ |
+| ไม่มี/หมดอายุ session, Outsider, taskId ผิดโปรเจกต์ | 401 / 404 / 404 ไม่มีข้อมูลงานรั่ว | Book; ตรวจด้วย HTTP tests แล้ว (401/404/404, session หมดอายุ); เว็บยังไม่ตรวจ |
+| Member POST/PATCH; Member DELETE; Owner DELETE | สร้าง/แก้ได้; 403 เมื่อลบโดย Member; Owner ลบได้ | Book; API ตรวจด้วย HTTP tests แล้ว; เว็บยังไม่ตรวจ |
+| ส่ง title/date/priority/status ผิด, assignees ว่าง/ซ้ำ/nonmember, identity ปลอม | 400 พร้อม field details; DB ไม่เปลี่ยน | Book; API ตรวจด้วย HTTP tests แล้ว |
 | สร้างจากเว็บ → เปิด → refresh | ค่าและ assignees ตรง DB; เริ่ม To do | Bar + Book + Pai |
 | PATCH title/description/date/assignees และเปลี่ยนเฉพาะ Status/Priority | ช่องที่ไม่ส่งคงเดิม; null ล้าง description; สรุปโปรเจกต์อัปเดต | Bar + Book + Pai |
 | ยกเลิกลบ แล้วจึงยืนยันลบ | ยกเลิกแล้วข้อมูลอยู่; ยืนยันแล้วงาน/assignees/comments หาย; งานอื่นอยู่ | Bar + Book + Pai |

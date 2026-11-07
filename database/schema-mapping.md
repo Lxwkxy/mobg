@@ -299,9 +299,11 @@ Apply the following rules in order:
   against migrations 001–005; no new migration is required. Task/assignee/comment
   cascade, rollback, Bangkok overdue and project summaries are tested directly.
   Minimum assignees and membership remain Backend checks, including Done tasks.
-  Task HTTP routes and browser CRUD remain pending. See [W3 handoff](../docs/w3-pai-handoff.md)
-  and [verification](../docs/w3-pai-verification.md); these supersede older pending
-  DB implementation notes above without claiming API/UI completion.
+  The task HTTP routes are implemented in `backend/src/routes/tasks.ts` and covered by
+  automated HTTP tests ([W3 API verification](../docs/w3-verification.md)); browser CRUD
+  has not been checked yet. See [W3 handoff](../docs/w3-pai-handoff.md) and
+  [DB verification](../docs/w3-pai-verification.md); these supersede older pending
+  DB implementation notes above without claiming UI completion.
 
 ## Example Joined Task Record
 
