@@ -13,7 +13,7 @@ type Props = {
 };
 
 const buttonClass =
-  'rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px] text-[#333333] hover:bg-[#f4f4f4] disabled:cursor-not-allowed disabled:opacity-60';
+  'min-h-11 rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px] text-[#333333] hover:bg-[#f4f4f4] disabled:cursor-not-allowed disabled:opacity-60';
 
 export default function ProtectedState({ status, errorMessage, onRetry }: Props) {
   const router = useRouter();
@@ -49,7 +49,7 @@ export default function ProtectedState({ status, errorMessage, onRetry }: Props)
   }
 
   return (
-    <div className="flex min-h-[200px] flex-col items-center justify-center gap-3">
+    <div className="min-w-0 flex min-h-[200px] flex-col items-center justify-center gap-3 [overflow-wrap:anywhere]">
       <p role="alert" className="text-center text-[13px] text-[#888888]">
         {status === 'login-required' && 'You need to log in to view this page.'}
         {status === 'no-profile' &&

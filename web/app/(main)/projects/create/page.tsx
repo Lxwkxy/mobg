@@ -296,7 +296,7 @@ export default function CreateProjectPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto min-w-0 w-full max-w-6xl [overflow-wrap:anywhere]">
       <div className="mb-6">
         <p className="mb-1 text-[13px] font-medium text-[#777777]">
           Create a new project
@@ -311,11 +311,11 @@ export default function CreateProjectPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 items-start gap-6 md:gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid grid-cols-1 items-start gap-6 md:gap-8 xl:grid-cols-[minmax(0,1fr)_280px]">
         <form
           onSubmit={handleSubmit}
           noValidate
-          className="min-w-0 rounded-2xl border border-[#e0e0e0] bg-white p-6 shadow-sm md:p-8"
+          className="min-w-0 rounded-2xl border border-[#e0e0e0] bg-white p-4 shadow-sm sm:p-6 md:p-8"
         >
           {errors.general && (
             <div
@@ -325,7 +325,7 @@ export default function CreateProjectPage() {
               <span aria-hidden="true" className="font-bold">
                 !
               </span>
-              <p>{errors.general}</p>
+              <p className="min-w-0">{errors.general}</p>
             </div>
           )}
 
@@ -382,7 +382,7 @@ export default function CreateProjectPage() {
                 <span />
               )}
 
-              <span className="text-[11px] text-[#999999]">
+              <span className="shrink-0 text-[11px] text-[#999999]">
                 {projectName.length}/150
               </span>
             </div>
@@ -411,7 +411,7 @@ export default function CreateProjectPage() {
           </div>
 
           {/* DATES */}
-          <div className="mb-5 grid gap-5 sm:grid-cols-2">
+          <div className="mb-5 grid gap-5 sm:grid-cols-2 [&>div]:min-w-0">
             <div>
               <label
                 htmlFor="startDate"
@@ -430,7 +430,7 @@ export default function CreateProjectPage() {
                   clearFieldError('startDate');
                   clearFieldError('dueDate');
                 }}
-                className={`w-full rounded-xl border px-4 py-3 text-[13px] text-[#333333] outline-none transition-colors focus:border-[#555555] ${
+                className={`min-w-0 max-w-full w-full rounded-xl border px-3 py-3 text-base sm:text-[13px] text-[#333333] outline-none transition-colors focus:border-[#555555] ${
                   errors.startDate
                     ? 'border-red-500 bg-red-50 focus:border-red-500'
                     : 'border-[#dcdcdc]'
@@ -469,7 +469,7 @@ export default function CreateProjectPage() {
                   setDueDate(event.target.value);
                   clearFieldError('dueDate');
                 }}
-                className={`w-full rounded-xl border px-4 py-3 text-[13px] text-[#333333] outline-none transition-colors focus:border-[#555555] ${
+                className={`min-w-0 max-w-full w-full rounded-xl border px-3 py-3 text-base sm:text-[13px] text-[#333333] outline-none transition-colors focus:border-[#555555] ${
                   errors.dueDate
                     ? 'border-red-500 bg-red-50 focus:border-red-500'
                     : 'border-[#dcdcdc]'
@@ -517,15 +517,15 @@ export default function CreateProjectPage() {
                   return (
                     <span
                       key={member.userId}
-                      className="inline-flex items-center gap-2 rounded-full border border-[#e0e0e0] bg-[#f7f7f7] py-1.5 pl-3 pr-2 text-[12px] text-[#333333]"
+                      className="min-w-0 max-w-full inline-flex items-center gap-2 rounded-2xl border border-[#e0e0e0] bg-[#f7f7f7] py-1.5 pl-3 pr-2 text-[12px] text-[#333333]"
                     >
-                      {member.userName}
+                      <span className="min-w-0">{member.userName}</span>
 
                       <button
                         type="button"
                         aria-label={`Remove ${member.userName}`}
                         onClick={() => toggleMember(Number(member.userId))}
-                        className="flex h-5 w-5 items-center justify-center rounded-full text-[#777777] transition-colors hover:bg-[#e5e5e5] hover:text-[#111111]"
+                        className="shrink-0 flex h-11 w-11 items-center justify-center rounded-full text-[#777777] transition-colors hover:bg-[#e5e5e5] hover:text-[#111111]"
                       >
                         ×
                       </button>
@@ -569,7 +569,7 @@ export default function CreateProjectPage() {
                   }}
                   placeholder="Search members by name or email..."
                   autoComplete="off"
-                  className="w-full border-0 bg-transparent py-3 text-[13px] text-[#222222] outline-none placeholder:text-[#888888]"
+                  className="min-w-0 w-full border-0 bg-transparent py-3 text-base sm:text-[13px] text-[#222222] outline-none placeholder:text-[#888888]"
                 />
 
                 {memberSearch && (
@@ -577,7 +577,7 @@ export default function CreateProjectPage() {
                     type="button"
                     onClick={() => setMemberSearch('')}
                     aria-label="Clear member search"
-                    className="text-lg leading-none text-[#888888] hover:text-[#222222]"
+                    className="shrink-0 min-h-11 min-w-11 text-lg leading-none text-[#888888] hover:text-[#222222]"
                   >
                     ×
                   </button>
@@ -595,7 +595,7 @@ export default function CreateProjectPage() {
 
                   <div
                     id="member-search-results"
-                    className="absolute z-20 mt-2 max-h-60 w-full overflow-y-auto rounded-xl border border-[#e0e0e0] bg-white p-2 shadow-lg"
+                    className="absolute z-20 mt-2 max-h-60 w-full overflow-y-auto overscroll-contain rounded-xl border border-[#e0e0e0] bg-white p-2 shadow-lg"
                   >
                     {filteredUsers.length === 0 ? (
                       <p className="p-3 text-[12px] text-[#777777]">
@@ -626,10 +626,10 @@ export default function CreateProjectPage() {
                           </span>
 
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[13px] font-medium text-[#222222]">
+                            <span className="block text-[13px] font-medium text-[#222222]">
                               {user.userName}
                             </span>
-                            <span className="block truncate text-[11px] text-[#888888]">
+                            <span className="block text-[11px] text-[#888888]">
                               {user.email}
                             </span>
                           </span>
@@ -655,7 +655,7 @@ export default function CreateProjectPage() {
           </div>
 
           {/* FORM ACTIONS */}
-          <div className="flex items-center justify-end gap-3 pt-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-3 pt-2">
             <button
               type="button"
               disabled={isSaving}
@@ -663,7 +663,7 @@ export default function CreateProjectPage() {
                 resetForm();
                 router.push('/projects');
               }}
-              className="rounded-xl border border-[#dcdcdc] bg-white px-6 py-2.5 text-[13px] font-semibold text-[#333333] transition-colors hover:bg-[#f4f4f4] disabled:cursor-not-allowed disabled:opacity-50"
+              className="min-h-11 rounded-xl border border-[#dcdcdc] bg-white px-6 py-2.5 text-[13px] font-semibold text-[#333333] transition-colors hover:bg-[#f4f4f4] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Cancel
             </button>
@@ -671,7 +671,7 @@ export default function CreateProjectPage() {
             <button
               type="submit"
               disabled={isSaving}
-              className="rounded-xl bg-[#2a2a2a] px-6 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#111111] disabled:cursor-not-allowed disabled:opacity-50"
+              className="min-h-11 rounded-xl bg-[#2a2a2a] px-6 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#111111] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isSaving ? 'Creating...' : 'Create project'}
             </button>

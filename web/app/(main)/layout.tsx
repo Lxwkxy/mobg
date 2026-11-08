@@ -8,19 +8,19 @@ export default function MainLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen bg-[#e8e8e8] text-[#2b2b2b]">
+    <div className="flex min-h-screen flex-col lg:flex-row bg-[#e8e8e8] text-[#2b2b2b]">
       <Suspense
         fallback={
-          <aside className="fixed inset-y-0 left-0 w-[240px] border-r border-[#e0e0e0] bg-white" />
+          <aside className="h-24 lg:h-auto lg:fixed lg:inset-y-0 lg:left-0 lg:w-[240px] border-r border-[#e0e0e0] bg-white" />
         }
       >
         <Sidebar />
       </Suspense>
 
-      <div className="ml-[240px] flex-1 flex flex-col min-h-screen">
+      <div className="min-w-0 lg:ml-[240px] flex-1 flex flex-col min-h-screen">
         <Topbar />
 
-        <main className="p-[32px_36px] flex-1">
+        <main className="min-w-0 p-4 sm:p-6 lg:p-[32px_36px] flex-1">
           <Suspense
             fallback={
               <p className="text-[13px] text-[#777777]">
