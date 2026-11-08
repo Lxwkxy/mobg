@@ -123,6 +123,37 @@ test("authentication, membership and ID validation come first", async () => {
   assert.equal((await api("owner", "GET", `${tasksUrl(shared)}/1abc`)).status, 400);
 });
 
+test("membership lost after route validation returns 400 on create and update, with no partial writes", async () => {
+  const project = await api("owner", "POST", "/api/projects", { projectName: "W4 validation race",
+    startDate: "2026-01-01", memberIds: [ids.member] });
+  assert.equal(project.status, 201);
+  const projectId = project.body.project.projectId;
+  const created = await api("owner", "POST", tasksUrl(projectId), valid([ids.owner]));
+  assert.equal(created.status, 201);
+  const taskId = created.body.task.taskId;
+  // Simulate membership disappearing between the HTTP precheck and the DB recheck.
+  // This is error mapping evidence; the true concurrent transaction test is in w4Db.test.ts.
+  await pool.query(`CREATE FUNCTION w4_lose_membership() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      DELETE FROM project_members WHERE project_id = NEW.project_id AND role = 'Member';
+      RETURN NEW;
+    END $$;
+    CREATE TRIGGER w4_lose_membership BEFORE INSERT OR UPDATE ON tasks
+    FOR EACH ROW EXECUTE FUNCTION w4_lose_membership()`);
+  try {
+    for (const method of ["POST", "PATCH"] as const) {
+      const response = await api("owner", method, tasksUrl(projectId) + (method === "PATCH" ? `/${taskId}` : ""), valid([ids.member]));
+      assert.equal(response.status, 400);
+      assert.equal(response.body.error.code, "VALIDATION_ERROR");
+      assert.equal(response.body.error.details[0].field, "assigneeIds");
+    }
+    assert.deepEqual((await api("owner", "GET", `${tasksUrl(projectId)}/${taskId}`)).body.task, created.body.task);
+    assert.equal((await api("owner", "GET", tasksUrl(projectId))).body.tasks.length, 1);
+  } finally {
+    await pool.query("DROP TRIGGER w4_lose_membership ON tasks; DROP FUNCTION w4_lose_membership()");
+  }
+});
+
 test("empty project returns an empty list; invalid status is rejected", async () => {
   const empty = await api("owner", "GET", tasksUrl(shared));
   assert.equal(empty.status, 200);

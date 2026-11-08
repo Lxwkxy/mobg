@@ -67,7 +67,7 @@ export interface DashboardSummary {
   taskCount: number;
   statusCounts: { todo: number; inProgress: number; done: number };
   overdueCount: number;
-  highPriorityCount: number; // Calculation and dashboard scope are pending W2 agreement.
+  highPriorityCount: number; // Priority 1, excluding Done, in current member projects (W4 decision).
 }
 export interface Pagination {
   page: number;

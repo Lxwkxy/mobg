@@ -6,8 +6,8 @@ Reference: [schema mapping](../database/schema-mapping.md) and [W1 scope](../doc
 The previous bcrypt/custom-session agreement from Book's PR #5 is superseded for
 authentication. This update records Pai's requested implementation direction; it
 does not claim renewed confirmation from Bar and Book. Existing confirmed business
-rules in sections 5-11 are retained. Dashboard highPriorityCount and scope remain pending.
-As of W2-Book-01/02: /api/me, /api/users, project CRUD and the project member list are database-backed behind session guards. As of W3-Book-01/02: the project task endpoints (section 10.6, except `GET /api/tasks/mine`) are implemented behind the same guards and covered by automated HTTP tests; they have not been checked from the web UI yet. Comments, activity, dashboard, My Tasks and member add/remove are contract-only (W4 and later). See docs/w2-verification.md and docs/w3-verification.md.
+rules in sections 5-11 are retained. Dashboard scope and priority rules were resolved for W4 on 2026-11-08 (see section 10.9).
+As of W2-Book-01/02: /api/me, /api/users, project CRUD and the project member list are database-backed behind session guards. As of W3-Book-01/02: the project task endpoints (section 10.6, except `GET /api/tasks/mine`) are implemented behind the same guards and covered by automated HTTP tests; they have not been checked from the web UI yet. W4 DB functions for Dashboard, important tasks, My Tasks and member add/remove are implemented; their HTTP endpoints remain pending. Comments and activity remain contract-only. See docs/w2-verification.md, docs/w3-verification.md and docs/w4-pai-verification.md.
 
 ## 0. Running the Backend
 
@@ -207,7 +207,7 @@ Evaluated sequentially using the following precedence rules:
 ### Overdue Calculation (`isOverdue`) **[Confirmed by team]**
 - A task is overdue if `dueDate < today` (evaluated in `Asia/Bangkok` date comparison) **and** `status != 'Done'`. Completed tasks are never overdue.
 - The API delivers `isOverdue: boolean` computed by the backend; the frontend should not duplicate this calculation.
-- Extended Dashboard metrics (High priority counts, user-scoped metrics) will be finalized in W2.
+- W4 Dashboard metrics use all tasks in current member projects; High priority excludes Done (section 10.9).
 
 ---
 
@@ -321,7 +321,7 @@ For validation errors the top-level message may be generic ("Request validation 
 
 ## 10. Endpoint Contracts (business rules confirmed previously; auth revised by Pai)
 
-Status: implemented in W2: 10.3 users, 10.4 projects, GET 10.5 member list, and GET /api/me. Implemented in W3: the project task endpoints of 10.6 (not `GET /api/tasks/mine`). Remaining endpoints are contracts. Dashboard items in 10.9 remain pending.
+Status: implemented in W2: 10.3 users, 10.4 projects, GET 10.5 member list, and GET /api/me. Implemented in W3: the project task endpoints of 10.6 (not `GET /api/tasks/mine`). Remaining HTTP endpoints are contracts. W4 My Tasks, member add/remove and Dashboard DB functions are implemented; Dashboard definitions in 10.9 are resolved for this W4 task.
 
 **Conventions**
 - Base path `/api`. Requests and responses are JSON.
@@ -598,7 +598,9 @@ Activity object:
 ```
 
 - Scope: projects the current user belongs to. Each distinct task is counted once.
-- **[Pending]** `highPriorityCount` (proposed rule: `priority = 1` and status not `Done`) and the dashboard user scope are not confirmed yet in `schema-mapping.md`.
+- **[W4 decision, 2026-11-08]** The user delegated the scope choice: all tasks in projects where the user is currently a member. This matches `projectCount` and project progress; My Tasks separately scopes by assignment. This records the current task decision, not a new confirmation from Book/Bar.
+- The user confirmed `highPriorityCount` and the important-task list use `priority = 1` and status not `Done`. The list orders `due_date`, then `task_id`, ascending; default limit 5, allowed integer range 1–100.
+- DB implementations: `getDashboardSummary(user_id)` in `services/dashboardDb.ts`, `listHighPriorityTasks(user_id, limit = 5)` in `services/taskDb.ts`. Both use current membership scope, without assignee joins multiplying task counts. HTTP endpoint/list envelope and UI integration remain Book/Bar work.
 
 ---
 
@@ -637,13 +639,13 @@ Owner of these functions: Pai. Called by the backend.
 
 W3 DB implementation: `src/services/taskDb.ts` exports `listTasksByProject`,
 `getTaskById`, `createTask`, `updateTask`, and `deleteTask` with the signatures below.
-`listTasksForAssignee` remains W4. The task HTTP routes are implemented in `src/routes/tasks.ts`
+W4 adds `listTasksForAssignee` and `listHighPriorityTasks`. The task HTTP routes are implemented in `src/routes/tasks.ts`
 (W3-Book-01/02; see [W3 verification](../docs/w3-verification.md)); browser CRUD is not verified yet.
 See [Pai's W3 handoff](../docs/w3-pai-handoff.md) and [DB verification](../docs/w3-pai-verification.md).
 Before calling update/delete by task ID, the backend must check the role and use
 `getTaskById(project_id, task_id)` to reject a task belonging to another project.
 Omitted/undefined PATCH fields stay unchanged; only `task_description` accepts null.
-Membership and minimum-assignee validation remain backend responsibilities.
+Backend validates membership and minimum assignees first. W4 create/update also recheck these inside the transaction under a shared project lock, coordinating with member add/remove. A stale membership or empty set throws `InvalidTaskAssigneesError`; existing task routes map it to 400 `VALIDATION_ERROR`. Native database errors still propagate. See [W4 handoff](../docs/w4-pai-handoff.md) for locking and authorization limits.
 
 `task` row: `{ task_id, task_title, task_description, priority, due_date, task_create_date, project_id, project_name, status_name, is_overdue, created_by, created_by_name, assignees: [{ user_id, user_name }] }` with `assignees` ordered by `user_name`, `user_id`.
 
@@ -652,11 +654,15 @@ Membership and minimum-assignee validation remain backend responsibilities.
 | `listTasksByProject({ project_id, status_name })` | `status_name`: `null` or `'To Do' \| 'Doing' \| 'Done'` | `[task]` ordered by `due_date`, `task_id` |
 | `getTaskById(project_id, task_id)` | ids | `task`, or `null` if the task does not exist **in that project** |
 | `listTasksForAssignee({ user_id, status_name })` | as above | `[task]` ordered by `due_date`, `task_id` |
+| `listHighPriorityTasks(user_id, limit = 5)` | linked session MobG ID; limit integer 1–100 | `[task]` in current member projects, priority 1, excluding Done; ordered by `due_date`, `task_id`, then limited |
 | `createTask({ project_id, task_title, task_description, priority, due_date, created_by, assignee_ids })` | `assignee_ids`: array of ids | `{ task_id }`. Resolves the `To Do` `status_id` by name; inserts the task and its assignees in one transaction. The backend validates membership and the minimum of one assignee first (section 6). |
 | `updateTask(task_id, changes)` | `changes`: any of `task_title`, `task_description`, `priority`, `due_date`, `status_name`, `assignee_ids` | `true` if the task exists, else `false`. `status_name` is resolved to `status_id` by name. `assignee_ids` replaces the whole set in the same transaction. |
 | `deleteTask(task_id)` | task id | `true` if deleted, else `false`. Removes `task_assignees` rows and the task; comments are removed by `ON DELETE CASCADE`. |
 
 `is_overdue` = `due_date` is before today in `Asia/Bangkok` and `status_name` is not `Done`.
+
+My Tasks requires both assignment and current project membership with role Owner or Member; unknown roles grant no access. Dashboard counts and important tasks use the same role whitelist. The W4 user confirmed status-only filtering; no search/priority/project query fields or pagination are added to the public interface. Existing mock UI controls are not API capabilities.
+Member add/remove implementations live in `projectDb.ts`; rejection task lists are ordered by `task_id` ascending. Their HTTP routes remain pending.
 
 ### 11.4 Comments, activity, dashboard
 

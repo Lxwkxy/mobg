@@ -1,6 +1,7 @@
 import { pool } from "../db.js";
-import { assertDomainId, withTransaction } from "./dbHelpers.js";
+import { assertDomainId, lockProject, withTransaction } from "./dbHelpers.js";
 import type { TaskStatus } from "../contracts/api.js";
+import type { TaskStatusName } from "./taskDb.js";
 
 export interface ProjectMembershipRow { project_id: string; user_id: string; role: string }
 export type FindProjectMembership = (projectId: number, userId: number) => Promise<ProjectMembershipRow | null>;
@@ -137,4 +138,47 @@ export async function listProjectMembers(projectId: number): Promise<ProjectMemb
   return (await pool.query<ProjectMemberRow>(`SELECT u.user_id, u.user_name, u.email, m.role, m.date_join::text
     FROM project_members m JOIN users u ON u.user_id = m.user_id WHERE m.project_id = $1
     ORDER BY CASE WHEN m.role = 'Owner' THEN 0 ELSE 1 END, u.user_name, u.user_id`, [projectId])).rows;
+}
+
+export interface AddedProjectMemberRow extends ProjectMembershipRow { role: "Member"; date_join: string }
+
+export async function addProjectMember(projectId: number, userId: number): Promise<AddedProjectMemberRow> {
+  assertDomainId(projectId); assertDomainId(userId);
+  return withTransaction(async (client) => {
+    await lockProject(client, projectId);
+    return (await client.query<AddedProjectMemberRow>(`INSERT INTO project_members (project_id, user_id, role)
+      VALUES ($1, $2, 'Member') RETURNING project_id, user_id, role, date_join::text`, [projectId, userId])).rows[0]!;
+  });
+}
+
+export interface SoleAssigneeTask { task_id: string; task_title: string; status_name: TaskStatusName }
+export type RemoveProjectMemberResult = { removed: true }
+  | { removed: false; reason: "NOT_MEMBER" | "LAST_OWNER" }
+  | { removed: false; reason: "SOLE_ASSIGNEE"; tasks: SoleAssigneeTask[] };
+
+export async function removeProjectMember(projectId: number, userId: number): Promise<RemoveProjectMemberResult> {
+  assertDomainId(projectId); assertDomainId(userId);
+  return withTransaction(async (client) => {
+    // All membership/assignee writers must acquire the project lock before task locks.
+    await lockProject(client, projectId);
+    const member = (await client.query<{ role: string }>(
+      "SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2", [projectId, userId])).rows[0];
+    if (!member) return { removed: false, reason: "NOT_MEMBER" };
+    if (member.role === "Owner") {
+      const others = await client.query(`SELECT 1 FROM project_members
+        WHERE project_id = $1 AND user_id <> $2 AND role = 'Owner'`, [projectId, userId]);
+      if (!others.rowCount) return { removed: false, reason: "LAST_OWNER" };
+    }
+    const sole = (await client.query<SoleAssigneeTask>(`SELECT t.task_id, t.task_title, s.status_name
+      FROM tasks t JOIN task_statuses s USING (status_id)
+      WHERE t.project_id = $1
+        AND EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.task_id AND a.user_id = $2)
+        AND NOT EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.task_id AND a.user_id <> $2)
+      ORDER BY t.task_id`, [projectId, userId])).rows;
+    if (sole.length) return { removed: false, reason: "SOLE_ASSIGNEE", tasks: sole };
+    await client.query(`DELETE FROM task_assignees a USING tasks t
+      WHERE a.task_id = t.task_id AND t.project_id = $1 AND a.user_id = $2`, [projectId, userId]);
+    await client.query("DELETE FROM project_members WHERE project_id = $1 AND user_id = $2", [projectId, userId]);
+    return { removed: true };
+  });
 }
