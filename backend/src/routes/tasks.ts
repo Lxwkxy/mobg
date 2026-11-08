@@ -7,7 +7,7 @@ import { FOREIGN_KEY_VIOLATION, pgErrorInfo } from "../pgErrors.js";
 import { domainIdToNumber } from "../services/dbHelpers.js";
 import { listProjectMembers } from "../services/projectDb.js";
 import {
-  createTask, deleteTask, getTaskById, listTasksByProject, updateTask, type TaskChanges,
+  createTask, deleteTask, getTaskById, InvalidTaskAssigneesError, listTasksByProject, updateTask, type TaskChanges,
 } from "../services/taskDb.js";
 import {
   createTaskSchema, parseRequest, taskListQuerySchema, updateTaskSchema, urlIdSchema,
@@ -78,6 +78,7 @@ router.post("/", requireProjectRole("Member"), async (req: Request, res: Respons
     });
     taskId = domainIdToNumber(created.task_id);
   } catch (error) {
+    if (error instanceof InvalidTaskAssigneesError) throw assigneeError(error.userIds);
     // A user deleted between the membership check and the insert; the transaction rolled back.
     if (isAssigneeUserFkViolation(error)) throw assigneeError(body.assigneeIds);
     throw error;
@@ -106,6 +107,7 @@ router.patch("/:taskId", requireProjectRole("Member"), async (req: Request, res:
   try {
     if (!(await updateTask(taskId, changes))) throw taskNotFound();
   } catch (error) {
+    if (error instanceof InvalidTaskAssigneesError) throw assigneeError(error.userIds);
     if (body.assigneeIds && isAssigneeUserFkViolation(error)) throw assigneeError(body.assigneeIds);
     throw error;
   }

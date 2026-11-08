@@ -12,6 +12,12 @@ export function domainIdToNumber(id: string): number {
   return number;
 }
 
+// Shared ordering for membership/assignee writes: project, then task, then relationships.
+// Existing project UPDATE/DELETE also takes a conflicting row lock automatically.
+export async function lockProject(client: PoolClient, projectId: number | string): Promise<void> {
+  await client.query("SELECT project_id FROM projects WHERE project_id = $1 FOR UPDATE", [projectId]);
+}
+
 export async function withTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
   let broken = false;
