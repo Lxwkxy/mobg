@@ -53,7 +53,7 @@ export default function MyTasksPage() {
   });
 
   return (
-    <div>
+    <div className="min-w-0">
       <div className="mb-6">
         <h1 className="text-[32px] font-extrabold text-[#1f1f1f] mb-1">
           My Tasks
@@ -64,14 +64,15 @@ export default function MyTasksPage() {
       </div>
 
       {/* FILTER & TABS ROW */}
-      <div className="flex items-center justify-between gap-4 mb-6">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-4 mb-6">
+        <div aria-label="Task filters" className="flex flex-wrap items-center gap-2">
           {tabs.map((tab) => (
             <button
               key={tab.name}
               type="button"
               onClick={() => setActiveTab(tab.name)}
-              className={`px-3.5 py-2 rounded-lg text-[13px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+              aria-pressed={activeTab === tab.name}
+              className={`min-h-11 px-3.5 py-2 rounded-lg text-[13px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
                 activeTab === tab.name
                   ? 'bg-[#dcdcdc] text-[#111111] font-bold'
                   : 'bg-white border border-[#dcdcdc] text-[#555555] hover:bg-[#f4f4f4]'
@@ -85,23 +86,24 @@ export default function MyTasksPage() {
           ))}
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-white border border-[#dcdcdc] rounded-lg px-3.5 py-2 w-[220px]">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3">
+          <div className="flex min-w-0 min-h-11 items-center gap-2 bg-white border border-[#dcdcdc] rounded-lg px-3.5 py-2 w-full sm:w-[220px] sm:flex-1">
             <span className="text-[12px] text-[#888]">🔍</span>
             <input
               type="text"
               placeholder="Search tasks..."
-              className="border-none bg-transparent outline-none w-full text-[13px]"
+              aria-label="Search tasks"
+              className="min-w-0 border-none bg-transparent outline-none w-full text-[13px]"
             />
           </div>
 
-          <select className="bg-white border border-[#dcdcdc] rounded-lg px-3 py-2 text-[13px] text-[#444] outline-none cursor-pointer">
+          <select aria-label="Project filter" className="min-w-0 min-h-11 bg-white border border-[#dcdcdc] rounded-lg px-3 py-2 text-[13px] text-[#444] outline-none cursor-pointer">
             <option>All project</option>
             <option>Web Programming</option>
             <option>OS Project</option>
           </select>
 
-          <select className="bg-white border border-[#dcdcdc] rounded-lg px-3 py-2 text-[13px] text-[#444] outline-none cursor-pointer">
+          <select aria-label="Sort tasks" className="min-w-0 min-h-11 bg-white border border-[#dcdcdc] rounded-lg px-3 py-2 text-[13px] text-[#444] outline-none cursor-pointer">
             <option>Sort by</option>
             <option>Priority</option>
             <option>Name</option>
@@ -110,8 +112,8 @@ export default function MyTasksPage() {
       </div>
 
       {/* TASKS TABLE CARD */}
-      <div className="bg-white rounded-xl border border-[#e0e0e0] p-6">
-        <div className="grid grid-cols-[2fr_1.3fr_1fr_0.8fr_1fr_1.1fr_0.6fr] items-center pb-3 border-b border-[#e8e8e8] text-[12px] font-semibold text-[#888888]">
+      <div className="min-w-0 bg-white rounded-xl border border-[#e0e0e0] p-4 sm:p-6">
+        <div aria-hidden="true" className="hidden xl:grid grid-cols-[2fr_1.3fr_1fr_0.8fr_1fr_1.1fr_0.6fr] gap-3 items-center pb-3 border-b border-[#e8e8e8] text-[12px] font-semibold text-[#888888]">
           <div>Tasks name</div>
           <div>Project</div>
           <div>Assignee</div>
@@ -128,14 +130,14 @@ export default function MyTasksPage() {
             </div>
           ) : (
             filteredTasks.map((row) => {
-              const assigneeName = row.assignees?.[0]?.userName || 'Unassigned';
+              const assigneeNames = row.assignees?.map(assignee => assignee.userName) || [];
 
               return (
                 <div
                   key={row.taskId}
-                  className="grid grid-cols-[2fr_1.3fr_1fr_0.8fr_1fr_1.1fr_0.6fr] items-center py-4 border-b border-[#f0f0f0] last:border-none"
+                  className="grid min-w-0 grid-cols-1 sm:grid-cols-2 xl:grid-cols-[2fr_1.3fr_1fr_0.8fr_1fr_1.1fr_0.6fr] gap-3 items-start xl:items-center py-4 border-b border-[#f0f0f0] last:border-none [&>div]:min-w-0 [overflow-wrap:anywhere]"
                 >
-                  <div className="flex flex-col">
+                  <div className="flex flex-col sm:col-span-2 xl:col-span-1">
                     <strong className="text-[14px] font-bold text-[#1f1f1f]">
                       {row.taskTitle}
                     </strong>
@@ -145,30 +147,45 @@ export default function MyTasksPage() {
                   </div>
 
                   <div className="flex items-center gap-2 text-[12px] text-[#444444]">
-                    <span>📋</span>
-                    <span>{row.projectName || 'General'}</span>
+                    <span className="shrink-0 xl:sr-only font-semibold">Project:</span>
+                    <span className="shrink-0">📋</span>
+                    <span className="min-w-0">{row.projectName || 'General'}</span>
                   </div>
 
                   <div className="flex items-center gap-2 text-[12px] text-[#444444]">
-                    <div className="w-6 h-6 rounded-full bg-[#e8e8e8] flex items-center justify-center text-[11px]">
+                    <span className="shrink-0 xl:sr-only font-semibold">Assignee:</span>
+                    <div className="shrink-0 w-6 h-6 rounded-full bg-[#e8e8e8] flex items-center justify-center text-[11px]">
                       👤
                     </div>
-                    <span>{assigneeName}</span>
+                    <div className="min-w-0">
+                      <span>{assigneeNames.slice(0, 2).join(', ') || 'Unassigned'}</span>
+                      {assigneeNames.length > 2 && (
+                        <details>
+                          <summary className="min-h-11 flex items-center cursor-pointer" aria-label="More assignees">
+                            +{assigneeNames.length - 2}
+                          </summary>
+                          <span>{assigneeNames.slice(2).join(', ')}</span>
+                        </details>
+                      )}
+                    </div>
                   </div>
 
                   <div>
+                    <span className="xl:sr-only text-[12px] font-semibold mr-2">Priority:</span>
                     <span className="px-2.5 py-1 rounded-xl text-[11px] font-medium bg-[#f0f0f0] text-[#444]">
                       {getPriorityLabel(row.priority)}
                     </span>
                   </div>
 
                   <div>
+                    <span className="xl:sr-only text-[12px] font-semibold mr-2">Status:</span>
                     <span className="px-2.5 py-1 rounded-xl text-[11px] font-medium bg-[#eaeaea] text-[#444]">
                       {row.status}
                     </span>
                   </div>
 
                   <div className="flex items-center gap-1.5 text-[12px] text-[#555555]">
+                    <span className="xl:sr-only font-semibold">Due:</span>
                     <span>📅</span>
                     <span>{row.dueDate}</span>
                   </div>
@@ -177,7 +194,7 @@ export default function MyTasksPage() {
                     <button
                       type="button"
                       aria-label={`More options for ${row.taskTitle}`}
-                      className="text-[14px] text-[#777] cursor-pointer"
+                      className="min-h-11 min-w-11 text-[14px] text-[#777] cursor-pointer"
                     >
                       •••
                     </button>

@@ -61,8 +61,8 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f8f7fc] text-[#1e1b2e] flex items-center justify-center p-6">
-      <Card className="w-full max-w-[420px] p-[36px_40px]">
+    <main className="min-h-dvh bg-[#f8f7fc] text-[#1e1b2e] flex flex-col items-center p-4 sm:p-6">
+      <Card className="my-auto min-w-0 w-full max-w-[420px] p-5 sm:p-[36px_40px] [overflow-wrap:anywhere]">
         <div className="w-[56px] h-[56px] border-2 border-dashed border-[#8b5cf6] rounded-[14px] bg-[#f3e8ff] text-[#6d28d9] flex items-center justify-center font-bold text-[11px] tracking-wider mb-6">
           LOGO
         </div>
@@ -80,10 +80,10 @@ export default function LoginPage() {
             role="alert"
             className="mb-5 p-3.5 bg-[#fef2f2] border border-[#fecaca] rounded-xl flex items-center gap-3 text-[#991b1b]"
           >
-            <span className="text-[#dc2626] font-bold" aria-hidden="true">
+            <span className="shrink-0 text-[#dc2626] font-bold" aria-hidden="true">
               !
             </span>
-            <span className="text-[13px] font-medium leading-tight">
+            <span className="min-w-0 text-[13px] font-medium leading-tight">
               {error}
             </span>
           </div>

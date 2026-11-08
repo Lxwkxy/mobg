@@ -47,16 +47,16 @@ export default function ProjectDetailPage() {
     const canRetry = httpStatus !== 400 && httpStatus !== 404;
 
     return (
-      <div className="mx-auto max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-6">
+      <div className="mx-auto min-w-0 max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-4 sm:p-6 [overflow-wrap:anywhere]">
         <p role="alert" className="mb-4 text-[13px] text-red-600">
           {describeError(httpStatus)}
         </p>
 
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <button
             type="button"
             onClick={() => router.push('/projects')}
-            className="rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px]"
+            className="min-h-11 rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px]"
           >
             Back to Projects
           </button>
@@ -65,7 +65,7 @@ export default function ProjectDetailPage() {
             <button
               type="button"
               onClick={retry}
-              className="rounded-lg bg-[#222222] px-4 py-2 text-[12px] text-white"
+              className="min-h-11 rounded-lg bg-[#222222] px-4 py-2 text-[12px] text-white"
             >
               Try again
             </button>
@@ -87,15 +87,15 @@ export default function ProjectDetailPage() {
   const progress = Math.max(0, Math.min(100, project.progressPercent));
 
   return (
-    <div className="mx-auto w-full max-w-4xl">
+    <div className="mx-auto min-w-0 w-full max-w-4xl [overflow-wrap:anywhere]">
       <Link
         href="/projects"
-        className="mb-5 inline-block text-[13px] text-[#666666] hover:text-black"
+        className="mb-5 min-h-11 inline-flex items-center text-[13px] text-[#666666] hover:text-black"
       >
         ← Back to Projects
       </Link>
 
-      <div className="rounded-2xl border border-[#e0e0e0] bg-white p-6 md:p-8">
+      <div className="rounded-2xl border border-[#e0e0e0] bg-white p-4 sm:p-6 md:p-8">
         <div className="mb-6">
           <p className="mb-2 text-[12px] text-[#777777]">Project details</p>
 

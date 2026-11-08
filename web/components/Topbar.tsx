@@ -66,14 +66,15 @@ export default function Topbar() {
   const isLoading = status === 'loading';
 
   return (
-    <header className="h-[72px] bg-white flex items-center justify-end px-[36px] border-b border-[#e0e0e0] relative">
+    <header className="min-h-[72px] bg-white flex flex-wrap items-center justify-end gap-3 px-4 py-3 sm:px-6 lg:px-[36px] border-b border-[#e0e0e0] relative">
       {/* Search Box */}
-      <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2.5 bg-[#eaeaea] px-4 py-2 rounded-full w-[580px]">
+      <div className="flex min-w-0 flex-1 basis-full sm:basis-0 max-w-[580px] items-center gap-2.5 bg-[#eaeaea] px-4 py-2 rounded-full mr-auto">
         <span className="text-[14px] text-[#888888]">🔍</span>
         <input
           type="text"
           placeholder="Search projects, tasks ..."
-          className="border-none bg-transparent outline-none w-full text-[12px] text-[#333333]"
+          aria-label="Search projects and tasks"
+          className="min-w-0 min-h-7 border-none bg-transparent outline-none w-full text-[12px] text-[#333333]"
         />
         <span className="bg-white px-2.5 py-0.5 rounded-xl text-[11px] text-[#666666] shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
           Enter
@@ -81,20 +82,20 @@ export default function Topbar() {
       </div>
 
       {/* User Account */}
-      <div className="flex items-center gap-5">
-        <div className="relative inline-block" ref={dropdownRef}>
+      <div className="min-w-0 max-w-full sm:max-w-[45%] flex items-center gap-5">
+        <div className="relative min-w-0 inline-block" ref={dropdownRef}>
           <button
             type="button"
             onClick={() => setIsOpen((previous) => !previous)}
             disabled={isLoading || !user || isLoggingOut}
             aria-expanded={isOpen}
-            className="flex items-center gap-2.5 p-1.5 px-2.5 rounded-lg hover:bg-[#f4f4f4] transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+            className="max-w-full min-h-11 flex items-center gap-2.5 p-1.5 px-2.5 rounded-lg hover:bg-[#f4f4f4] transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-wait"
           >
-            <div className="w-[34px] h-[34px] rounded-full bg-[#e0e0e0] flex items-center justify-center text-[16px]">
+            <div className="shrink-0 w-[34px] h-[34px] rounded-full bg-[#e0e0e0] flex items-center justify-center text-[16px]">
               👤
             </div>
 
-            <span className="text-[13px] font-semibold text-[#333333]">
+            <span className="min-w-0 [overflow-wrap:anywhere] text-[13px] font-semibold text-[#333333]">
               {isLoading ? 'Loading...' : user?.userName || 'User'}
             </span>
 
@@ -149,7 +150,7 @@ export default function Topbar() {
       {status === 'no-profile' && (
         <div
           role="alert"
-          className="absolute top-[calc(100%+8px)] right-9 max-w-[320px] rounded-lg border border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-800 shadow-sm z-50"
+          className="basis-full min-w-0 rounded-lg border border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-800 shadow-sm [overflow-wrap:anywhere]"
         >
           <p>
             Your account has not been set up yet. Please contact your team
@@ -173,7 +174,7 @@ export default function Topbar() {
       {status === 'error' && (
         <div
           role="alert"
-          className="absolute top-[calc(100%+8px)] right-9 max-w-[320px] rounded-lg border border-red-200 bg-red-50 p-3 text-[12px] text-red-700 shadow-sm z-50"
+          className="basis-full min-w-0 rounded-lg border border-red-200 bg-red-50 p-3 text-[12px] text-red-700 shadow-sm [overflow-wrap:anywhere]"
         >
           <p>Unable to connect to the server. Please try again.</p>
 
