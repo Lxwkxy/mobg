@@ -112,13 +112,6 @@ test("new explicit profile provisioning normalizes email and reruns without dupl
   await auth.api.signOut({ headers: new Headers({ cookie }) });
 });
 
-test("public signup remains disabled", async () => {
-  await assert.rejects(auth.api.signUpEmail({ body: {
-    name: "Public Signup", email: "blocked@example.test", password: randomBytes(24).toString("hex"),
-  } }));
-  assert.equal(auth.options.emailAndPassword?.disableSignUp, true);
-});
-
 test("link failure is recorded privately and requires explicit recovery", async () => {
   await pool.query(`CREATE FUNCTION w2_fail_link() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN IF NEW.email = 'recover@example.test' THEN RAISE EXCEPTION 'intentional link failure'; END IF;

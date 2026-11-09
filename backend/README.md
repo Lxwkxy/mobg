@@ -5,7 +5,8 @@ Session guards, `GET /api/me`, `GET /api/users` and the project routes are backe
 PostgreSQL. The project task routes (`/api/projects/:projectId/tasks`) are implemented and
 covered by HTTP tests; they are not verified from the web UI yet. Comments, activity,
 dashboard, My Tasks and member add/remove endpoints are not implemented yet.
-The frontend Login is still a local mock until Bar integrates the auth client.
+Frontend Login uses Better Auth. Public signup, email verification and password reset
+are described in [account setup](../docs/account-registration.md).
 
 ## Local setup
 
@@ -24,7 +25,8 @@ Keep the secret private. Never put it in a `NEXT_PUBLIC_` variable.
 `BETTER_AUTH_URL=http://localhost:5000` is the API origin, without `/api/auth`.
 `CORS_ORIGIN` must be the exact frontend origin; use localhost consistently for both apps.
 
-Start PostgreSQL and follow [database setup](../database/README.md), including migration 005.
+Start PostgreSQL and follow [database setup](../database/README.md), including migration 006.
+Start the local Mailpit inbox before signup/reset or auth HTTP tests; see account setup above.
 The backend does not apply migrations automatically.
 
 From `backend/`:

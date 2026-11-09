@@ -6,32 +6,24 @@ the seed CLIs. Use the commands below for local development; no HTTP server open
 
 ## Separate seed configuration
 
-Keep backend/src/auth.ts unchanged with disableSignUp: true.
+Public signup was added after W4. Use the current `seedAuth` in
+`backend/src/provisioning/accounts.ts`: it sets registrationKind to `provisioned`,
+disables signup mail/hooks and retains explicit domain linking. See
+[account registration](account-registration.md). Do not copy the historical config below
+into a new seed process; use the existing provisioning scripts.
 backend/src/seed-accounts.ts imports auth configuration, not server.ts.
 The seed process must never mount an HTTP handler or call app.listen.
 
 ```ts
-import { betterAuth } from "better-auth";
-import { auth } from "./auth.js";
-import { pool } from "./db.js";
-
-const seedAuth = betterAuth({
-  ...auth.options,
-  emailAndPassword: {
-    ...auth.options.emailAndPassword,
-    enabled: true,
-    disableSignUp: false, // Only this non-serving seed instance allows signup.
-    autoSignIn: false,   // Seed credentials without creating a login session.
-  },
-});
+import { seedAuth } from "./provisioning/accounts.js";
 ```
 
-Calling auth.api.signUpEmail on the normal serving instance is rejected because
-disableSignUp is true. Do not enable signup in the serving config to run a seed.
+The serving instance creates public accounts and profiles automatically; it must not be
+used to provision or claim an existing demo profile.
 
 ## Required inputs and preflight
 
-1. Select the database through the normal POSTGRES_* variables. Apply 001-005 first.
+1. Select the database through the normal POSTGRES_* variables. Apply 001-006 first.
 2. Pass SEED_DOMAIN_USER_ID (the existing domain user to link, initially demo ID 1)
    and SEED_PASSWORD through local environment variables. Keep passwords private,
    outside Git and logs. Better Auth enforces its configured password limits.
@@ -100,7 +92,7 @@ npx tsx src/seed-accounts.ts --database mobg_db
 Use try/finally to close pool.end() on success or failure and exit nonzero on failure.
 Verify the existing domain ID still owns its project and its auth_user_id matches the
 credential account. Then Book/Bar verify real Login, session/profile mapping and
-sign-out. The regular server must continue to reject public signup.
+sign-out. The regular server now allows public signup with mandatory email verification.
 
 ## Step-by-step: three development accounts
 
@@ -124,7 +116,7 @@ paste them into commands, Git, logs or this guide.
    docker compose exec -T db psql -U postgres -d mobg_db -c "SELECT user_id,user_name,email,auth_user_id FROM users ORDER BY user_id;"
    ```
 
-   All 001–005 must be complete. If missing, state the target and missing scripts
+   All 001–006 must be complete. If missing, state the target and missing scripts
    before running `npx tsx src/schema-status.ts --apply --database mobg_db`.
    A partial schema stops; inspect/reconcile instead of resetting the DB/volume.
 

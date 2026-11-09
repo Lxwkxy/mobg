@@ -2,6 +2,11 @@
 
 This guide explains how to prepare the MobG database using Docker or a locally installed PostgreSQL server.
 
+Public account registration additionally requires migration 006 after 001–005. After the
+foundation steps below, run `npm run db:status` from backend/, then
+`npm run db:migrate -- --database YOUR_EXACT_DATABASE_NAME` to apply only missing migrations.
+This preserves the existing volume and accounts. See [account setup](../docs/account-registration.md).
+
 ## Setup with Docker
 
 ### Prerequisites

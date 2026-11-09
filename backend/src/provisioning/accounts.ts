@@ -12,6 +12,10 @@ import { runSeedWork } from "./seedQueue.js";
 
 export const seedAuth = betterAuth({
   ...auth.options, logger: { disabled: true },
+  user: { ...auth.options.user, additionalFields: { registrationKind: { type: "string",
+    fieldName: "registration_kind", defaultValue: "provisioned", input: false, returned: false } } },
+  hooks: {},
+  emailVerification: { sendOnSignUp: false },
   emailAndPassword: { ...auth.options.emailAndPassword, enabled: true, disableSignUp: false, autoSignIn: false },
 });
 

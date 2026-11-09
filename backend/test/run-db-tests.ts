@@ -28,7 +28,7 @@ try {
     if (target !== database) throw new Error("Test database target mismatch");
     console.log(`Verified isolated test database: ${target}`);
     for (const file of ["001_initial_schema.sql", "002_require_task_due_date.sql",
-      "003_add_project_start_date.sql", "004_add_sessions.sql", "005_add_better_auth.sql"]) {
+      "003_add_project_start_date.sql", "004_add_sessions.sql", "005_add_better_auth.sql", "006_public_registration.sql"]) {
       await testDb.query(await readFile(new URL(`../../database/migrations/${file}`, import.meta.url), "utf8"));
     }
     await testDb.query(await readFile(new URL("../../database/seeds/demo.sql", import.meta.url), "utf8"));

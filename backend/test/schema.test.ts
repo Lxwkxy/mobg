@@ -6,7 +6,7 @@ import { domainIdToNumber } from "../src/services/dbHelpers.js";
 
 assert.match(process.env.POSTGRES_DB ?? "", /^mobg_w2_test_/);
 after(() => pool.end());
-test("schema preflight accepts 001-005 and blocks partial auth migration", async () => {
+test("schema preflight accepts 001-006 and blocks partial auth migration", async () => {
   assert.equal((await inspectSchema(pool)).migrations.every(m => m.state === "complete"), true);
   const client = await pool.connect();
   try {

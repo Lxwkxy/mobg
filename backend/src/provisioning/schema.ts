@@ -1,7 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 
 export const migrationFiles = ["001_initial_schema.sql", "002_require_task_due_date.sql",
-  "003_add_project_start_date.sql", "004_add_sessions.sql", "005_add_better_auth.sql"];
+  "003_add_project_start_date.sql", "004_add_sessions.sql", "005_add_better_auth.sql", "006_public_registration.sql"];
 const coreColumns: Record<string, string[]> = {
   users: ["user_id", "user_name", "email", "password_hash"],
   projects: ["project_id", "project_name", "project_description", "project_create_date", "due_date", "created_by"],
@@ -44,6 +44,10 @@ export async function inspectSchema(connection: Connection): Promise<{ database:
       .every(([table, name]) => hasConstraint(table!, name!, "ON DELETE CASCADE"));
   const start = column("projects", "start_date");
   const link = column("users", "auth_user_id");
+  const registrationTrigger = (await connection.query<{ present: boolean }>(`SELECT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgrelid = to_regclass('public.auth_users')
+      AND tgname = 'create_registered_profile' AND NOT tgisinternal AND tgenabled = 'O'
+  ) AS present`)).rows[0]!.present;
   const complete = [coreComplete, column("tasks", "due_date")?.is_nullable === "NO",
     start?.is_nullable === "NO" && Boolean(start.column_default?.includes("Asia/Bangkok"))
       && hasConstraint("projects", "projects_due_date_after_start_date", "due_date > start_date"),
@@ -55,9 +59,11 @@ export async function inspectSchema(connection: Connection): Promise<{ database:
       && column("users", "password_hash")?.is_nullable === "YES"
       && hasConstraint("users", "users_auth_user_id_key")
       && hasConstraint("users", "users_auth_user_id_fkey", "ON DELETE RESTRICT")
-      && Object.keys(authColumns).every((table) => column(table, "id")?.data_type === "text")];
+      && Object.keys(authColumns).every((table) => column(table, "id")?.data_type === "text"),
+    column("auth_users", "registration_kind")?.is_nullable === "NO" && registrationTrigger];
   const exists = [columns.some((c) => c.table_name in coreColumns), false, Boolean(start),
-    columns.some((c) => c.table_name === "sessions"), Boolean(link) || columns.some((c) => c.table_name in authColumns)];
+    columns.some((c) => c.table_name === "sessions"), Boolean(link) || columns.some((c) => c.table_name in authColumns),
+    Boolean(column("auth_users", "registration_kind")) || registrationTrigger];
   return { database, migrations: migrationFiles.map((file, i) => ({ file,
     state: complete[i] ? "complete" : exists[i] ? "partial" : "missing" })) };
 }
@@ -65,6 +71,6 @@ export async function inspectSchema(connection: Connection): Promise<{ database:
 export async function requireAccountSchema(connection: Connection): Promise<void> {
   const status = await inspectSchema(connection);
   if (status.migrations.some((migration) => migration.state !== "complete")) {
-    throw new Error("Apply/repair migrations 001-005 before provisioning accounts");
+    throw new Error("Apply/repair migrations 001-006 before provisioning accounts");
   }
 }
