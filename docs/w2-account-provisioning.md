@@ -1,5 +1,11 @@
 # W2 account provisioning procedure
 
+W5 extends these same account scripts; it does not replace credentials or the identity
+mapping. For an isolated W5 demo, run `seed:demo -- --database NAME --w5` after migrations
+001–007 in the combined W5/account branch. Follow the [current database guide](../database/README.md) for fresh test DB
+creation, hidden inputs, fixture reruns and backup/restore. This W2 procedure remains
+the reference for single-account provisioning and reconciliation.
+
 Owner: Pai, coordinated with Book. Use Better Auth 1.7.7.
 The W1 procedure is now implemented in backend/src/provisioning/accounts.ts and
 the seed CLIs. Use the commands below for local development; no HTTP server opens.
@@ -23,7 +29,7 @@ used to provision or claim an existing demo profile.
 
 ## Required inputs and preflight
 
-1. Select the database through the normal POSTGRES_* variables. Apply 001-006 first.
+1. Select the database through the normal POSTGRES_* variables. Apply 001-007 first.
 2. Pass SEED_DOMAIN_USER_ID (the existing domain user to link, initially demo ID 1)
    and SEED_PASSWORD through local environment variables. Keep passwords private,
    outside Git and logs. Better Auth enforces its configured password limits.
@@ -116,7 +122,7 @@ paste them into commands, Git, logs or this guide.
    docker compose exec -T db psql -U postgres -d mobg_db -c "SELECT user_id,user_name,email,auth_user_id FROM users ORDER BY user_id;"
    ```
 
-   All 001–006 must be complete. If missing, state the target and missing scripts
+   All 001–007 must be complete. If missing, state the target and missing scripts
    before running `npx tsx src/schema-status.ts --apply --database mobg_db`.
    A partial schema stops; inspect/reconcile instead of resetting the DB/volume.
 

@@ -1,7 +1,8 @@
 import type { Pool, PoolClient } from "pg";
 
 export const migrationFiles = ["001_initial_schema.sql", "002_require_task_due_date.sql",
-  "003_add_project_start_date.sql", "004_add_sessions.sql", "005_add_better_auth.sql", "006_public_registration.sql"];
+  "003_add_project_start_date.sql", "004_add_sessions.sql", "005_add_better_auth.sql",
+  "006_demo_seed_runs.sql", "007_public_registration.sql"];
 const coreColumns: Record<string, string[]> = {
   users: ["user_id", "user_name", "email", "password_hash"],
   projects: ["project_id", "project_name", "project_description", "project_create_date", "due_date", "created_by"],
@@ -60,9 +61,16 @@ export async function inspectSchema(connection: Connection): Promise<{ database:
       && hasConstraint("users", "users_auth_user_id_key")
       && hasConstraint("users", "users_auth_user_id_fkey", "ON DELETE RESTRICT")
       && Object.keys(authColumns).every((table) => column(table, "id")?.data_type === "text"),
+    column("demo_seed_runs", "seed_key")?.data_type === "text"
+      && column("demo_seed_runs", "reference_date")?.data_type === "date"
+      && column("demo_seed_runs", "reference_date")?.is_nullable === "NO"
+      && column("demo_seed_runs", "fixture")?.data_type === "jsonb"
+      && column("demo_seed_runs", "fixture")?.is_nullable === "NO"
+      && hasConstraint("demo_seed_runs", "demo_seed_runs_pkey"),
     column("auth_users", "registration_kind")?.is_nullable === "NO" && registrationTrigger];
   const exists = [columns.some((c) => c.table_name in coreColumns), false, Boolean(start),
     columns.some((c) => c.table_name === "sessions"), Boolean(link) || columns.some((c) => c.table_name in authColumns),
+    columns.some((c) => c.table_name === "demo_seed_runs"),
     Boolean(column("auth_users", "registration_kind")) || registrationTrigger];
   return { database, migrations: migrationFiles.map((file, i) => ({ file,
     state: complete[i] ? "complete" : exists[i] ? "partial" : "missing" })) };
@@ -70,7 +78,9 @@ export async function inspectSchema(connection: Connection): Promise<{ database:
 
 export async function requireAccountSchema(connection: Connection): Promise<void> {
   const status = await inspectSchema(connection);
-  if (status.migrations.some((migration) => migration.state !== "complete")) {
-    throw new Error("Apply/repair migrations 001-006 before provisioning accounts");
+  // Demo metadata is optional for W2 accounts; the serving/seed auth config needs 007.
+  if (status.migrations.filter(migration => migration.file !== "006_demo_seed_runs.sql")
+    .some(migration => migration.state !== "complete")) {
+    throw new Error("Apply/repair migrations 001-005 and 007 before provisioning accounts");
   }
 }

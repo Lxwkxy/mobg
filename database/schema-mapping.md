@@ -21,8 +21,9 @@ The configured model/column mapping is backend/src/auth.ts.
 Password hashes belong to auth_accounts.password; Better Auth handles hashing.
 
 The link is nullable so existing project/member/task/comment data remains valid.
-Public signup is disabled. W2 must provision credentials through Better Auth
-and explicitly attach the returned ID to the intended domain row. Do not cast
+Public signup is enabled with verification and automatic creation of a new profile
+under migration 007. W2 seed provisioning still uses Better Auth and explicitly
+attaches the returned ID to the intended domain row. Do not cast
 an auth ID to a number, automatically link by email, or duplicate the demo user.
 Resolve normalized-email collisions before provisioning. Existing password
 placeholders and custom sessions are not automatically migrated.
@@ -264,8 +265,10 @@ For each project:
 - Compute progress from tasks and statuses; do not persist a separate progress column.
 - The formula is confirmed; query/API/frontend integration remains pending.
 
-Other dashboard counts, high-priority count rules, and user-level scope
-remain to be confirmed separately.
+W4 defines Dashboard as all tasks in current Owner/Member projects, regardless of
+assignment. High priority means priority 1 and not Done; overdue means before the
+current Asia/Bangkok date and not Done. My Tasks additionally requires assignment.
+See [the W4 handoff](../docs/w4-pai-handoff.md) for the accepted scope and signatures.
 
 ## Confirmed Derived Project Status
 
@@ -294,16 +297,52 @@ Apply the following rules in order:
 - Migration 005 supplies Better Auth tables and the nullable unique domain link. Better Auth owns runtime authentication/session operations.
 - W2 implements profile/membership lookup, project CRUD/list/counts and user/member lists. See ../docs/w2-pai-handoff.md and ../docs/w2-pai-verification.md for evidence and pending API/browser flows.
 - The composite primary key prevents duplicate task-user assignments.
-- Minimum assignee count and project membership are not yet enforced.
+- W4 public task/member writers enforce minimum assignees and current membership
+  under a shared project lock. These are service invariants, not schema constraints;
+  arbitrary SQL can still violate them. The W5 auditor detects such violations.
 - W3 implements task list/detail/create/update/delete in `backend/src/services/taskDb.ts`
   against migrations 001–005; no new migration is required. Task/assignee/comment
   cascade, rollback, Bangkok overdue and project summaries are tested directly.
-  Minimum assignees and membership remain Backend checks, including Done tasks.
+  W4 adds transaction rechecks for minimum assignees/membership, including Done tasks;
+  Backend validation and actor authorization are still required.
   The task HTTP routes are implemented in `backend/src/routes/tasks.ts` and covered by
   automated HTTP tests ([W3 API verification](../docs/w3-verification.md)); browser CRUD
   has not been checked yet. See [W3 handoff](../docs/w3-pai-handoff.md) and
   [DB verification](../docs/w3-pai-verification.md); these supersede older pending
   DB implementation notes above without claiming UI completion.
+
+## W5 provisioning metadata and observed schema
+
+Migration 006 adds `demo_seed_runs(seed_key TEXT PRIMARY KEY, reference_date DATE
+NOT NULL, fixture JSONB NOT NULL)`. Its one `mobg-w5-v1` record stores selected domain
+IDs, W2/W5 project IDs, task IDs and a non-secret business snapshot. It has no account passwords,
+hashes, sessions or tokens. It has no FKs so the explicitly disposable sandbox can
+be deleted; rerun detects the difference and refuses to recreate it silently.
+
+Through 005 there are 12 public tables and 14 foreign keys; through 006 there are
+13 tables, with the same 14 FKs. Migration 007 keeps these counts and adds the
+server-only `auth_users.registration_kind` column plus the `create_registered_profile`
+function/trigger for public signup. No stored function is installed through 006.
+Business “DB functions” remain TypeScript functions in `services/`:
+
+| Module | Operations |
+|---|---|
+| `authDb.ts` | `findDomainUserByAuthId` |
+| `projectDb.ts` | Membership/profile lists, project CRUD/list/progress; add/remove member with W4 reasons |
+| `taskDb.ts` | Task list/detail/CRUD, My Tasks and important-task list |
+| `dashboardDb.ts` | `getDashboardSummary` |
+| `dbHelpers.ts` | Safe numeric ID conversion, transactions and shared project locking |
+
+Relationships: `users.auth_user_id` uniquely references `auth_users.id` with RESTRICT;
+auth accounts/sessions cascade from auth users. Projects/tasks/comments reference
+domain creators; project members join projects to users; task assignees join tasks
+to users; tasks reference statuses. Project deletion cascades tasks/members and then
+task comments/assignees. Creator/status references restrict deletion. Legacy sessions
+are retained and unused. `auth_verifications` is keyed independently.
+
+Observed versions and checks (including restore equality) are in the
+[W5 report](../docs/w5-db-verification.md); older pending notes above are historical,
+not evidence that W4 DB implementation is absent.
 
 ## Example Joined Task Record
 

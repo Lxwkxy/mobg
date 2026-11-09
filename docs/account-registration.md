@@ -37,7 +37,7 @@ npm ci
 npm run dev -- --hostname localhost
 ```
 
-Migration 006 adds a server-only registration kind and a trigger that creates a new domain
+Migration 007 adds a server-only registration kind and a trigger that creates a new domain
 profile in Better Auth's PostgreSQL signup transaction. It preserves existing data and does
 not attach old profiles by email. The migration is not run automatically at startup.
 
@@ -55,7 +55,7 @@ computer IP, and Next dev must allow that hostname (e.g. start it with `--hostna
 ## Checks
 
 With PostgreSQL and Mailpit running, `npm run test:db -- registration.test.ts` from backend/
-uses its own temporary DB, applies migrations 001-006 and removes only that DB afterward.
+uses its own temporary DB, applies migrations 001-007 and removes only that DB afterward.
 It tests verification, profile/access, reset/session revocation, tampering, callbacks, expiry
 and credential-write rollback. Existing seed/provisioning tests remain separate regressions.
 
@@ -81,6 +81,27 @@ Verified 2026-11-09: full backend suite including the production-browser account
 67/67 passed (no skips); auth layouts 16 viewport/page combinations passed; existing
 responsive regression 44 scenarios passed. Backend source/tests typechecks/build and
 web typecheck/lint/build passed. Standards/Spec review: 0 remaining findings.
-All writes/migrations ran only in disposable test DBs; migration 006 was not applied to
+All writes/migrations ran only in disposable test DBs; the registration migration was not applied to
 the existing development DB. SMTP delivery was tested with Mailpit, not a real provider.
 The existing Next.js version still emits a security warning; upgrade before public deployment.
+
+## W5 integration (2026-11-09)
+
+Combined the W5 branch at `5e38677` with account registration at `37f3b1f` locally.
+W5 metadata keeps migration 006; registration is now 007. The shared schema inspector
+and test runner include both; account provisioning can omit demo metadata, but it
+requires the registration schema used by its auth config. W5 seeding requires all seven.
+
+Combined validation: 70/70 tests passed, including real production-browser accounts.
+The W5 rehearsal upgraded a separate six-migration database through the real migration
+CLI, ran it again without changes, seeded/reran, checked Owner/Member/Outsider Login,
+verified the W4 summary oracle, and completed backup/restore. Backup comparison now
+includes user triggers and compares source/restored migration states, preserving the
+public-profile trigger along with data/functions/indexes/sequences. Both rehearsal DBs
+were removed; the private test archive remains outside Git. The development DB was not migrated.
+
+Integration review: the main agent checked conflict resolutions against both parent
+revisions and found no remaining issues. Independent Standards/Spec reviewers could
+not complete this integration recheck because their usage quota was exhausted; the
+earlier account-feature reviews above are separate results, not an independent approval
+of this merge. Local typechecks/build and the combined execution evidence are complete.

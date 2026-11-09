@@ -20,7 +20,7 @@ The shared pool is src/db.ts and the connection command is npm run check-db.
 - BETTER_AUTH_SECRET: private random secret of at least 32 characters in root .env.
 - Frontend sends credentials: 'include'. The React client is web/lib/auth-client.ts.
 - GET /api/health checks the server only; it does not verify authentication or the DB.
-- Apply migrations 001-006 before using real auth. No migration runs at server startup.
+- Apply migrations 001-007 before using the combined W5/account feature set. No migration runs at server startup.
 
 ## 1. Login / Logout / Current User
 
@@ -53,7 +53,7 @@ Passwords use Better Auth's 8–128 character limits and are never trimmed or lo
 Public accounts must verify email before session creation (403 EMAIL_NOT_VERIFIED).
 Verification links expire after one hour; reset links expire after 30 minutes and are single-use.
 Callbacks/redirects must use CORS_ORIGIN. Registration creates no project memberships.
-Migration 006 creates the MobG profile inside the signup transaction. Existing profiles are
+Migration 007 creates the MobG profile inside the signup transaction. Existing profiles are
 never claimed by email, and client-supplied verification/registration-kind fields are not trusted.
 Trusted provisioned accounts retain their existing login behavior and explicit profile-link workflow.
 See [account registration](../docs/account-registration.md) for mail setup and this compatibility policy.
@@ -337,7 +337,7 @@ Status: implemented in W2: 10.3 users, 10.4 projects, GET 10.5 member list, and 
 
 **Conventions**
 - Base path `/api`. Requests and responses are JSON.
-- Business endpoints require a valid session and linked MobG user in W2. W1 project routes remain mocks. Better Auth public routes follow library access rules; signup is disabled.
+- Business endpoints require a valid session and linked MobG user. Better Auth public routes follow library access rules; public registration is enabled with the verification policy in section 1.
 - Endpoints with `:projectId` apply the access rules in section 5 (non-member or unknown project → `404`; insufficient role → `403`). A task is only reachable through the project it belongs to; a task from another project returns `404`.
 - Business IDs are numbers; Auth IDs are strings. Dates are `YYYY-MM-DD`. Timestamps are ISO 8601 UTC strings.
 - Status values in the API are the UI labels `To do | In progress | Done` (section 6).

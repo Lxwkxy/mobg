@@ -1,3 +1,4 @@
+-- Apply after 006_demo_seed_runs.sql when upgrading the combined W5/account branch.
 BEGIN;
 
 -- Existing accounts remain explicitly provisioned; public clients cannot set this field.

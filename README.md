@@ -2,14 +2,14 @@
 
 Team project for managing projects, tasks, members and comments.
 
-## Stack and status (end of W2 backend work)
+## Stack and status (W5 database preparation)
 
 | Part | Technology / status |
 |---|---|
 | Frontend | Next.js, TypeScript, Tailwind. Login, account flows and project list/create/overview use APIs; Dashboard and My Tasks still use mocks |
 | Backend | Express 5, TypeScript, ESM. Session guards, `GET /api/me`, `GET /api/users` and project CRUD + member list are database-backed. Project task routes (list/detail/create/edit/status/delete) are implemented and covered by HTTP tests; comments, activity, dashboard and My Tasks are contract-only |
 | Authentication | Better Auth 1.7.7. Public registration, email verification and password reset; existing provisioned accounts remain supported |
-| Database | PostgreSQL 17 in Docker. Migrations 001-006; each developer applies them to their own database |
+| Database | PostgreSQL 17 in Docker. Migrations 001-005 for core/auth, 006 for W5 seed metadata, 007 for public registration; each developer applies missing migrations to their own database |
 | Identity | Better Auth string IDs link to numeric MobG users through `users.auth_user_id` |
 
 ## Setup
@@ -78,7 +78,9 @@ reports results; enforcing them requires that GitHub setting.
 - [API contract and permissions](backend/API-CONTRACT.md)
 - [Database setup](database/README.md)
 - [Schema mapping](database/schema-mapping.md)
+- [W5 demo, backup/restore and verification evidence](docs/w5-db-verification.md)
 
 Next: connect the task screens to the task API (W3-Bar-01/02) and check the web flow
 together; members management, comments, activity, My Tasks and Dashboard follow in W4.
-Responsive coding remains scheduled for W4.
+Responsive changes for available pages are merged; unavailable screens and real flows
+remain dependencies. W5 DB tooling does not implement Book/Bar features.
