@@ -3,12 +3,15 @@
 
 import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { useHydrated } from '@/lib/useHydrated';
 import { loginApi } from '@/lib/authService';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 
 export default function LoginPage() {
+  const hydrated = useHydrated();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -89,9 +92,11 @@ export default function LoginPage() {
           </div>
         )}
 
-        <form onSubmit={handleLogin} noValidate className="flex flex-col gap-4">
+        <form method="post" onSubmit={handleLogin} noValidate className="flex flex-col gap-4">
           <Input
             label="Email address"
+            name="email"
+            autoComplete="email"
             type="email"
             value={email}
             disabled={isLoading}
@@ -110,6 +115,8 @@ export default function LoginPage() {
 
           <Input
             label="Password"
+            name="password"
+            autoComplete="current-password"
             type="password"
             value={password}
             disabled={isLoading}
@@ -122,12 +129,18 @@ export default function LoginPage() {
 
           <Button
             type="submit"
+            disabled={!hydrated}
             isLoading={isLoading}
             className="mt-2"
           >
             Log in
           </Button>
         </form>
+        <div className="mt-4 flex flex-col text-sm text-[#6d28d9]">
+          <Link href="/forgot-password" className="inline-flex min-h-11 items-center underline">Forgot password?</Link>
+          <Link href="/register" className="inline-flex min-h-11 items-center underline">Create an account</Link>
+          <Link href="/verify-email" className="inline-flex min-h-11 items-center underline">Resend verification email</Link>
+        </div>
       </Card>
     </main>
   );

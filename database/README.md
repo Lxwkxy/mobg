@@ -80,10 +80,17 @@ prove DB connectivity. A new empty database legitimately returns no projects.
 | 004 | Legacy sessions retained; not used by Better Auth |
 | 005 | Four Better Auth tables and unique nullable `users.auth_user_id` link |
 | 006 | `demo_seed_runs`: W5 fixture IDs, reference date and non-secret business snapshot |
+| 007 | Public registration kind and transactional MobG profile creation trigger |
 
 006 adds provisioning metadata only. It does not change W4 business rules, auth
-credentials or API/UI features. Account provisioning still accepts 001–005;
-W5 seeding requires all six. Never delete the metadata to force reseeding changed data.
+credentials or API/UI features. In the combined account branch, account provisioning
+requires 001–005 and 007; W5 seeding requires all seven. Never delete the metadata
+to force reseeding changed data. Public signup/reset also need the local mail inbox:
+see [account setup](../docs/account-registration.md).
+
+If an earlier checkout already applied the registration SQL under the old 006 filename,
+use `db:status` / `db:migrate`: structural detection recognizes it as 007 and does not
+reapply it. Do not run the renamed SQL directly against an already-upgraded database.
 
 If using host PostgreSQL instead of Docker, set `POSTGRES_*` to that server and use
 the same Node migration/seed/verification commands. The automated Docker backup

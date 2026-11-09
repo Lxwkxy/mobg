@@ -1,6 +1,5 @@
-import { redirect } from "next/navigation";
+import AccountForm from '@/components/AccountForm';
 
-// MobG uses team-provisioned accounts; public registration is outside this scope.
 export default function RegisterPage() {
-  redirect("/login");
+  return <AccountForm mode="register" />;
 }

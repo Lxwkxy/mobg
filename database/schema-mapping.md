@@ -21,8 +21,9 @@ The configured model/column mapping is backend/src/auth.ts.
 Password hashes belong to auth_accounts.password; Better Auth handles hashing.
 
 The link is nullable so existing project/member/task/comment data remains valid.
-Public signup is disabled. W2 must provision credentials through Better Auth
-and explicitly attach the returned ID to the intended domain row. Do not cast
+Public signup is enabled with verification and automatic creation of a new profile
+under migration 007. W2 seed provisioning still uses Better Auth and explicitly
+attaches the returned ID to the intended domain row. Do not cast
 an auth ID to a number, automatically link by email, or duplicate the demo user.
 Resolve normalized-email collisions before provisioning. Existing password
 placeholders and custom sessions are not automatically migrated.
@@ -319,8 +320,10 @@ hashes, sessions or tokens. It has no FKs so the explicitly disposable sandbox c
 be deleted; rerun detects the difference and refuses to recreate it silently.
 
 Through 005 there are 12 public tables and 14 foreign keys; through 006 there are
-13 tables, with the same 14 FKs. No PostgreSQL stored function is installed by these
-migrations. “DB functions” in this project are TypeScript functions in `services/`:
+13 tables, with the same 14 FKs. Migration 007 keeps these counts and adds the
+server-only `auth_users.registration_kind` column plus the `create_registered_profile`
+function/trigger for public signup. No stored function is installed through 006.
+Business “DB functions” remain TypeScript functions in `services/`:
 
 | Module | Operations |
 |---|---|

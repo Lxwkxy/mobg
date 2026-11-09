@@ -53,7 +53,10 @@ async function inventory(client: PoolClient) {
   const sequences = (await client.query("SELECT sequencename,last_value FROM pg_sequences WHERE schemaname='public' ORDER BY sequencename")).rows;
   const functions = (await client.query(`SELECT p.proname,pg_get_functiondef(p.oid) FROM pg_proc p
     JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind IN ('f','p') ORDER BY p.proname,p.oid`)).rows;
-  digest.update(JSON.stringify({ structure, constraints, indexes, sequences, functions }));
+  const triggers = (await client.query(`SELECT c.relname,t.tgname,t.tgenabled,pg_get_triggerdef(t.oid) AS definition
+    FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND NOT t.tgisinternal ORDER BY c.relname,t.tgname`)).rows;
+  digest.update(JSON.stringify({ structure, constraints, indexes, sequences, functions, triggers }));
   return { counts, digest: digest.digest("hex") };
 }
 
@@ -83,6 +86,7 @@ try {
   if (!tables.length) throw new Error("Source schema is empty");
   await source.query(`LOCK TABLE ${tables.map(t => "public." + quoteIdentifier(t.tablename)).join(",")} IN SHARE MODE`);
   const snapshot = (await source.query("SELECT pg_export_snapshot() AS id")).rows[0].id as string;
+  const sourceSchema = await inspectSchema(source);
   const before = await inventory(source);
   writeNewArchive(archive, fd => {
     docker(["pg_dump", "-U", user, "-d", database, "--format=custom", "--no-owner", "--no-acl", `--snapshot=${snapshot}`], undefined, fd);
@@ -102,6 +106,7 @@ try {
     if (before.digest !== after.digest) throw new Error("Restore inventory differs");
     const schema = await inspectSchema(restored);
     if (schema.migrations.slice(0,5).some(m => m.state !== "complete")) throw new Error("Restored schema incomplete");
+    if (JSON.stringify(schema.migrations) !== JSON.stringify(sourceSchema.migrations)) throw new Error("Restored migration state differs");
     const relationships = await auditRelationships(restored);
     if (Object.keys(relationships.issues).length) throw new Error("Restored relationships need reconciliation");
     console.log(JSON.stringify({ restore_verified: true, table_counts: after.counts,

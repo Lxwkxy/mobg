@@ -1,0 +1,6 @@
+services:
+  mailpit:
+    image: axllent/mailpit:v1.33.1
+    ports:
+      - "127.0.0.1:${SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${MAILPIT_HTTP_PORT:-8025}:8025"

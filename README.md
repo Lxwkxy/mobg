@@ -6,10 +6,10 @@ Team project for managing projects, tasks, members and comments.
 
 | Part | Technology / status |
 |---|---|
-| Frontend | Next.js, TypeScript, Tailwind. Auth and project API clients exist; Dashboard/My Tasks still use mockData and remaining W3/W4 screens/integration are pending |
+| Frontend | Next.js, TypeScript, Tailwind. Login, account flows and project list/create/overview use APIs; Dashboard and My Tasks still use mocks |
 | Backend | Express 5, TypeScript, ESM. Session guards, `GET /api/me`, `GET /api/users` and project CRUD + member list are database-backed. Project task routes (list/detail/create/edit/status/delete) are implemented and covered by HTTP tests; comments, activity, dashboard and My Tasks are contract-only |
-| Authentication | Better Auth 1.7.7. Sign-in, session and sign-out work with provisioned accounts; public signup is disabled |
-| Database | PostgreSQL 17 in Docker. Business/auth migrations 001-005; 006 adds W5 seed metadata. W4 DB functions are implemented; HTTP integration remains separate |
+| Authentication | Better Auth 1.7.7. Public registration, email verification and password reset; existing provisioned accounts remain supported |
+| Database | PostgreSQL 17 in Docker. Migrations 001-005 for core/auth, 006 for W5 seed metadata, 007 for public registration; each developer applies missing migrations to their own database |
 | Identity | Better Auth string IDs link to numeric MobG users through `users.auth_user_id` |
 
 ## Setup
@@ -24,6 +24,10 @@ Team project for managing projects, tasks, members and comments.
 
 For an existing database, keep its Docker volume and apply only missing migrations.
 Starting the backend never creates migrations or accounts.
+
+Public account setup and the local email inbox: [account registration](docs/account-registration.md).
+Start the inbox before trying signup, verification or password reset. Mailpit captures mail locally;
+it does not deliver to a real email address.
 
 ## Continuous integration
 

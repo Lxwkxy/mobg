@@ -14,7 +14,7 @@ try {
     throw new Error("W5 demo writes require a separate mobg_w5_demo_* test database");
   }
   if (process.argv.includes("--w5") && (await inspectSchema(pool)).migrations.some(m => m.state !== "complete")) {
-    throw new Error("Apply migrations 001-006 before W5 provisioning");
+    throw new Error("Apply migrations 001-007 before W5 provisioning");
   }
   console.log(`Demo provisioning target: ${database}`);
   if (!process.env.SEED_DOMAIN_USER_ID || !process.env.SEED_OWNER_PASSWORD

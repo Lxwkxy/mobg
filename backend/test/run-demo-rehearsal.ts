@@ -43,9 +43,14 @@ try {
   try {
     if ((await db.query("SELECT current_database() AS name")).rows[0].name !== database) throw new Error("Target mismatch");
     console.log(`Verified isolated rehearsal database: ${database}`);
-    for (const file of migrationFiles) await db.query(await readFile(new URL(`../../database/migrations/${file}`, import.meta.url), "utf8"));
+    // Rehearse upgrading a W5-only database, not just creating the final schema.
+    for (const file of migrationFiles.filter(file => file !== "007_public_registration.sql")) {
+      await db.query(await readFile(new URL(`../../database/migrations/${file}`, import.meta.url), "utf8"));
+    }
     await db.query(await readFile(new URL("../../database/seeds/demo.sql", import.meta.url), "utf8"));
   } finally { await db.end(); }
+  run("src/schema-status.ts", ["--database", database, "--apply"]);
+  run("src/schema-status.ts", ["--database", database, "--apply"]);
   run("src/seed-demo.ts", ["--database", database, "--w5"]);
   run("src/seed-demo.ts", ["--database", database, "--w5"]);
   run("src/check-demo.ts", ["--database", database]);
