@@ -16,6 +16,8 @@ Historical results remain in `docs/w1-verification.md` through `docs/w4-pai-veri
 ```powershell
 if (!(Test-Path .env)) { Copy-Item .env.example .env }
 # Edit .env privately; retain existing credentials for an existing volume.
+# For a freshly copied example, remove ONLY the BETTER_AUTH_SECRET placeholder
+# line in your editor before the helper below. Keep an existing real secret.
 cd backend
 npm ci
 npm run setup:auth-secret
@@ -23,7 +25,8 @@ cd ..
 ```
 
 The secret helper creates a missing secret without displaying it; it does not
-replace an existing key. Resolve a placeholder privately. Never print `.env`, run
+replace an existing key. If it reports an existing example placeholder, remove only
+that placeholder line privately in your editor and rerun the helper. Never print `.env`, run
 `docker compose config` into shared logs, or paste passwords into commands/chat.
 
 | Root `.env` variable | Purpose / local example |
@@ -131,7 +134,8 @@ W5 seed also retains the W2 Shared/Private projects and adds Main Demo, Complete
 Empty and DELETE Sandbox. It prints actual project/task IDs; do not assume IDs from
 another database. See the W5 report for the task matrix and demo sequence.
 
-On rerun, the recorded IDs and entire business fixture must still match. Changed
+On rerun, the recorded W2 and W5 IDs and business fixtures must still match before
+any legacy project seed or account creation can run. Changed
 task fields, memberships, comments, deleted tasks/projects or a changed explicit
 reference date cause a nonzero exit and preserve edits. W5 fixture creation is one
 transaction; account provisioning/W2 fixtures are separate existing operations.

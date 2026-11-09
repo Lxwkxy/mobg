@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import type { PoolClient } from "pg";
+import { pool } from "../db.js";
 import { assertDomainId, withTransaction } from "../services/dbHelpers.js";
 import { requireAccountSchema } from "./schema.js";
 
@@ -9,9 +10,18 @@ export interface DemoFixture {
   roles: DemoRoles;
   project_ids: Record<"main" | "completed" | "empty" | "delete", string>;
   task_ids: string[];
+  w2_project_ids?: { shared_project_id: string; private_project_id: string };
 }
 interface StoredFixture extends DemoFixture { snapshot: unknown }
 export const demoSeedKey = "mobg-w5-v1";
+
+export async function loadW5Demo(): Promise<DemoFixture | undefined> {
+  const stored = (await pool.query<{ fixture: StoredFixture }>(
+    "SELECT fixture FROM demo_seed_runs WHERE seed_key=$1", [demoSeedKey])).rows[0]?.fixture;
+  if (!stored) return undefined;
+  const { snapshot: _snapshot, ...fixture } = stored;
+  return fixture;
+}
 
 // Only business data, never auth rows or credentials. Persisted in the dump so a
 // renamed/deleted fixture is still detected after restore, even if all names change.
@@ -30,7 +40,8 @@ async function snapshot(client: PoolClient, projectIds: string[]): Promise<unkno
   return { projects, members, tasks, assignees, comments };
 }
 
-export async function seedW5Demo(roles: DemoRoles, referenceDate?: string): Promise<DemoFixture> {
+export async function seedW5Demo(roles: DemoRoles, referenceDate?: string,
+  w2ProjectIds?: DemoFixture["w2_project_ids"]): Promise<DemoFixture> {
   Object.values(roles).forEach(assertDomainId);
   if (new Set(Object.values(roles)).size !== 3) throw new Error("Three distinct linked demo users are required");
   if (referenceDate && (!/^\d{4}-\d{2}-\d{2}$/.test(referenceDate)
@@ -57,7 +68,9 @@ export async function seedW5Demo(roles: DemoRoles, referenceDate?: string): Prom
       "SELECT fixture FROM demo_seed_runs WHERE seed_key=$1", [demoSeedKey])).rows[0]?.fixture;
     if (existing) {
       if (!isDeepStrictEqual(existing.roles, roles) || (referenceDate && referenceDate !== existing.reference_date)
-        || !isDeepStrictEqual(existing.snapshot, await snapshot(client, Object.values(existing.project_ids)))) {
+        || !isDeepStrictEqual(existing.w2_project_ids, w2ProjectIds)
+        || !isDeepStrictEqual(existing.snapshot, await snapshot(client,
+          [...Object.values(existing.project_ids), ...Object.values(existing.w2_project_ids ?? {})]))) {
         throw new Error("W5 fixture changed; preserve edits and use a fresh test database, or reconcile explicitly");
       }
       const { snapshot: _snapshot, ...fixture } = existing;
@@ -105,9 +118,11 @@ export async function seedW5Demo(roles: DemoRoles, referenceDate?: string): Prom
       if (key === "delete") await client.query("INSERT INTO comments(task_id,user_id,comment_text) VALUES ($1,$2,$3)",
         [id, roles.member_id, "Disposable comment for cascade verification"]);
     }
-    const fixture: DemoFixture = { reference_date: date, roles, project_ids: projectIds, task_ids: taskIds };
+    const fixture: DemoFixture = { reference_date: date, roles, project_ids: projectIds, task_ids: taskIds,
+      ...(w2ProjectIds ? { w2_project_ids: w2ProjectIds } : {}) };
     await client.query("INSERT INTO demo_seed_runs(seed_key,reference_date,fixture) VALUES ($1,$2,$3::jsonb)",
-      [demoSeedKey, date, JSON.stringify({ ...fixture, snapshot: await snapshot(client, Object.values(projectIds)) })]);
+      [demoSeedKey, date, JSON.stringify({ ...fixture,
+        snapshot: await snapshot(client, [...Object.values(projectIds), ...Object.values(w2ProjectIds ?? {})]) })]);
     return fixture;
   });
 }

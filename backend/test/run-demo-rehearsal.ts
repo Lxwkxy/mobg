@@ -58,6 +58,25 @@ try {
   try { reject("src/backup-db.ts", ["--database", database, "--restore-database", restoreDatabase]); }
   finally { await admin.query(`DROP DATABASE "${restoreDatabase}"`); }
   run("src/backup-db.ts", ["--database", database, "--restore-database", restoreDatabase]);
+  stage = "W2 fixture rerun regression";
+  const editedDb = new Pool({ ...connection, database });
+  try {
+    const fixture = (await editedDb.query("SELECT fixture FROM demo_seed_runs WHERE seed_key='mobg-w5-v1'")).rows[0].fixture;
+    const privateId = fixture.w2_project_ids.private_project_id as string;
+    const projectCount = (await editedDb.query("SELECT count(*) AS n FROM projects")).rows[0].n;
+    await editedDb.query("UPDATE projects SET project_name='Human renamed W2 project' WHERE project_id=$1", [privateId]);
+    reject("src/seed-demo.ts", ["--database", database, "--w5"]);
+    if ((await editedDb.query("SELECT count(*) AS n FROM projects")).rows[0].n !== projectCount
+      || (await editedDb.query("SELECT project_name FROM projects WHERE project_id=$1", [privateId])).rows[0]?.project_name !== "Human renamed W2 project") {
+      throw new Error("Renamed W2 fixture was not preserved");
+    }
+    await editedDb.query("DELETE FROM projects WHERE project_id=$1", [privateId]);
+    reject("src/seed-demo.ts", ["--database", database, "--w5"]);
+    if ((await editedDb.query("SELECT 1 FROM projects WHERE project_name='MobG W2 Private Project'")).rowCount) {
+      throw new Error("Deleted W2 fixture was recreated");
+    }
+    console.log("W2 renamed/deleted fixture CLI regression PASS: no duplicate, overwrite or recreation");
+  } finally { await editedDb.end(); }
   console.log("W5 isolated provisioning, rerun, native Login/Logout, independent DB oracle and backup/restore PASS");
 } catch {
   console.error(`W5 rehearsal failed at ${stage}; no raw errors or credentials logged.`);

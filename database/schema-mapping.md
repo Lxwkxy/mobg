@@ -314,7 +314,7 @@ Apply the following rules in order:
 
 Migration 006 adds `demo_seed_runs(seed_key TEXT PRIMARY KEY, reference_date DATE
 NOT NULL, fixture JSONB NOT NULL)`. Its one `mobg-w5-v1` record stores selected domain
-IDs, project/task IDs and a non-secret business snapshot. It has no account passwords,
+IDs, W2/W5 project IDs, task IDs and a non-secret business snapshot. It has no account passwords,
 hashes, sessions or tokens. It has no FKs so the explicitly disposable sandbox can
 be deleted; rerun detects the difference and refuses to recreate it silently.
 

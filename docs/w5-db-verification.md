@@ -130,10 +130,13 @@ because the existing SQL/W2 fixtures are outside that module's scope.
 | Layer | Execution and observed result |
 |---|---|
 | Source / tests / build | `npm run typecheck`, `typecheck:tests`, `build`: PASS |
-| DB/native tests | Full `npm run test:db`: 59/59 PASS; 45 cases outside the HTTP test file. Includes W2 provisioning, W3/W4 DB behavior and W5 fixture/integrity checks |
+| Full suite | `npm run test:db`: 60/60 PASS after review fixes; 45 DB/native cases, 14 cases in the HTTP file and 1 filesystem safety case |
+| DB/native tests | 45/45 PASS: W2 provisioning, W3/W4 DB behavior and W5 fixture/integrity checks |
+| Archive file safety | 1/1 PASS: exclusive-create collision preserves the existing backup; failed new writes clean only their own incomplete file |
 | HTTP tests | Existing `taskRoutes.test.ts`: 14/14 PASS within that suite; actual Express server, sign-in cookies, guards, CRUD, isolation/error mapping and summary refresh. No W4 endpoints were fabricated |
 | W5 native auth / CLI | `test:demo-rehearsal`: PASS; 3 disposable accounts Login → session/domain mapping → role/project lists → Logout; seed runs twice without duplicate IDs or password resets |
 | W5 edit safety | PASS: concurrent reruns return the same fixture; changed title/reference date and intentional deletion are rejected; the edit stays; sandbox comment/assignee cascade leaves Main Demo intact |
+| W2/W5 CLI edit safety | PASS after review fix: rename/delete the recorded W2 Private fixture, rerun `seed:demo --w5`, and verify nonzero exit with no duplicate, overwrite or recreation. W2 IDs/snapshots are checked before provisioning/name-based creation |
 | Independent oracle | PASS on fresh W5 DB and existing `mobg_db`; raw rows independently recomputed, not copied from the aggregate query |
 | Negative targets | PASS: seed mismatch, backup source mismatch, non-test restore name and existing allowed-prefix restore DB are rejected |
 | Backup / restore | PASS: PostgreSQL custom archive, fresh restore, all public rows/schema/indexes/sequences/functions equal, 14 FK checks and relationship audit pass |
@@ -145,9 +148,9 @@ A rehearsal caught an empty optional reference date; it was fixed and rerun succ
 A test-script type error was fixed before the final typecheck/build. No failed run was
 reported as a pass.
 
-Full-suite database: `mobg_w2_test_125996_79dd11f7` (removed by runner).
-Final rehearsal source: `mobg_w5_demo_129892_7fc8f57b`; restore:
-`mobg_w5_restore_129892_7fc8f57b` (both removed by their owning invocation).
+Full-suite database: `mobg_w2_test_117344_e5cea47f` (removed by runner).
+Final rehearsal source: `mobg_w5_demo_126796_6b7545ba`; restore:
+`mobg_w5_restore_126796_6b7545ba` (both removed by their owning invocation).
 The private dump remains outside Git in the local OS temp `mobg-private-backups`
 directory. No dump content, credentials, hashes, cookies or tokens are in this report.
 
@@ -173,5 +176,30 @@ to make the checklist look complete.
 
 ## Review
 
-Two independent review axes run against the fixed point above after the implementation
-commit. Findings and any corrections are recorded here before final delivery.
+Two independent agents reviewed `git diff 5f9e9e86f07f59d73fb26928056abd1d4462a48b...HEAD`
+after implementation commit `b80b716`, then rechecked the corrections in the working
+tree. Their reviews were read-only; actual test execution above was by the implementing
+agent. Review fixes were committed separately after tests passed.
+
+## Standards
+
+Two P2 findings were fixed and rechecked:
+
+- Exclusive archive creation now occurs before cleanup is armed. Existing files
+  survive `EEXIST`; the regression covers preservation and cleanup of an owned partial file.
+- Backend setup now establishes the directory and installs dependencies before the
+  secret helper. Both guides explain removing only the example placeholder while
+  preserving an existing real secret.
+
+**Standards: 2 findings fixed; 0 remaining.** No additional material baseline smells.
+
+## Spec
+
+One P2 finding was fixed and rechecked: the W5 manifest originally covered only W5
+projects, allowing the legacy W2 helper to recreate renamed/deleted W2 fixtures.
+Metadata now retains W2 IDs/snapshots; the CLI validates recorded identities and all
+fixture contents before provisioning or name-based creation, then reuses those IDs.
+The CLI regression proves edited/deleted W2 data is preserved without recreation.
+
+**Spec: 1 finding fixed; 0 remaining actionable findings.** No evidenced scope creep;
+API/UI, existing-account Login and human-rehearsal dependencies remain explicitly open.

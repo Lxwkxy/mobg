@@ -15,9 +15,14 @@ Copy the repository root `.env.example` to `.env` and set your database credenti
 For an existing `.env`, add `BETTER_AUTH_URL` and `BETTER_AUTH_SECRET`, and set
 `CORS_ORIGIN=http://localhost:3000` for Next.js.
 
-Create a missing random secret in `.env` without displaying it:
+From the repository root, install backend dependencies first. If you just copied
+`.env.example`, open `.env` privately and remove only the `BETTER_AUTH_SECRET` line
+whose value is the example placeholder. Keep any existing real secret unchanged.
+Then generate the missing secret without displaying it:
 
 ```powershell
+cd backend
+npm ci
 npm run setup:auth-secret
 ```
 

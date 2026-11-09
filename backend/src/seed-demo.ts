@@ -2,7 +2,7 @@ import { pool } from "./db.js";
 import { provisionAccount, ProvisioningError } from "./provisioning/accounts.js";
 import { seedDemoProjects } from "./provisioning/demoProjects.js";
 import { domainIdToNumber } from "./services/dbHelpers.js";
-import { seedW5Demo } from "./provisioning/demoData.js";
+import { seedW5Demo, loadW5Demo } from "./provisioning/demoData.js";
 import { inspectSchema } from "./provisioning/schema.js";
 
 try {
@@ -21,13 +21,28 @@ try {
     || !process.env.SEED_MEMBER_PASSWORD || !process.env.SEED_OUTSIDER_PASSWORD) {
     throw new Error("Set SEED_DOMAIN_USER_ID and all three SEED_*_PASSWORD variables privately");
   }
+  const existingW5 = process.argv.includes("--w5") ? await loadW5Demo() : undefined;
+  if (existingW5) {
+    // Validate durable identities and all W2/W5 business data BEFORE any provisioner
+    // can create accounts or recreate name-based legacy projects on a rerun.
+    const selected = (await pool.query<{ user_id: string; email: string }>(
+      "SELECT user_id,email FROM users WHERE user_id=ANY($1::bigint[])", [Object.values(existingW5.roles)])).rows;
+    const expectedMemberEmail = (process.env.SEED_MEMBER_EMAIL || "mobg-member@example.test").trim().toLowerCase();
+    const expectedOutsiderEmail = (process.env.SEED_OUTSIDER_EMAIL || "mobg-outsider@example.test").trim().toLowerCase();
+    if (!existingW5.w2_project_ids || existingW5.roles.owner_id !== domainIdToNumber(process.env.SEED_DOMAIN_USER_ID)
+      || selected.find(u => u.user_id === String(existingW5.roles.member_id))?.email !== expectedMemberEmail
+      || selected.find(u => u.user_id === String(existingW5.roles.outsider_id))?.email !== expectedOutsiderEmail) {
+      throw new Error("Existing W5 identities/configuration differ; reconcile without creating new accounts");
+    }
+    await seedW5Demo(existingW5.roles, process.env.DEMO_REFERENCE_DATE || undefined, existingW5.w2_project_ids);
+  }
   const owner = await provisionAccount({ domain_user_id: domainIdToNumber(process.env.SEED_DOMAIN_USER_ID), password: process.env.SEED_OWNER_PASSWORD });
   const member = await provisionAccount({ name: "MobG Member", email: process.env.SEED_MEMBER_EMAIL || "mobg-member@example.test", password: process.env.SEED_MEMBER_PASSWORD });
   const outsider = await provisionAccount({ name: "MobG Outsider", email: process.env.SEED_OUTSIDER_EMAIL || "mobg-outsider@example.test", password: process.env.SEED_OUTSIDER_PASSWORD });
   const roles = { owner_id: domainIdToNumber(owner.user_id), member_id: domainIdToNumber(member.user_id),
     outsider_id: domainIdToNumber(outsider.user_id) };
-  const projects = await seedDemoProjects(roles);
-  if (process.argv.includes("--w5")) console.log(JSON.stringify(await seedW5Demo(roles, process.env.DEMO_REFERENCE_DATE || undefined), null, 2));
+  const projects = existingW5?.w2_project_ids ?? await seedDemoProjects(roles);
+  if (process.argv.includes("--w5")) console.log(JSON.stringify(await seedW5Demo(roles, process.env.DEMO_REFERENCE_DATE || undefined, projects), null, 2));
   console.table([owner, member, outsider].map((user, i) => ({ purpose: ["Owner", "Member", "Outsider"][i],
     user_id: user.user_id, auth_user_id: user.auth_user_id, email: user.email, created: user.created })));
   console.log(JSON.stringify(projects));

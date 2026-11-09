@@ -1,7 +1,7 @@
 import { randomBytes, createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
-import { mkdir, realpath, unlink } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,7 @@ import { Pool, type PoolClient } from "pg";
 import { pool } from "./db.js";
 import { inspectSchema } from "./provisioning/schema.js";
 import { auditRelationships, quoteIdentifier } from "./provisioning/verification.js";
+import { writeNewArchive } from "./provisioning/backupFiles.js";
 
 const repo = fileURLToPath(new URL("../../", import.meta.url));
 const args = process.argv.slice(2);
@@ -16,7 +17,6 @@ const option = (name: string) => { const index = args.indexOf(name); return inde
 const database = option("--database");
 const restoreDatabase = option("--restore-database");
 let archive: string | undefined;
-let archiveComplete = false;
 let created = false;
 let source: PoolClient | undefined;
 let restorePool: Pool | undefined;
@@ -84,10 +84,9 @@ try {
   await source.query(`LOCK TABLE ${tables.map(t => "public." + quoteIdentifier(t.tablename)).join(",")} IN SHARE MODE`);
   const snapshot = (await source.query("SELECT pg_export_snapshot() AS id")).rows[0].id as string;
   const before = await inventory(source);
-  const fd = openSync(archive, "wx", 0o600);
-  try { docker(["pg_dump", "-U", user, "-d", database, "--format=custom", "--no-owner", "--no-acl", `--snapshot=${snapshot}`], undefined, fd); }
-  finally { closeSync(fd); }
-  archiveComplete = true;
+  writeNewArchive(archive, fd => {
+    docker(["pg_dump", "-U", user, "-d", database, "--format=custom", "--no-owner", "--no-acl", `--snapshot=${snapshot}`], undefined, fd);
+  });
   await source.query("COMMIT");
   console.log(`Private archive saved outside Git: ${archive}`);
   await admin.query(`CREATE DATABASE ${quoteIdentifier(restoreDatabase)} TEMPLATE template0`);
@@ -120,7 +119,6 @@ try {
       console.log(`Removed only this invocation's restore database: ${restoreDatabase}`);
     } catch { console.error(`Cleanup incomplete for owned restore database: ${restoreDatabase}`); process.exitCode = 1; }
   }
-  if (archive && !archiveComplete) await unlink(archive).catch(() => {});
   await admin.end();
   await pool.end();
 }
