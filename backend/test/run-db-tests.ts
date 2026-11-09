@@ -3,6 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { Pool } from "pg";
 import "../src/env.js";
+import { migrationFiles } from "../src/provisioning/schema.js";
 
 const database = `mobg_w2_test_${process.pid}_${randomBytes(4).toString("hex")}`;
 if (!/^mobg_w2_test_[0-9]+_[0-9a-f]{8}$/.test(database)) throw new Error("Unsafe test database name");
@@ -27,8 +28,7 @@ try {
     const target = (await testDb.query<{ database: string }>("SELECT current_database() AS database")).rows[0]!.database;
     if (target !== database) throw new Error("Test database target mismatch");
     console.log(`Verified isolated test database: ${target}`);
-    for (const file of ["001_initial_schema.sql", "002_require_task_due_date.sql",
-      "003_add_project_start_date.sql", "004_add_sessions.sql", "005_add_better_auth.sql"]) {
+    for (const file of migrationFiles) {
       await testDb.query(await readFile(new URL(`../../database/migrations/${file}`, import.meta.url), "utf8"));
     }
     await testDb.query(await readFile(new URL("../../database/seeds/demo.sql", import.meta.url), "utf8"));

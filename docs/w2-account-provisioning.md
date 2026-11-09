@@ -1,5 +1,11 @@
 # W2 account provisioning procedure
 
+W5 extends these same account scripts; it does not replace credentials or the identity
+mapping. For an isolated W5 demo, run `seed:demo -- --database NAME --w5` after migrations
+001–006. Follow the [current database guide](../database/README.md) for fresh test DB
+creation, hidden inputs, fixture reruns and backup/restore. This W2 procedure remains
+the reference for single-account provisioning and reconciliation.
+
 Owner: Pai, coordinated with Book. Use Better Auth 1.7.7.
 The W1 procedure is now implemented in backend/src/provisioning/accounts.ts and
 the seed CLIs. Use the commands below for local development; no HTTP server opens.

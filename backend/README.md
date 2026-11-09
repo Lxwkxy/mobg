@@ -5,7 +5,8 @@ Session guards, `GET /api/me`, `GET /api/users` and the project routes are backe
 PostgreSQL. The project task routes (`/api/projects/:projectId/tasks`) are implemented and
 covered by HTTP tests; they are not verified from the web UI yet. Comments, activity,
 dashboard, My Tasks and member add/remove endpoints are not implemented yet.
-The frontend Login is still a local mock until Bar integrates the auth client.
+The frontend has a Better Auth client and project API client; Dashboard/My Tasks
+still use mock data. Do not infer full browser integration from DB/HTTP tests.
 
 ## Local setup
 
@@ -14,10 +15,15 @@ Copy the repository root `.env.example` to `.env` and set your database credenti
 For an existing `.env`, add `BETTER_AUTH_URL` and `BETTER_AUTH_SECRET`, and set
 `CORS_ORIGIN=http://localhost:3000` for Next.js.
 
-Generate a random secret locally, then copy it into `.env`:
+From the repository root, install backend dependencies first. If you just copied
+`.env.example`, open `.env` privately and remove only the `BETTER_AUTH_SECRET` line
+whose value is the example placeholder. Keep any existing real secret unchanged.
+Then generate the missing secret without displaying it:
 
 ```powershell
-node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
+cd backend
+npm ci
+npm run setup:auth-secret
 ```
 
 Keep the secret private. Never put it in a `NEXT_PUBLIC_` variable.
@@ -43,6 +49,11 @@ Commands:
 | `npm run build` | Compile src into dist |
 | `npm start` | Run compiled dist/server.js; build first |
 | `npm run check-db` | Read the demo project using src/check-db.ts; requires the DB |
+| `npm run db:status -- --database NAME` | Inspect the exact target's migration structure |
+| `npm run db:verify -- --database NAME` | Read-only relationship audit and independent W4 summary oracle |
+| `npm run seed:demo -- --database NAME --w5` | Provision/verify accounts and seed W5 in a separate `mobg_w5_demo_*` DB |
+| `npm run db:backup -- --database SOURCE --restore-database NEW_NAME` | Private backup plus verified restore to a new `mobg_w5_restore_*` DB |
+| `npm run test:demo-rehearsal` | Disposable W5 setup, native auth, seed rerun and Docker backup/restore |
 
 Run `npm run typecheck` before committing; `npm run dev` does not report type errors.
 `GET /api/health` is a server health endpoint, not a database or Login check.
@@ -126,3 +137,8 @@ From `backend`, run `npm run test:db -- taskDb.test.ts` for the task DB tests,
 on a random port against the isolated database), or `npm run test:db` for the full suite. Both create and verify a uniquely named
 `mobg_w2_test_<pid>_<random>` database before fixtures run, and remove only that
 database afterward. The W2 prefix is retained for compatibility with existing tests.
+
+W5 seed and backup prerequisites, exact target checks, private password entry,
+retention/recovery and cleanup are in the [database guide](../database/README.md).
+Actual results and remaining Book/Bar/manual dependencies are in the
+[W5 verification record](../docs/w5-db-verification.md).
