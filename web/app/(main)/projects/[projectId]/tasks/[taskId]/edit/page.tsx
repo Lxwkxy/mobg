@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useCallback, useState, type FormEvent } from 'react';
@@ -5,9 +6,18 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 
 import ProtectedState from '@/components/ProtectedState';
+import AssigneeSelector from '@/components/tasks/AssigneeSelector';
+
 import { ApiRequestError } from '@/lib/projectApi';
 import { parseRouteId, taskApi } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
+
+import {
+  mapTaskServerErrors,
+  normalizeAssigneeIds,
+  validateTaskForm,
+  type TaskFormErrors,
+} from '@/lib/taskForm';
 
 import type {
   Task,
@@ -22,100 +32,45 @@ type EditTaskData = {
   members: ProjectMember[];
 };
 
-type FormErrors = {
-  taskTitle?: string;
-  taskDescription?: string;
-  priority?: string;
-  dueDate?: string;
-  status?: string;
-  assigneeIds?: string;
-  general?: string;
-};
-
 const statusOptions: TaskStatus[] = [
   'To do',
   'In progress',
   'Done',
 ];
 
-function mapServerField(field: string): keyof FormErrors | null {
-  const normalized = field
-    .replace(/([a-z])([A-Z])/g, '$1_$2')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
-
-  switch (normalized) {
-    case 'tasktitle':
-    case 'title':
-      return 'taskTitle';
-    case 'taskdescription':
-    case 'description':
-      return 'taskDescription';
-    case 'priority':
-      return 'priority';
-    case 'duedate':
-      return 'dueDate';
-    case 'status':
-      return 'status';
-    case 'assigneeids':
-    case 'assignees':
-      return 'assigneeIds';
-    default:
-      return null;
-  }
-}
-
 function EditTaskContent({
   projectId,
   taskId,
+  data,
 }: {
   projectId: string;
   taskId: string;
+  data: EditTaskData;
 }) {
   const router = useRouter();
 
-  const load = useCallback(async (): Promise<EditTaskData> => {
-    const parsedProjectId = parseRouteId(projectId, 'project ID');
-    const parsedTaskId = parseRouteId(taskId, 'task ID');
+  // Snapshot of the task when this editing session starts.
+  const baseline = data.task;
 
-    const [task, members] = await Promise.all([
-      taskApi.getTaskById(parsedProjectId, parsedTaskId),
-      taskApi.getProjectMembers(parsedProjectId),
-    ]);
+  const [taskTitle, setTaskTitle] = useState(baseline.taskTitle);
+  const [taskDescription, setTaskDescription] = useState(
+    baseline.taskDescription ?? '',
+  );
+  const [priority, setPriority] = useState<TaskPriority>(
+    baseline.priority,
+  );
+  const [dueDate, setDueDate] = useState(baseline.dueDate);
+  const [taskStatus, setTaskStatus] = useState<TaskStatus>(
+    baseline.status,
+  );
+  const [assigneeIds, setAssigneeIds] = useState<number[]>(
+    baseline.assignees.map((assignee) => assignee.userId),
+  );
 
-    return { task, members };
-  }, [projectId, taskId]);
-
-  const {
-    status: loadStatus,
-    data,
-    httpStatus,
-    retry,
-  } = useProtectedLoad(load);
-
-  const [taskTitle, setTaskTitle] = useState('');
-  const [taskDescription, setTaskDescription] = useState('');
-  const [priority, setPriority] = useState<TaskPriority>(2);
-  const [dueDate, setDueDate] = useState('');
-  const [taskStatus, setTaskStatus] = useState<TaskStatus>('To do');
-  const [assigneeIds, setAssigneeIds] = useState<number[]>([]);
-
-  const [initialized, setInitialized] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [errors, setErrors] = useState<FormErrors>({});
+  const [errors, setErrors] = useState<TaskFormErrors>({});
 
-  // Fill the form once after the original task has loaded.
-  if (data && !initialized) {
-    setTaskTitle(data.task.taskTitle);
-    setTaskDescription(data.task.taskDescription ?? '');
-    setPriority(data.task.priority);
-    setDueDate(data.task.dueDate);
-    setTaskStatus(data.task.status);
-    setAssigneeIds(data.task.assignees.map((assignee) => assignee.userId));
-    setInitialized(true);
-  }
-
-  function clearError(field: keyof FormErrors) {
+  function clearError(field: keyof TaskFormErrors) {
     setErrors((current) => {
       const next = { ...current };
       delete next[field];
@@ -134,62 +89,71 @@ function EditTaskContent({
     clearError('assigneeIds');
   }
 
+  function handleCancel() {
+    if (isSaving) return;
+
+    // Discard all unsaved changes and restore the original values.
+    setTaskTitle(baseline.taskTitle);
+    setTaskDescription(baseline.taskDescription ?? '');
+    setPriority(baseline.priority);
+    setDueDate(baseline.dueDate);
+    setTaskStatus(baseline.status);
+    setAssigneeIds(
+      normalizeAssigneeIds(
+        baseline.assignees.map((assignee) => assignee.userId),
+      ),
+    );
+    setErrors({});
+
+    // Navigate back without a full page reload.
+    router.push(`/projects/${projectId}/tasks/${taskId}`);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (isSaving || !data) return;
+    if (isSaving) return;
 
-    const nextErrors: FormErrors = {};
     const trimmedTitle = taskTitle.trim();
     const trimmedDescription = taskDescription.trim();
 
-    if (!trimmedTitle) {
-      nextErrors.taskTitle = 'Please enter a task title.';
-    } else if (trimmedTitle.length > 200) {
-      nextErrors.taskTitle = 'Task title must not exceed 200 characters.';
-    }
+    const validationErrors = validateTaskForm({
+      taskTitle,
+      dueDate,
+      assigneeIds,
+    });
 
-    if (!dueDate) {
-      nextErrors.dueDate = 'Please select a due date.';
-    }
-
-    if (assigneeIds.length === 0) {
-      nextErrors.assigneeIds = 'Please select at least one assignee.';
-    }
-
-    if (Object.keys(nextErrors).length > 0) {
-      setErrors(nextErrors);
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
       return;
     }
 
-    const original = data.task;
-    const originalAssigneeIds = original.assignees
-      .map((assignee) => assignee.userId)
-      .sort((a, b) => a - b);
+    const originalAssigneeIds = normalizeAssigneeIds(
+      baseline.assignees.map((assignee) => assignee.userId),
+    );
 
-    const updatedAssigneeIds = [...assigneeIds].sort((a, b) => a - b);
+    const updatedAssigneeIds = normalizeAssigneeIds(assigneeIds);
 
     const input: UpdateTaskRequest = {};
 
-    // Send only fields that have changed.
-    if (trimmedTitle !== original.taskTitle) {
+    // Only send fields that changed during this editing session.
+    if (trimmedTitle !== baseline.taskTitle) {
       input.taskTitle = trimmedTitle;
     }
 
-    const originalDescription = original.taskDescription ?? '';
-    if (trimmedDescription !== originalDescription) {
+    if (trimmedDescription !== (baseline.taskDescription ?? '')) {
       input.taskDescription = trimmedDescription || null;
     }
 
-    if (priority !== original.priority) {
+    if (priority !== baseline.priority) {
       input.priority = priority;
     }
 
-    if (dueDate !== original.dueDate) {
+    if (dueDate !== baseline.dueDate) {
       input.dueDate = dueDate;
     }
 
-    if (taskStatus !== original.status) {
+    if (taskStatus !== baseline.status) {
       input.status = taskStatus;
     }
 
@@ -234,17 +198,7 @@ function EditTaskContent({
           return;
         }
 
-        const serverErrors: FormErrors = {};
-
-        for (const detail of error.details ?? []) {
-          if (!detail.field || !detail.message) continue;
-
-          const field = mapServerField(detail.field);
-
-          if (field) {
-            serverErrors[field] = detail.message;
-          }
-        }
+        const serverErrors = mapTaskServerErrors(error.details);
 
         if (error.status === 403) {
           serverErrors.general =
@@ -266,51 +220,6 @@ function EditTaskContent({
     } finally {
       setIsSaving(false);
     }
-  }
-
-  if (loadStatus === 'error') {
-    return (
-      <div className="mx-auto max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-5">
-        <p role="alert" className="mb-4 text-[13px] text-red-600">
-          {httpStatus === 400
-            ? 'Invalid project or task ID.'
-            : httpStatus === 404
-              ? 'Task not found in this project.'
-              : 'Unable to load task information. Please try again.'}
-        </p>
-
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() =>
-              router.push(`/projects/${projectId}/tasks`)
-            }
-            className="min-h-11 rounded-lg border border-[#dddddd] px-4 text-[13px]"
-          >
-            Back to Tasks
-          </button>
-
-          {httpStatus !== 400 && httpStatus !== 404 && (
-            <button
-              type="button"
-              onClick={retry}
-              className="min-h-11 rounded-lg bg-[#222222] px-4 text-[13px] text-white"
-            >
-              Try again
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (loadStatus !== 'ready' || !data || !initialized) {
-    return (
-      <ProtectedState
-        status={loadStatus === 'ready' ? 'loading' : loadStatus}
-        onRetry={retry}
-      />
-    );
   }
 
   return (
@@ -350,7 +259,6 @@ function EditTaskContent({
           </div>
         )}
 
-        {/* Task title */}
         <div className="mb-5">
           <label
             htmlFor="taskTitle"
@@ -381,7 +289,6 @@ function EditTaskContent({
           )}
         </div>
 
-        {/* Description */}
         <div className="mb-5">
           <label
             htmlFor="taskDescription"
@@ -403,7 +310,6 @@ function EditTaskContent({
           />
         </div>
 
-        {/* Status and priority */}
         <div className="mb-5 grid gap-5 sm:grid-cols-2">
           <div>
             <label
@@ -466,7 +372,6 @@ function EditTaskContent({
           </div>
         </div>
 
-        {/* Due date */}
         <div className="mb-6">
           <label
             htmlFor="dueDate"
@@ -496,90 +401,19 @@ function EditTaskContent({
           )}
         </div>
 
-        {/* Assignees */}
-        <div className="mb-8">
-          <div className="mb-2">
-            <p className="text-[13px] font-semibold text-[#333333]">
-              Assign to <span className="text-red-500">*</span>
-            </p>
+        <AssigneeSelector
+          members={data.members}
+          selectedIds={assigneeIds}
+          error={errors.assigneeIds}
+          disabled={isSaving}
+          onToggle={toggleAssignee}
+        />
 
-            <p className="mt-1 text-[12px] text-[#777777]">
-              Select one or more members of this project.
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-[#e0e0e0] p-3">
-            {data.members.length === 0 ? (
-              <p className="p-2 text-[12px] text-[#777777]">
-                No project members are available.
-              </p>
-            ) : (
-              <div className="max-h-64 space-y-1 overflow-y-auto">
-                {data.members.map((member) => {
-                  const checked = assigneeIds.includes(member.userId);
-
-                  return (
-                    <label
-                      key={member.userId}
-                      className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-3 transition-colors hover:bg-[#f7f7f7]"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleAssignee(member.userId)}
-                        className="h-4 w-4 accent-[#222222]"
-                      />
-
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#eeeeee] text-[11px] font-semibold text-[#555555]">
-                        {member.userName
-                          .split(' ')
-                          .filter(Boolean)
-                          .slice(0, 2)
-                          .map((part) => part[0])
-                          .join('')
-                          .toUpperCase()}
-                      </span>
-
-                      <span className="min-w-0">
-                        <span className="block text-[13px] font-medium text-[#333333]">
-                          {member.userName}
-                        </span>
-                        <span className="block text-[11px] text-[#888888]">
-                          {member.email}
-                        </span>
-                      </span>
-
-                      <span className="ml-auto text-[10px] text-[#999999]">
-                        {member.role}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <p className="text-[11px] text-[#777777]">
-              {assigneeIds.length} member(s) selected
-            </p>
-
-            {errors.assigneeIds && (
-              <p role="alert" className="text-right text-[12px] text-red-600">
-                {errors.assigneeIds}
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Actions */}
         <div className="flex flex-wrap justify-end gap-3 border-t border-[#eeeeee] pt-5">
           <button
             type="button"
             disabled={isSaving}
-            onClick={() =>
-              router.push(`/projects/${projectId}/tasks/${taskId}`)
-            }
+            onClick={handleCancel}
             className="min-h-11 rounded-xl border border-[#dddddd] px-5 text-[13px] font-medium text-[#444444] hover:bg-[#f7f7f7] disabled:opacity-50"
           >
             Cancel
@@ -604,14 +438,78 @@ export default function EditTaskPage() {
     taskId: string;
   }>();
 
+  const router = useRouter();
   const projectId = params.projectId;
   const taskId = params.taskId;
+
+  const load = useCallback(async (): Promise<EditTaskData> => {
+    const parsedProjectId = parseRouteId(projectId, 'project ID');
+    const parsedTaskId = parseRouteId(taskId, 'task ID');
+
+    const [task, members] = await Promise.all([
+      taskApi.getTaskById(parsedProjectId, parsedTaskId),
+      taskApi.getProjectMembers(parsedProjectId),
+    ]);
+
+    return { task, members };
+  }, [projectId, taskId]);
+
+  const {
+    status: loadStatus,
+    data,
+    httpStatus,
+    retry,
+  } = useProtectedLoad(load);
+
+  if (loadStatus === 'error') {
+    return (
+      <div className="mx-auto max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-5">
+        <p role="alert" className="mb-4 text-[13px] text-red-600">
+          {httpStatus === 400
+            ? 'Invalid project or task ID.'
+            : httpStatus === 404
+              ? 'Task not found in this project.'
+              : 'Unable to load task information. Please try again.'}
+        </p>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => router.push(`/projects/${projectId}/tasks`)}
+            className="min-h-11 rounded-lg border border-[#dddddd] px-4 text-[13px]"
+          >
+            Back to Tasks
+          </button>
+
+          {httpStatus !== 400 && httpStatus !== 404 && (
+            <button
+              type="button"
+              onClick={retry}
+              className="min-h-11 rounded-lg bg-[#222222] px-4 text-[13px] text-white"
+            >
+              Try again
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (loadStatus !== 'ready' || !data) {
+    return (
+      <ProtectedState
+        status={loadStatus === 'ready' ? 'loading' : loadStatus}
+        onRetry={retry}
+      />
+    );
+  }
 
   return (
     <EditTaskContent
       key={`${projectId}-${taskId}`}
       projectId={projectId}
       taskId={taskId}
+      data={data}
     />
   );
 }

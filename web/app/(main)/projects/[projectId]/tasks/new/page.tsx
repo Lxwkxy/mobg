@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useCallback, useState, type FormEvent } from 'react';
@@ -5,10 +6,17 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 
 import ProtectedState from '@/components/ProtectedState';
-import { ApiRequestError } from '@/lib/projectApi';
+import AssigneeSelector from '@/components/tasks/AssigneeSelector';
+
+import { ApiRequestError, projectApi } from '@/lib/projectApi';
 import { parseRouteId, taskApi } from '@/lib/taskApi';
-import { projectApi } from '@/lib/projectApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
+
+import {
+  mapTaskServerErrors,
+  validateTaskForm,
+  type TaskFormErrors,
+} from '@/lib/taskForm';
 
 import type {
   CreateTaskRequest,
@@ -16,49 +24,10 @@ import type {
   TaskPriority,
 } from '@/types';
 
-type FormErrors = {
-  taskTitle?: string;
-  taskDescription?: string;
-  priority?: string;
-  dueDate?: string;
-  assigneeIds?: string;
-  general?: string;
-};
-
 type FormData = {
   project: Awaited<ReturnType<typeof projectApi.getProjectById>>;
   members: ProjectMember[];
 };
-
-function mapServerField(field: string): keyof FormErrors | null {
-  const normalized = field
-    .replace(/([a-z])([A-Z])/g, '$1_$2')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
-
-  switch (normalized) {
-    case 'tasktitle':
-    case 'title':
-      return 'taskTitle';
-
-    case 'taskdescription':
-    case 'description':
-      return 'taskDescription';
-
-    case 'priority':
-      return 'priority';
-
-    case 'duedate':
-      return 'dueDate';
-
-    case 'assigneeids':
-    case 'assignees':
-      return 'assigneeIds';
-
-    default:
-      return null;
-  }
-}
 
 function getPriorityLabel(priority: TaskPriority): string {
   switch (priority) {
@@ -103,9 +72,9 @@ function CreateTaskContent({
   const [assigneeIds, setAssigneeIds] = useState<number[]>([]);
 
   const [isSaving, setIsSaving] = useState(false);
-  const [errors, setErrors] = useState<FormErrors>({});
+  const [errors, setErrors] = useState<TaskFormErrors>({});
 
-  function clearError(field: keyof FormErrors) {
+  function clearError(field: keyof TaskFormErrors) {
     setErrors((current) => {
       const next = { ...current };
       delete next[field];
@@ -129,25 +98,16 @@ function CreateTaskContent({
 
     if (isSaving) return;
 
-    const nextErrors: FormErrors = {};
     const trimmedTitle = taskTitle.trim();
 
-    if (!trimmedTitle) {
-      nextErrors.taskTitle = 'Please enter a task title.';
-    } else if (trimmedTitle.length > 200) {
-      nextErrors.taskTitle = 'Task title must not exceed 200 characters.';
-    }
+    const validationErrors = validateTaskForm({
+      taskTitle,
+      dueDate,
+      assigneeIds,
+    });
 
-    if (!dueDate) {
-      nextErrors.dueDate = 'Please select a due date.';
-    }
-
-    if (assigneeIds.length === 0) {
-      nextErrors.assigneeIds = 'Please select at least one assignee.';
-    }
-
-    if (Object.keys(nextErrors).length > 0) {
-      setErrors(nextErrors);
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
       return;
     }
 
@@ -179,17 +139,7 @@ function CreateTaskContent({
           return;
         }
 
-        const serverErrors: FormErrors = {};
-
-        for (const detail of error.details ?? []) {
-          if (!detail.field || !detail.message) continue;
-
-          const field = mapServerField(detail.field);
-
-          if (field) {
-            serverErrors[field] = detail.message;
-          }
-        }
+        const serverErrors = mapTaskServerErrors(error.details);
 
         if (error.status === 403) {
           serverErrors.general =
@@ -413,80 +363,13 @@ function CreateTaskContent({
         </div>
 
         {/* Assignees */}
-        <div className="mb-8">
-          <div className="mb-2">
-            <p className="text-[13px] font-semibold text-[#333333]">
-              Assign to <span className="text-red-500">*</span>
-            </p>
-
-            <p className="mt-1 text-[12px] text-[#777777]">
-              Select one or more members of this project.
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-[#e0e0e0] p-3">
-            {data.members.length === 0 ? (
-              <p className="p-2 text-[12px] text-[#777777]">
-                No project members are available.
-              </p>
-            ) : (
-              <div className="max-h-64 space-y-1 overflow-y-auto">
-                {data.members.map((member) => {
-                  const checked = assigneeIds.includes(member.userId);
-
-                  return (
-                    <label
-                      key={member.userId}
-                      className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-3 transition-colors hover:bg-[#f7f7f7]"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleAssignee(member.userId)}
-                        className="h-4 w-4 accent-[#222222]"
-                      />
-
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#eeeeee] text-[11px] font-semibold text-[#555555]">
-                        {member.userName
-                          .split(' ')
-                          .filter(Boolean)
-                          .slice(0, 2)
-                          .map((part) => part[0])
-                          .join('')
-                          .toUpperCase()}
-                      </span>
-
-                      <span className="min-w-0">
-                        <span className="block text-[13px] font-medium text-[#333333]">
-                          {member.userName}
-                        </span>
-                        <span className="block text-[11px] text-[#888888]">
-                          {member.email}
-                        </span>
-                      </span>
-
-                      <span className="ml-auto text-[10px] text-[#999999]">
-                        {member.role}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <p className="text-[11px] text-[#777777]">
-              {assigneeIds.length} member(s) selected
-            </p>
-
-            {errors.assigneeIds && (
-              <p role="alert" className="text-right text-[12px] text-red-600">
-                {errors.assigneeIds}
-              </p>
-            )}
-          </div>
-        </div>
+        <AssigneeSelector
+          members={data.members}
+          selectedIds={assigneeIds}
+          error={errors.assigneeIds}
+          disabled={isSaving}
+          onToggle={toggleAssignee}
+        />
 
         {/* Actions */}
         <div className="flex flex-wrap justify-end gap-3 border-t border-[#eeeeee] pt-5">
