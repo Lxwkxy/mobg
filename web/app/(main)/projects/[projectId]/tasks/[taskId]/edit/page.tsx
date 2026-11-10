@@ -3,7 +3,11 @@
 
 import { useCallback, useState, type FormEvent } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import {
+  useParams,
+  usePathname,
+  useRouter,
+} from 'next/navigation';
 
 import ProtectedState from '@/components/ProtectedState';
 import AssigneeSelector from '@/components/tasks/AssigneeSelector';
@@ -49,8 +53,8 @@ function EditTaskContent({
 }) {
   const router = useRouter();
 
-  // Snapshot of the task when this editing session starts.
-  const baseline = data.task;
+  // Keep the original task data fixed for this editing session.
+  const [baseline] = useState<Task>(() => data.task);
 
   const [taskTitle, setTaskTitle] = useState(baseline.taskTitle);
   const [taskDescription, setTaskDescription] = useState(
@@ -92,20 +96,6 @@ function EditTaskContent({
   function handleCancel() {
     if (isSaving) return;
 
-    // Discard all unsaved changes and restore the original values.
-    setTaskTitle(baseline.taskTitle);
-    setTaskDescription(baseline.taskDescription ?? '');
-    setPriority(baseline.priority);
-    setDueDate(baseline.dueDate);
-    setTaskStatus(baseline.status);
-    setAssigneeIds(
-      normalizeAssigneeIds(
-        baseline.assignees.map((assignee) => assignee.userId),
-      ),
-    );
-    setErrors({});
-
-    // Navigate back without a full page reload.
     router.push(`/projects/${projectId}/tasks/${taskId}`);
   }
 
@@ -136,7 +126,7 @@ function EditTaskContent({
 
     const input: UpdateTaskRequest = {};
 
-    // Only send fields that changed during this editing session.
+    // Send only fields that the user actually changed.
     if (trimmedTitle !== baseline.taskTitle) {
       input.taskTitle = trimmedTitle;
     }
@@ -432,15 +422,14 @@ function EditTaskContent({
   );
 }
 
-export default function EditTaskPage() {
-  const params = useParams<{
-    projectId: string;
-    taskId: string;
-  }>();
-
+function EditTaskLoader({
+  projectId,
+  taskId,
+}: {
+  projectId: string;
+  taskId: string;
+}) {
   const router = useRouter();
-  const projectId = params.projectId;
-  const taskId = params.taskId;
 
   const load = useCallback(async (): Promise<EditTaskData> => {
     const parsedProjectId = parseRouteId(projectId, 'project ID');
@@ -510,6 +499,23 @@ export default function EditTaskPage() {
       projectId={projectId}
       taskId={taskId}
       data={data}
+    />
+  );
+}
+
+export default function EditTaskPage() {
+  const params = useParams<{
+    projectId: string;
+    taskId: string;
+  }>();
+
+  const pathname = usePathname();
+
+  return (
+    <EditTaskLoader
+      key={pathname}
+      projectId={params.projectId}
+      taskId={params.taskId}
     />
   );
 }
