@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useCallback } from 'react';
@@ -150,6 +151,16 @@ export default function ProjectDetailPage() {
           <p className="mt-3 text-[12px] text-[#777777]">
             {project.completedTasks} of {project.totalTasks} tasks completed
           </p>
+        </div>
+
+        {/* Navigate to this project's task list */}
+        <div className="mt-7 border-t border-[#eeeeee] pt-6">
+          <Link
+            href={`/projects/${project.projectId}/tasks`}
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-[#222222] px-5 py-3 text-[13px] font-semibold text-white transition-colors hover:bg-[#444444] sm:w-auto"
+          >
+            View Tasks →
+          </Link>
         </div>
       </div>
     </div>
