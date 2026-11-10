@@ -31,7 +31,7 @@ export class ApiRequestError extends Error {
   }
 }
 
-async function request<T extends { success: true }>(
+export async function request<T extends { success: true }>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
