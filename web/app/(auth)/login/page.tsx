@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useHydrated } from '@/lib/useHydrated';
@@ -105,7 +105,6 @@ function CloudEdge() {
           />
         )),
       )}
-
       <span className="absolute rounded-full bg-white/50" style={{ top: '8%', left: -110, width: 22, height: 22 }} />
       <span className="absolute rounded-full bg-white/40" style={{ top: '40%', left: -150, width: 16, height: 16 }} />
       <span className="absolute rounded-full bg-white/50" style={{ top: '78%', left: -120, width: 26, height: 26 }} />
@@ -130,17 +129,20 @@ function validateEmail(value: string): string | null {
 }
 
 const fieldBase =
-  'min-w-0 w-full min-h-11 rounded-full border-2 bg-[#c4aae3] py-2.5 pl-10 pr-4 text-base sm:text-[15px] font-semibold text-[#0d0418] placeholder:font-normal placeholder:text-[#4a2c6b] outline-none transition focus:bg-[#b99bdd] focus:ring-2 focus:ring-[#6a1f86] login-field';
+  'box-border min-w-0 w-full min-h-11 rounded-full border-2 border-[#6a1f86] bg-[#c4aae3] py-2.5 pl-10 pr-4 text-base sm:text-[15px] font-semibold text-[#0d0418] placeholder:font-normal placeholder:text-[#4a2c6b] outline-none transition focus:bg-[#b99bdd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#6a1f86] focus:ring-2 focus:ring-[#6a1f86] forced-colors:border-[CanvasText] forced-colors:focus-visible:outline-[Highlight]';
 
 export default function LoginPage() {
   const hydrated = useHydrated();
+  const router = useRouter();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [formError, setFormError] = useState('');
   const [emailTouched, setEmailTouched] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const router = useRouter();
+  // Prevent duplicate login requests before React updates isLoading.
+  const isSubmitting = useRef(false);
 
   const emailValidationError = validateEmail(email);
   const showEmailError = emailTouched && emailValidationError !== null;
@@ -148,7 +150,7 @@ export default function LoginPage() {
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (isLoading) return;
+    if (isSubmitting.current) return;
 
     setFormError('');
     setEmailTouched(true);
@@ -156,7 +158,6 @@ export default function LoginPage() {
     const validationError = validateEmail(email);
 
     if (validationError) {
-      setFormError(validationError);
       return;
     }
 
@@ -165,6 +166,7 @@ export default function LoginPage() {
       return;
     }
 
+    isSubmitting.current = true;
     setIsLoading(true);
 
     try {
@@ -180,62 +182,24 @@ export default function LoginPage() {
     } catch {
       setFormError('Unable to connect to the server. Please try again.');
     } finally {
+      isSubmitting.current = false;
       setIsLoading(false);
     }
   }
 
   return (
-    <main className="login-main relative min-h-dvh flex items-center justify-center overflow-hidden bg-[#5f1c7e] p-4 sm:p-6 lg:bg-[linear-gradient(90deg,#5f1c7e_50%,#d9cbe9_50%)]">
-      <style jsx global>{`
-        @media (forced-colors: active) {
-          .login-field {
-            border-color: CanvasText !important;
-            forced-color-adjust: auto;
-          }
-
-          .login-field:focus-visible {
-            outline: 2px solid Highlight !important;
-            outline-offset: 3px !important;
-          }
-        }
-
-        @media (max-height: 500px) and (max-width: 639px) {
-          .login-main {
-            padding: 8px !important;
-          }
-
-          .login-welcome {
-            gap: 8px !important;
-            padding: 12px 20px !important;
-          }
-
-          .login-logo {
-            display: none !important;
-          }
-
-          .login-form-panel {
-            padding: 12px 20px !important;
-          }
-
-          .login-heading {
-            margin-bottom: 4px !important;
-          }
-
-          .login-form {
-            gap: 8px !important;
-          }
-
-          .login-links {
-            margin-top: 4px !important;
-          }
-
-          .login-links a,
-          .login-forgot {
-            min-height: 24px !important;
-          }
-        }
-      `}</style>
-
+    <main
+      className="
+        login-main relative flex min-h-[100dvh] items-center justify-center
+        overflow-x-hidden bg-[#5f1c7e] p-4 sm:p-6
+        lg:bg-[linear-gradient(90deg,#5f1c7e_50%,#d9cbe9_50%)]
+        [@media(max-height:500px)_and_(max-width:1023px)]:p-2
+      "
+      style={{
+        minHeight: '100dvh',
+        flexShrink: 0,
+      }}
+    >
       <div aria-hidden="true" className="pointer-events-none absolute inset-0">
         <span className="absolute left-[4%] top-[7%] hidden h-20 w-20 rounded-full bg-[radial-gradient(circle_at_35%_35%,#c93ca6,#8a2a8f_70%)] opacity-70 sm:block" />
         <span className="absolute -left-10 bottom-[6%] h-44 w-44 rounded-full bg-white/10" />
@@ -245,8 +209,26 @@ export default function LoginPage() {
 
       <Stars points={pageStars} hideOnLarge />
 
-      <div className="relative z-10 grid w-full max-w-[960px] overflow-hidden rounded-sm bg-white shadow-[0_24px_60px_rgba(40,8,60,0.45)] lg:min-h-[520px] lg:grid-cols-2">
-        <section className="login-welcome relative flex flex-col items-center justify-center gap-8 overflow-hidden bg-[linear-gradient(160deg,#7a2a97_0%,#5a1d7a_100%)] px-6 py-10 text-center text-white sm:px-10 lg:items-start lg:py-14 lg:text-left">
+      <div
+        className="
+          relative z-10 grid w-full max-w-[960px] grid-cols-1
+          overflow-hidden rounded-sm bg-white
+          shadow-[0_24px_60px_rgba(40,8,60,0.45)]
+          lg:min-h-[520px] lg:grid-cols-2
+          [@media(max-height:500px)_and_(max-width:1023px)]:min-h-0
+          [@media(max-height:500px)_and_(max-width:1023px)]:max-w-[480px]
+        "
+      >
+        <section
+          className="
+            login-welcome relative flex flex-col items-center justify-center
+            gap-8 overflow-hidden
+            bg-[linear-gradient(160deg,#7a2a97_0%,#5a1d7a_100%)]
+            px-6 py-10 text-center text-white
+            sm:px-10 lg:items-start lg:py-14 lg:text-left
+            [@media(max-height:500px)_and_(max-width:1023px)]:hidden
+          "
+        >
           <Stars points={panelStars} />
 
           <span aria-hidden="true" className="absolute -left-12 bottom-6 h-44 w-44 rounded-full bg-white/10" />
@@ -264,17 +246,29 @@ export default function LoginPage() {
 
           <div
             aria-hidden="true"
-            className="login-logo relative flex h-36 w-36 items-center justify-center rounded-3xl border-2 border-dashed border-white/50 text-[12px] font-bold tracking-wider text-white/70 sm:h-44 sm:w-44 lg:h-56 lg:w-56 lg:self-center"
+            className="relative flex h-36 w-36 items-center justify-center rounded-3xl border-2 border-dashed border-white/50 text-[12px] font-bold tracking-wider text-white/70 sm:h-44 sm:w-44 lg:h-56 lg:w-56 lg:self-center"
           >
             LOGO
           </div>
         </section>
 
-        <section className="login-form-panel relative z-10 flex items-center justify-center bg-white px-6 py-10 sm:px-12 lg:py-14">
+        <section
+          className="
+            login-form-panel relative z-10 flex items-center justify-center
+            bg-white px-6 py-10 sm:px-12 lg:py-14
+            [@media(max-height:500px)_and_(max-width:1023px)]:px-[14px]
+            [@media(max-height:500px)_and_(max-width:1023px)]:py-2
+          "
+        >
           <CloudEdge />
 
           <div className="relative w-full min-w-0 max-w-[340px] [overflow-wrap:anywhere]">
-            <div className="login-heading mb-6 text-center">
+            <div
+              className="
+                login-heading mb-6 text-center
+                [@media(max-height:500px)_and_(max-width:1023px)]:mb-1
+              "
+            >
               <h2 className="text-[20px] font-semibold tracking-wide text-[#6a1f86]">
                 User login
               </h2>
@@ -287,7 +281,7 @@ export default function LoginPage() {
               <div
                 id="login-form-error"
                 role="alert"
-                className="mb-4 flex items-center gap-3 rounded-xl border border-[#fecaca] bg-[#fef2f2] p-3.5 text-[#991b1b]"
+                className="mb-3 flex items-center gap-3 rounded-xl border border-[#fecaca] bg-[#fef2f2] p-3 text-[#991b1b]"
               >
                 <span className="shrink-0 font-bold text-[#dc2626]" aria-hidden="true">
                   !
@@ -302,9 +296,12 @@ export default function LoginPage() {
               method="post"
               onSubmit={handleLogin}
               noValidate
-              className="login-form flex flex-col gap-4"
+              className="
+                login-form flex flex-col gap-4
+                [@media(max-height:500px)_and_(max-width:1023px)]:gap-1
+              "
             >
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1">
                 <label htmlFor="login-email" className="pl-3 text-[12px] font-semibold text-[#5a1d7a]">
                   Email address
                 </label>
@@ -323,22 +320,30 @@ export default function LoginPage() {
                     disabled={isLoading}
                     placeholder="you@example.com"
                     aria-invalid={showEmailError}
-                    aria-describedby={showEmailError ? 'login-form-error' : undefined}
+                    aria-describedby={showEmailError ? 'login-email-error' : undefined}
                     onBlur={() => setEmailTouched(true)}
                     onChange={(event) => {
                       setEmail(event.target.value);
                       setFormError('');
                     }}
-                    className={`${fieldBase} ${
-                      showEmailError
-                        ? 'border-red-500'
-                        : 'border-[#a78bc5]'
-                    }`}
+                    className={`
+                      ${fieldBase}
+                      ${showEmailError ? 'border-[#991b1b] forced-colors:border-[Mark]' : ''}
+                    `}
                   />
                 </div>
+
+                {showEmailError && (
+                  <p
+                    id="login-email-error"
+                    className="pl-3 text-[12px] font-medium text-[#991b1b]"
+                  >
+                    {emailValidationError}
+                  </p>
+                )}
               </div>
 
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1">
                 <label htmlFor="login-password" className="pl-3 text-[12px] font-semibold text-[#5a1d7a]">
                   Password
                 </label>
@@ -360,7 +365,7 @@ export default function LoginPage() {
                       setPassword(event.target.value);
                       setFormError('');
                     }}
-                    className={`${fieldBase} border-[#a78bc5]`}
+                    className={fieldBase}
                   />
                 </div>
               </div>
@@ -368,7 +373,11 @@ export default function LoginPage() {
               <div className="flex justify-end">
                 <Link
                   href="/forgot-password"
-                  className="login-forgot inline-flex min-h-11 items-center text-[12px] text-[#6a1f86] underline"
+                  className="
+                    login-forgot inline-flex min-h-11 items-center
+                    text-[12px] text-[#6a1f86] underline
+                    [@media(max-height:500px)_and_(max-width:1023px)]:min-h-6
+                  "
                 >
                   Forgot password?
                 </Link>
@@ -376,7 +385,7 @@ export default function LoginPage() {
 
               <Button
                 type="submit"
-                disabled={!hydrated}
+                disabled={!hydrated || isLoading}
                 isLoading={isLoading}
                 className="mt-1 min-h-11 rounded-sm bg-[#6a1f86] px-4 py-2.5 text-[14px] hover:bg-[#561670] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#6a1f86]"
               >
@@ -384,11 +393,30 @@ export default function LoginPage() {
               </Button>
             </form>
 
-            <div className="login-links mt-3 flex flex-col items-center text-[13px] text-[#6a1f86]">
-              <Link href="/register" className="inline-flex min-h-11 items-center underline">
+            <div
+              className="
+                login-links mt-3 flex flex-col items-center
+                text-[13px] text-[#6a1f86]
+                [@media(max-height:500px)_and_(max-width:1023px)]:mt-1
+              "
+            >
+              <Link
+                href="/register"
+                className="
+                  inline-flex min-h-11 items-center underline
+                  [@media(max-height:500px)_and_(max-width:1023px)]:min-h-6
+                "
+              >
                 Create an account
               </Link>
-              <Link href="/verify-email" className="inline-flex min-h-11 items-center underline">
+
+              <Link
+                href="/verify-email"
+                className="
+                  inline-flex min-h-11 items-center underline
+                  [@media(max-height:500px)_and_(max-width:1023px)]:min-h-6
+                "
+              >
                 Resend verification email
               </Link>
             </div>
