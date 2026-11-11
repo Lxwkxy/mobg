@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useHydrated } from '@/lib/useHydrated';
@@ -129,7 +129,7 @@ function validateEmail(value: string): string | null {
 }
 
 const fieldBase =
-  'box-border min-w-0 w-full min-h-11 rounded-full border-2 border-[#6a1f86] bg-[#c4aae3] py-2.5 pl-10 pr-4 text-base sm:text-[15px] font-semibold text-[#0d0418] placeholder:font-normal placeholder:text-[#4a2c6b] outline-none transition focus:bg-[#b99bdd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#6a1f86] focus:ring-2 focus:ring-[#6a1f86] forced-colors:border-[CanvasText] forced-colors:focus-visible:outline-[Highlight]';
+  'box-border min-w-0 w-full min-h-11 rounded-full border-2 border-[#6a1f86] bg-[#c4aae3] py-2.5 pl-10 pr-4 text-base sm:text-[15px] font-semibold text-[#0d0418] placeholder:font-normal placeholder:text-[#4a2c6b] outline-none transition focus:bg-[#b99bdd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#6a1f86] focus:ring-2 focus:ring-[#6a1f86] forced-colors:border-[CanvasText] forced-colors:focus-visible:outline-[Highlight] forced-colors:focus-visible:outline-solid';
 
 export default function LoginPage() {
   const hydrated = useHydrated();
@@ -143,6 +143,16 @@ export default function LoginPage() {
 
   // Prevent duplicate login requests before React updates isLoading.
   const isSubmitting = useRef(false);
+
+  // Move focus to the email field after its validation message is rendered.
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const [emailFocusRequest, setEmailFocusRequest] = useState(0);
+
+  useEffect(() => {
+    if (emailFocusRequest > 0) {
+      emailInputRef.current?.focus();
+    }
+  }, [emailFocusRequest]);
 
   const emailValidationError = validateEmail(email);
   const showEmailError = emailTouched && emailValidationError !== null;
@@ -158,6 +168,7 @@ export default function LoginPage() {
     const validationError = validateEmail(email);
 
     if (validationError) {
+      setEmailFocusRequest((current) => current + 1);
       return;
     }
 
@@ -236,9 +247,9 @@ export default function LoginPage() {
           <span aria-hidden="true" className="absolute right-[14%] top-[22%] hidden h-10 w-10 rounded-full bg-[#c93ca6]/30 lg:block" />
 
           <div className="relative min-w-0 [overflow-wrap:anywhere]">
-            <h1 className="text-[28px] font-light tracking-wide sm:text-[34px]">
+            <p className="text-[28px] font-light tracking-wide sm:text-[34px]">
               Welcome to MobG
-            </h1>
+            </p>
             <p className="mt-1 text-[14px] text-white/80">
               Log in to manage your projects and tasks.
             </p>
@@ -269,9 +280,9 @@ export default function LoginPage() {
                 [@media(max-height:500px)_and_(max-width:1023px)]:mb-1
               "
             >
-              <h2 className="text-[20px] font-semibold tracking-wide text-[#6a1f86]">
+              <h1 className="text-[20px] font-semibold tracking-wide text-[#6a1f86]">
                 User login
-              </h2>
+              </h1>
               <p className="mt-1 text-[12px] text-[#7d6a8c]">
                 Welcome to MobG
               </p>
@@ -312,6 +323,7 @@ export default function LoginPage() {
                   </span>
 
                   <input
+                    ref={emailInputRef}
                     id="login-email"
                     name="email"
                     type="email"
@@ -321,9 +333,9 @@ export default function LoginPage() {
                     placeholder="you@example.com"
                     aria-invalid={showEmailError}
                     aria-describedby={showEmailError ? 'login-email-error' : undefined}
-                    onBlur={() => setEmailTouched(true)}
                     onChange={(event) => {
                       setEmail(event.target.value);
+                      setEmailTouched(false);
                       setFormError('');
                     }}
                     className={`
