@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { pool } from "./db.js";
 import { authURL, getAuthSecret, webOrigin } from "./env.js";
-import { sendAuthMail } from "./authMail.js";
+import { authMailConfigError, authMailExpiresIn, sendAuthMail } from "./authMail.js";
 
 // These table/field names match migration 005. Domain users keep their numeric IDs.
 export const auth = betterAuth({
@@ -23,10 +23,10 @@ export const auth = betterAuth({
     disableSignUp: false,
     autoSignIn: false,
     revokeSessionsOnPasswordReset: true,
-    resetPasswordTokenExpiresIn: 1800,
+    resetPasswordTokenExpiresIn: authMailExpiresIn.reset,
     sendResetPassword: async ({ user, url }) => sendAuthMail(user.email, url, "reset"),
   },
-  emailVerification: { sendOnSignUp: true, autoSignInAfterVerification: false, expiresIn: 3600,
+  emailVerification: { sendOnSignUp: true, autoSignInAfterVerification: false, expiresIn: authMailExpiresIn.verify,
     sendVerificationEmail: async ({ user, url }) => sendAuthMail(user.email, url, "verify") },
   hooks: { before: createAuthMiddleware(async (ctx) => {
     if (["/sign-up/email", "/sign-in/email", "/send-verification-email", "/request-password-reset", "/verify-email"].includes(ctx.path)) {
@@ -39,6 +39,12 @@ export const auth = betterAuth({
         } catch { /* invalid redirects are rejected without echoing a token-bearing URL */ }
         if (!valid) throw new APIError("FORBIDDEN", { code: "INVALID_CALLBACK_URL", message: "Invalid return address." });
       }
+    }
+    if (authMailConfigError && ["/sign-up/email", "/send-verification-email", "/request-password-reset"].includes(ctx.path)) {
+      throw new APIError("SERVICE_UNAVAILABLE", {
+        code: "ACCOUNT_EMAIL_UNAVAILABLE",
+        message: "Account email is temporarily unavailable. Please try again later.",
+      });
     }
     if (ctx.path !== "/sign-up/email") return;
     const { name, email } = ctx.body ?? {};

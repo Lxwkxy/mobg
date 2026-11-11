@@ -25,9 +25,8 @@ Team project for managing projects, tasks, members and comments.
 For an existing database, keep its Docker volume and apply only missing migrations.
 Starting the backend never creates migrations or accounts.
 
-Public account setup and the local email inbox: [account registration](docs/account-registration.md).
-Start the inbox before trying signup, verification or password reset. Mailpit captures mail locally;
-it does not deliver to a real email address.
+Configure your SMTP provider to deliver verification and password reset emails to real inboxes.
+For local testing, select Mailpit explicitly. See [account registration](docs/account-registration.md).
 
 ## Continuous integration
 

@@ -33,7 +33,8 @@ Keep the secret private. Never put it in a `NEXT_PUBLIC_` variable.
 `CORS_ORIGIN` must be the exact frontend origin; use localhost consistently for both apps.
 
 Start PostgreSQL and follow [database setup](../database/README.md), through migration 007.
-Start the local Mailpit inbox before signup/reset or auth HTTP tests; see account setup above.
+Set up SMTP for real registration and password reset emails. Start Mailpit for the
+registration HTTP tests. See [account email setup](../docs/account-registration.md#real-email-delivery).
 The backend does not apply migrations automatically.
 
 From `backend/`:
