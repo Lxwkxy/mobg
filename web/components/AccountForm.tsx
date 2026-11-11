@@ -11,10 +11,10 @@ import { useHydrated } from '@/lib/useHydrated';
 
 type Mode = 'register' | 'forgot' | 'reset' | 'verify';
 const copy = {
-  register: { title: 'Create your account', description: 'Sign up to manage projects and tasks with your team.', action: 'Create account' },
+  register: { title: 'Create your account', description: 'Use an email address you can access. You’ll need to verify it before logging in.', action: 'Create account' },
   forgot: { title: 'Forgot your password?', description: 'Enter your email to request a password reset link.', action: 'Send reset link' },
   reset: { title: 'Choose a new password', description: 'Use 8–128 characters. Your other sessions will be signed out.', action: 'Reset password' },
-  verify: { title: 'Check your email', description: 'Open the verification email before logging in. Need a new link? Enter your email below.', action: 'Resend verification email' },
+  verify: { title: 'Check your email', description: 'Look for a verification message from MobG in your inbox or spam folder. Enter your email below if you need a new link.', action: 'Resend verification email' },
 };
 
 export default function AccountForm({ mode, token, linkError }: { mode: Mode; token?: string; linkError?: string }) {
@@ -48,6 +48,7 @@ export default function AccountForm({ mode, token, linkError }: { mode: Mode; to
     }
     if (hasPassword && password !== confirmation) { setError('Passwords do not match.'); return; }
     if (invalidReset) return;
+    setDone(false);
     busy.current = true; setPending(true);
     try {
       if (mode === 'register') {
@@ -67,25 +68,29 @@ export default function AccountForm({ mode, token, linkError }: { mode: Mode; to
 
   return (
     <AuthCard title={content.title} description={content.description}>
-      {linkError && <p role="alert" className="mb-4 text-sm text-red-700">{linkError}</p>}
+      {linkError && !done && <p role="alert" className="mb-4 text-sm text-red-700">{linkError}</p>}
       {error && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-      {invalidReset ? (
-        <p className="text-sm">This reset link is missing or expired. <Link className="underline text-[#6d28d9]" href="/forgot-password">Request a new link</Link>.</p>
-      ) : done ? (
-        <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-800">
+      {done && (
+        <p role="status" className="mb-4 rounded-lg border border-violet-100 bg-violet-50 p-3 text-sm leading-6 text-violet-950">
           {mode === 'reset' ? 'Your password has been reset. Log in with your new password.'
-            : mode === 'forgot' ? 'If an account exists for this email, a reset link has been sent. Check your inbox.'
-              : 'If this account needs verification, a new link has been sent. Check your inbox.'}
+            : mode === 'forgot' ? 'If an account exists for this email, look for a reset link in your inbox or spam folder.'
+              : 'If this account needs verification, look for a new link in your inbox or spam folder.'}
         </p>
-      ) : (
-        <form method="post" onSubmit={submit} noValidate className="flex flex-col gap-4">
+      )}
+      {invalidReset && (
+        <p className="text-sm">This reset link is missing or expired. <Link className="underline text-[#6d28d9]" href="/forgot-password">Request a new link</Link>.</p>
+      )}
+      {!invalidReset && (!done || mode === 'verify') && (
+        <form method="post" onSubmit={submit} noValidate aria-busy={pending} className="flex flex-col gap-4">
           {mode === 'register' && <Input label="Name" name="name" autoComplete="name" maxLength={100} required
             value={name} disabled={pending} onChange={event => setName(event.target.value)} />}
-          {mode !== 'reset' && <Input label="Email address" name="email" type="email" autoComplete="email" maxLength={255} required
+          {mode !== 'reset' && <Input label="Email address" name="email" type="email" autoComplete="email" placeholder="you@example.com" maxLength={255} required
             value={email} disabled={pending} onChange={event => setEmail(event.target.value)} />}
           {hasPassword && <>
             <Input label="Password" name="password" type="password" autoComplete="new-password" minLength={8} maxLength={128} required
+              aria-describedby={mode === 'register' ? 'register-password-hint' : undefined}
               value={password} disabled={pending} onChange={event => setPassword(event.target.value)} />
+            {mode === 'register' && <p id="register-password-hint" className="-mt-2 text-xs text-[#6b6680]">Use 8–128 characters.</p>}
             <Input label="Confirm password" name="confirmPassword" type="password" autoComplete="new-password" minLength={8} maxLength={128} required
               value={confirmation} disabled={pending} onChange={event => setConfirmation(event.target.value)} />
           </>}

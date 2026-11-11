@@ -2,6 +2,7 @@ import express, { type ErrorRequestHandler } from "express";
 import cors from "cors";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./auth.js";
+import { authMailConfigError } from "./authMail.js";
 import { pool } from "./db.js";
 import { port, webOrigin } from "./env.js";
 import { ApiError } from "./errors.js";
@@ -58,7 +59,10 @@ const handleError: ErrorRequestHandler = (error, _req, res, next) => {
 };
 app.use(handleError);
 
-const server = app.listen(port, () => console.log(`MobG Backend running on port ${port}`));
+const server = app.listen(port, () => {
+  console.log(`MobG Backend running on port ${port}`);
+  if (authMailConfigError) console.warn(`[auth-mail] ${authMailConfigError}`);
+});
 function shutdown(signal: string) {
   console.log(`${signal} received, shutting down`);
   server.close(async () => {

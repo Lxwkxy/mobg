@@ -17,9 +17,43 @@ before public-account Login, and password reset. This supersedes the original pl
   public account; the server-only registration kind cannot be selected by signup clients.
 - Duplicate signup is enumeration-safe and never replaces a password or claims a profile.
 
-## Local setup
+## Real email delivery
 
-Use private `.env` files. Never commit credentials or action links.
+Registration, verification resend and password reset use the same SMTP provider.
+Verify the sender address or domain in your provider's dashboard. In the private
+root `.env`, set the provider's actual SMTP settings and restart the backend.
+
+```dotenv
+AUTH_MAIL_MODE=smtp
+SMTP_HOST=smtp.your-provider.example
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_FROM="MobG <no-reply@your-domain.example>"
+SMTP_USER=your_smtp_username
+SMTP_PASSWORD=your_smtp_password
+```
+
+Use port 587 with `SMTP_SECURE=false` for STARTTLS, or port 465 with
+`SMTP_SECURE=true` for TLS from the start, according to your provider. MobG
+requires TLS in SMTP mode. An authenticated provider needs both credential
+values. Keep them in the backend environment. For an unauthenticated SMTP relay,
+leave both credential values empty. See [Nodemailer SMTP settings](https://nodemailer.com/smtp).
+
+Use reachable HTTPS origins in `BETTER_AUTH_URL` (backend), `CORS_ORIGIN` (web),
+and `NEXT_PUBLIC_AUTH_URL` (backend address in the web environment) when
+deploying. Links containing localhost only open on the same machine running the
+app. For a custom sender domain, publish the SPF and DKIM records supplied by
+your provider.
+
+To verify delivery, register with an inbox you control, open the verification
+link, sign in, then request a password reset and open that link. Check spam and
+your provider's delivery log if a message is missing. The backend records SMTP
+failures without logging recipients, credentials or action links.
+
+## Local setup with Mailpit
+
+Set `AUTH_MAIL_MODE=mailpit` in the private root `.env` and restart the backend
+when switching modes.
 
 ```powershell
 # From repo root: same retained PostgreSQL volume; separate local email capture service
@@ -46,16 +80,15 @@ Defaults: web `http://localhost:3000`, API `http://localhost:5000`, inbox
 addresses ending in `.test`; it does not send real mail. Open an email in the inbox and click
 its action link. To stop the inbox: `docker compose -p mobg-registration-mail -f compose.mail.yml stop`.
 
-Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_FROM` and optionally `SMTP_USER`/
-`SMTP_PASSWORD` for a real provider. Production requires explicit host/from; configure HTTPS,
-real sender/domain credentials and reverse-proxy IP handling before public deployment.
-Do not expose Mailpit publicly. For LAN development, all web/API origins must match the current
+To change the local SMTP port, set `MAILPIT_SMTP_PORT` for both the backend and
+Compose. For LAN development, all web/API origins must match the current
 computer IP, and Next dev must allow that hostname (e.g. start it with `--hostname YOUR_IP`).
 
 ## Checks
 
 With PostgreSQL and Mailpit running, `npm run test:db -- registration.test.ts` from backend/
 uses its own temporary DB, applies migrations 001-007 and removes only that DB afterward.
+The test server selects Mailpit even if the regular backend is configured for real delivery.
 It tests verification, profile/access, reset/session revocation, tampering, callbacks, expiry
 and credential-write rollback. Existing seed/provisioning tests remain separate regressions.
 

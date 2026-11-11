@@ -40,7 +40,7 @@ async function api(path: string, body?: unknown, cookie?: string) {
 
 before(async () => {
   server = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], {
-    env: { ...process.env, PORT: String(port), BETTER_AUTH_URL: base, CORS_ORIGIN: origin },
+    env: { ...process.env, PORT: String(port), BETTER_AUTH_URL: base, CORS_ORIGIN: origin, AUTH_MAIL_MODE: "mailpit" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   // Auth logs can contain credentials or links. Report startup status only.
