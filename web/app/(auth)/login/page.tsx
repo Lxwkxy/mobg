@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, type FormEvent } from 'react';
@@ -5,8 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useHydrated } from '@/lib/useHydrated';
 import { loginApi } from '@/lib/authService';
-
-// ---------- UI only: ไอคอนและลายตกแต่ง (ไม่เกี่ยวกับ logic) ----------
+import { Button } from '@/components/ui/Button';
 
 function UserIcon() {
   return (
@@ -25,25 +25,32 @@ function LockIcon() {
   );
 }
 
-// ตำแหน่งดาวคงที่ (ไม่ใช้ random เพื่อไม่ให้ SSR/hydration ไม่ตรงกัน)
-// [x%, y%, ขนาด px, ความทึบ]
 type Star = [number, number, number, number];
 
 const pageStars: Star[] = [
-  [6, 10, 3, 0.7], [14, 4, 2, 0.5], [22, 14, 4, 0.8], [30, 6, 2, 0.5],
-  [38, 12, 3, 0.6], [44, 3, 2, 0.5], [4, 30, 3, 0.6], [10, 46, 2, 0.5],
-  [3, 62, 4, 0.7], [8, 78, 2, 0.5], [16, 90, 3, 0.6], [26, 94, 2, 0.5],
-  [36, 88, 4, 0.7], [46, 96, 2, 0.5], [70, 8, 3, 0.7], [90, 14, 2, 0.5],
+  [6, 10, 3, 0.7], [14, 4, 2, 0.5], [22, 14, 4, 0.8],
+  [30, 6, 2, 0.5], [38, 12, 3, 0.6], [44, 3, 2, 0.5],
+  [4, 30, 3, 0.6], [10, 46, 2, 0.5], [3, 62, 4, 0.7],
+  [8, 78, 2, 0.5], [16, 90, 3, 0.6], [26, 94, 2, 0.5],
+  [36, 88, 4, 0.7], [46, 96, 2, 0.5], [70, 8, 3, 0.7],
+  [90, 14, 2, 0.5],
 ];
 
 const panelStars: Star[] = [
-  [10, 8, 3, 0.7], [28, 14, 2, 0.5], [46, 6, 4, 0.8], [64, 12, 2, 0.5],
-  [82, 20, 3, 0.7], [8, 34, 2, 0.5], [90, 40, 3, 0.6], [14, 58, 4, 0.7],
-  [34, 70, 2, 0.5], [58, 66, 3, 0.6], [78, 78, 2, 0.5], [20, 88, 3, 0.7],
+  [10, 8, 3, 0.7], [28, 14, 2, 0.5], [46, 6, 4, 0.8],
+  [64, 12, 2, 0.5], [82, 20, 3, 0.7], [8, 34, 2, 0.5],
+  [90, 40, 3, 0.6], [14, 58, 4, 0.7], [34, 70, 2, 0.5],
+  [58, 66, 3, 0.6], [78, 78, 2, 0.5], [20, 88, 3, 0.7],
   [48, 92, 2, 0.5], [70, 90, 4, 0.7],
 ];
 
-function Stars({ points, hideOnLarge = false }: { points: Star[]; hideOnLarge?: boolean }) {
+function Stars({
+  points,
+  hideOnLarge = false,
+}: {
+  points: Star[];
+  hideOnLarge?: boolean;
+}) {
   return (
     <div aria-hidden="true" className="pointer-events-none absolute inset-0">
       {points.map(([x, y, size, opacity], index) => (
@@ -64,7 +71,6 @@ function Stars({ points, hideOnLarge = false }: { points: Star[]; hideOnLarge?: 
   );
 }
 
-// วงกลมเรียงต่อกันเป็นก้อนเมฆที่ขอบซ้ายของแผงฟอร์ม
 const cloudBlobs = [
   { top: '4%', size: 56, left: -8 },
   { top: '14%', size: 88, left: -28 },
@@ -74,7 +80,6 @@ const cloudBlobs = [
   { top: '86%', size: 90, left: -30 },
 ];
 
-// ชั้นเมฆ: ชั้นนอกสุดจางและกว้างกว่า ซ้อนกันเป็นควันหลายชั้นเหมือนในแบบ
 const cloudLayers = [
   { extraLeft: -44, extraSize: 34, color: 'rgba(190,150,228,0.35)' },
   { extraLeft: -24, extraSize: 18, color: 'rgba(222,203,242,0.65)' },
@@ -100,7 +105,7 @@ function CloudEdge() {
           />
         )),
       )}
-      {/* ฟองเล็กลอยหลุดออกมาจากก้อนเมฆ */}
+
       <span className="absolute rounded-full bg-white/50" style={{ top: '8%', left: -110, width: 22, height: 22 }} />
       <span className="absolute rounded-full bg-white/40" style={{ top: '40%', left: -150, width: 16, height: 16 }} />
       <span className="absolute rounded-full bg-white/50" style={{ top: '78%', left: -120, width: 26, height: 26 }} />
@@ -108,84 +113,142 @@ function CloudEdge() {
   );
 }
 
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+function validateEmail(value: string): string | null {
+  const cleanedEmail = value.trim();
+
+  if (!cleanedEmail) {
+    return 'Please enter your email.';
+  }
+
+  if (!emailPattern.test(cleanedEmail)) {
+    return 'Please enter a valid email address.';
+  }
+
+  return null;
+}
+
 const fieldBase =
-  'min-w-0 w-full min-h-11 rounded-full border-0 bg-[#c4aae3] py-2.5 pl-10 pr-4 text-base sm:text-[15px] font-semibold text-[#0d0418] placeholder:font-normal placeholder:text-[#4a2c6b] outline-none transition focus:bg-[#b99bdd] focus:ring-2 focus:ring-[#6a1f86]';
+  'min-w-0 w-full min-h-11 rounded-full border-2 bg-[#c4aae3] py-2.5 pl-10 pr-4 text-base sm:text-[15px] font-semibold text-[#0d0418] placeholder:font-normal placeholder:text-[#4a2c6b] outline-none transition focus:bg-[#b99bdd] focus:ring-2 focus:ring-[#6a1f86] login-field';
 
 export default function LoginPage() {
   const hydrated = useHydrated();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [formError, setFormError] = useState('');
+  const [emailTouched, setEmailTouched] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
   const router = useRouter();
+
+  const emailValidationError = validateEmail(email);
+  const showEmailError = emailTouched && emailValidationError !== null;
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (isLoading) return;
 
-    setError('');
+    setFormError('');
+    setEmailTouched(true);
 
-    const cleanedEmail = email.trim();
+    const validationError = validateEmail(email);
 
-    if (!cleanedEmail) {
-      setError('Please enter your email.');
-      return;
-    }
-
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-
-    if (!emailPattern.test(cleanedEmail)) {
-      setError('Please enter a valid email address.');
+    if (validationError) {
+      setFormError(validationError);
       return;
     }
 
     if (!password) {
-      setError('Please enter your password.');
+      setFormError('Please enter your password.');
       return;
     }
 
     setIsLoading(true);
 
     try {
-      const result = await loginApi(cleanedEmail, password);
+      const result = await loginApi(email.trim(), password);
 
       if (!result.success || !result.user) {
-        setError(result.error || 'Login failed. Please try again.');
+        setFormError(result.error || 'Login failed. Please try again.');
         return;
       }
 
       router.replace('/dashboard');
       router.refresh();
     } catch {
-      setError('Unable to connect to the server. Please try again.');
+      setFormError('Unable to connect to the server. Please try again.');
     } finally {
       setIsLoading(false);
     }
   }
 
-  const emailHasError =
-    error.toLowerCase().includes('email') ||
-    error.toLowerCase().includes('invalid');
-
   return (
-    <main className="relative min-h-dvh flex items-center justify-center overflow-hidden bg-[#5f1c7e] p-4 sm:p-6 lg:bg-[linear-gradient(90deg,#5f1c7e_50%,#d9cbe9_50%)]">
-      {/* ===== ลายพื้นหลังหน้า (อยู่หลังการ์ด) ===== */}
+    <main className="login-main relative min-h-dvh flex items-center justify-center overflow-hidden bg-[#5f1c7e] p-4 sm:p-6 lg:bg-[linear-gradient(90deg,#5f1c7e_50%,#d9cbe9_50%)]">
+      <style jsx global>{`
+        @media (forced-colors: active) {
+          .login-field {
+            border-color: CanvasText !important;
+            forced-color-adjust: auto;
+          }
+
+          .login-field:focus-visible {
+            outline: 2px solid Highlight !important;
+            outline-offset: 3px !important;
+          }
+        }
+
+        @media (max-height: 500px) and (max-width: 639px) {
+          .login-main {
+            padding: 8px !important;
+          }
+
+          .login-welcome {
+            gap: 8px !important;
+            padding: 12px 20px !important;
+          }
+
+          .login-logo {
+            display: none !important;
+          }
+
+          .login-form-panel {
+            padding: 12px 20px !important;
+          }
+
+          .login-heading {
+            margin-bottom: 4px !important;
+          }
+
+          .login-form {
+            gap: 8px !important;
+          }
+
+          .login-links {
+            margin-top: 4px !important;
+          }
+
+          .login-links a,
+          .login-forgot {
+            min-height: 24px !important;
+          }
+        }
+      `}</style>
+
       <div aria-hidden="true" className="pointer-events-none absolute inset-0">
-        {/* ดาวเคราะห์สีชมพูมุมซ้ายบน */}
         <span className="absolute left-[4%] top-[7%] hidden h-20 w-20 rounded-full bg-[radial-gradient(circle_at_35%_35%,#c93ca6,#8a2a8f_70%)] opacity-70 sm:block" />
-        {/* วงกลมโปร่งแสง */}
         <span className="absolute -left-10 bottom-[6%] h-44 w-44 rounded-full bg-white/10" />
         <span className="absolute left-[18%] top-[38%] hidden h-14 w-14 rounded-full bg-white/10 sm:block" />
         <span className="absolute left-[8%] top-[56%] hidden h-6 w-6 rounded-full bg-white/15 sm:block" />
       </div>
+
       <Stars points={pageStars} hideOnLarge />
 
       <div className="relative z-10 grid w-full max-w-[960px] overflow-hidden rounded-sm bg-white shadow-[0_24px_60px_rgba(40,8,60,0.45)] lg:min-h-[520px] lg:grid-cols-2">
-        {/* ===== ฝั่งซ้าย: พื้นม่วง + ที่ว่างสำหรับ logo ===== */}
-        <section className="relative flex flex-col items-center justify-center gap-8 overflow-hidden bg-[linear-gradient(160deg,#7a2a97_0%,#5a1d7a_100%)] px-6 py-10 text-center text-white sm:px-10 lg:items-start lg:py-14 lg:text-left">
+        <section className="login-welcome relative flex flex-col items-center justify-center gap-8 overflow-hidden bg-[linear-gradient(160deg,#7a2a97_0%,#5a1d7a_100%)] px-6 py-10 text-center text-white sm:px-10 lg:items-start lg:py-14 lg:text-left">
           <Stars points={panelStars} />
-          {/* วงกลมโปร่งแสงขนาดใหญ่ในแผงม่วง */}
+
           <span aria-hidden="true" className="absolute -left-12 bottom-6 h-44 w-44 rounded-full bg-white/10" />
           <span aria-hidden="true" className="absolute left-[38%] top-[58%] hidden h-16 w-16 rounded-full bg-white/10 lg:block" />
           <span aria-hidden="true" className="absolute right-[14%] top-[22%] hidden h-10 w-10 rounded-full bg-[#c93ca6]/30 lg:block" />
@@ -199,25 +262,19 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/*
-            ===== ที่ว่างสำหรับ LOGO MobG (ตรงตำแหน่งจรวดในแบบ) =====
-            เมื่อได้ logo แล้ว ให้แทนที่กล่องด้านล่างด้วย <Image /> เช่น
-            <Image src="/logo.svg" alt="MobG" width={220} height={220} priority />
-          */}
           <div
             aria-hidden="true"
-            className="relative flex h-36 w-36 items-center justify-center rounded-3xl border-2 border-dashed border-white/50 text-[12px] font-bold tracking-wider text-white/70 sm:h-44 sm:w-44 lg:h-56 lg:w-56 lg:self-center"
+            className="login-logo relative flex h-36 w-36 items-center justify-center rounded-3xl border-2 border-dashed border-white/50 text-[12px] font-bold tracking-wider text-white/70 sm:h-44 sm:w-44 lg:h-56 lg:w-56 lg:self-center"
           >
             LOGO
           </div>
         </section>
 
-        {/* ===== ฝั่งขวา: ฟอร์ม Login บนพื้นขาว ===== */}
-        <section className="relative z-10 flex items-center justify-center bg-white px-6 py-10 sm:px-12 lg:py-14">
+        <section className="login-form-panel relative z-10 flex items-center justify-center bg-white px-6 py-10 sm:px-12 lg:py-14">
           <CloudEdge />
 
           <div className="relative w-full min-w-0 max-w-[340px] [overflow-wrap:anywhere]">
-            <div className="mb-6 text-center">
+            <div className="login-heading mb-6 text-center">
               <h2 className="text-[20px] font-semibold tracking-wide text-[#6a1f86]">
                 User login
               </h2>
@@ -226,29 +283,37 @@ export default function LoginPage() {
               </p>
             </div>
 
-            {error && (
+            {formError && (
               <div
+                id="login-form-error"
                 role="alert"
-                className="mb-5 flex items-center gap-3 rounded-xl border border-[#fecaca] bg-[#fef2f2] p-3.5 text-[#991b1b]"
+                className="mb-4 flex items-center gap-3 rounded-xl border border-[#fecaca] bg-[#fef2f2] p-3.5 text-[#991b1b]"
               >
                 <span className="shrink-0 font-bold text-[#dc2626]" aria-hidden="true">
                   !
                 </span>
                 <span className="min-w-0 text-[13px] font-medium leading-tight">
-                  {error}
+                  {formError}
                 </span>
               </div>
             )}
 
-            <form method="post" onSubmit={handleLogin} noValidate className="flex flex-col gap-4">
+            <form
+              method="post"
+              onSubmit={handleLogin}
+              noValidate
+              className="login-form flex flex-col gap-4"
+            >
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="login-email" className="pl-3 text-[12px] font-semibold text-[#5a1d7a]">
                   Email address
                 </label>
+
                 <div className="relative">
                   <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#2d0a42]">
                     <UserIcon />
                   </span>
+
                   <input
                     id="login-email"
                     name="email"
@@ -257,12 +322,18 @@ export default function LoginPage() {
                     value={email}
                     disabled={isLoading}
                     placeholder="you@example.com"
-                    aria-invalid={emailHasError}
+                    aria-invalid={showEmailError}
+                    aria-describedby={showEmailError ? 'login-form-error' : undefined}
+                    onBlur={() => setEmailTouched(true)}
                     onChange={(event) => {
                       setEmail(event.target.value);
-                      setError('');
+                      setFormError('');
                     }}
-                    className={`${fieldBase} ${emailHasError ? 'ring-2 ring-red-500' : ''}`}
+                    className={`${fieldBase} ${
+                      showEmailError
+                        ? 'border-red-500'
+                        : 'border-[#a78bc5]'
+                    }`}
                   />
                 </div>
               </div>
@@ -271,10 +342,12 @@ export default function LoginPage() {
                 <label htmlFor="login-password" className="pl-3 text-[12px] font-semibold text-[#5a1d7a]">
                   Password
                 </label>
+
                 <div className="relative">
                   <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#2d0a42]">
                     <LockIcon />
                   </span>
+
                   <input
                     id="login-password"
                     name="password"
@@ -285,9 +358,9 @@ export default function LoginPage() {
                     placeholder="Enter your password"
                     onChange={(event) => {
                       setPassword(event.target.value);
-                      setError('');
+                      setFormError('');
                     }}
-                    className={fieldBase}
+                    className={`${fieldBase} border-[#a78bc5]`}
                   />
                 </div>
               </div>
@@ -295,32 +368,23 @@ export default function LoginPage() {
               <div className="flex justify-end">
                 <Link
                   href="/forgot-password"
-                  className="inline-flex min-h-11 items-center text-[12px] text-[#6a1f86] underline"
+                  className="login-forgot inline-flex min-h-11 items-center text-[12px] text-[#6a1f86] underline"
                 >
                   Forgot password?
                 </Link>
               </div>
 
-              <button
+              <Button
                 type="submit"
-                disabled={!hydrated || isLoading}
-                className="flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-sm bg-[#6a1f86] px-4 py-2.5 text-[14px] font-semibold text-white transition hover:bg-[#561670] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#6a1f86] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={!hydrated}
+                isLoading={isLoading}
+                className="mt-1 min-h-11 rounded-sm bg-[#6a1f86] px-4 py-2.5 text-[14px] hover:bg-[#561670] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#6a1f86]"
               >
-                {isLoading ? (
-                  <>
-                    <svg className="h-5 w-5 animate-spin text-current" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    <span>กำลังดำเนินการ...</span>
-                  </>
-                ) : (
-                  'Log in'
-                )}
-              </button>
+                Log in
+              </Button>
             </form>
 
-            <div className="mt-3 flex flex-col items-center text-[13px] text-[#6a1f86]">
+            <div className="login-links mt-3 flex flex-col items-center text-[13px] text-[#6a1f86]">
               <Link href="/register" className="inline-flex min-h-11 items-center underline">
                 Create an account
               </Link>
