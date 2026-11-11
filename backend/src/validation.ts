@@ -44,6 +44,9 @@ export const projectListQuerySchema = z.strictObject({
   pageSize: urlIdSchema.pipe(z.number().max(50)).default(10),
 });
 export const taskListQuerySchema = z.strictObject({ status: statusSchema.optional() });
+export const searchQuerySchema = z.strictObject({
+  q: z.string().trim().min(1).max(200).refine((value) => !value.includes("\0"), "Invalid search text"),
+});
 export const activityQuerySchema = z.strictObject({
   limit: urlIdSchema.pipe(z.number().max(100)).default(20),
 });

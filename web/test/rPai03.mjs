@@ -53,6 +53,67 @@ async function reachable(locator) {
   assert.ok(box.y >= 0 && box.y + box.height <= size.height + 1, 'control can scroll fully into view');
 }
 
+test('global search ignores superseded responses and cancels pending work when cleared', async () => {
+  const page = await pageAt(375, 812);
+  try {
+    await page.addInitScript(() => {
+      const fetchOriginal = window.fetch.bind(window);
+      window.searchRequests = [];
+      window.fetch = (input, init) => {
+        const url = new URL(input instanceof Request ? input.url : input, window.location.href);
+        if (url.pathname !== '/api/search') return fetchOriginal(input, init);
+
+        // Deliver responses even after abort so the request identity check is exercised.
+        return new Promise(resolve => window.searchRequests.push({
+          query: url.searchParams.get('q'),
+          signal: init?.signal,
+          respond: (body, status = 200) => resolve(Response.json(body, { status })),
+        }));
+      };
+    });
+
+    await page.goto(`${base}/projects`);
+    const search = page.getByRole('searchbox', { name: 'Search projects and tasks' });
+    const first = 'older result';
+    const second = 'newer result';
+    await search.fill(first);
+    await page.waitForFunction(q => window.searchRequests.some(request => request.query === q), first);
+    await search.fill(second);
+    await search.press('Enter');
+    await page.waitForFunction(q => window.searchRequests.some(request => request.query === q), second);
+    assert.equal(await page.evaluate(q => window.searchRequests.find(request => request.query === q).signal.aborted, first), true);
+
+    await page.evaluate(q => window.searchRequests.find(request => request.query === q && !request.signal.aborted).respond({
+      success: true,
+      projects: [{ projectId: 91, projectName: 'Newest project' }],
+      tasks: [{ projectId: 91, projectName: 'Newest project', taskId: 27, taskTitle: 'Newest task' }],
+    }), second);
+    const results = page.getByRole('search');
+    await results.getByRole('link', { name: 'Newest project', exact: true }).waitFor();
+    assert.equal(await results.getByRole('link', { name: /Newest task/ }).getAttribute('href'), '/projects/91/tasks/27');
+    await fits(page, 'Search results');
+
+    await page.evaluate(async q => {
+      window.searchRequests.find(request => request.query === q).respond({ success: false }, 500);
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }, first);
+    assert.equal(await results.getByRole('link', { name: 'Newest project', exact: true }).isVisible(), true);
+    assert.equal(await results.getByText('Unable to search. Try again.').count(), 0);
+
+    await search.fill('pending');
+    await page.waitForFunction(() => window.searchRequests.some(request => request.query === 'pending'));
+    await search.clear();
+    assert.equal(await page.evaluate(() => window.searchRequests.find(request => request.query === 'pending').signal.aborted), true);
+    await page.evaluate(async () => {
+      window.searchRequests.find(request => request.query === 'pending').respond({
+        success: true, projects: [{ projectId: 92, projectName: 'Cleared result' }], tasks: [],
+      });
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    assert.equal(await results.getByRole('link').count(), 0);
+  } finally { await page.close(); }
+});
+
 test('mobile navigation opens, closes with Escape, and closes after selecting a route', async () => {
   for (const [width, height] of sizes) {
     const page = await pageAt(width, height);

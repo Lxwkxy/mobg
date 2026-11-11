@@ -8,6 +8,7 @@ import { port, webOrigin } from "./env.js";
 import { ApiError } from "./errors.js";
 import meRoutes from "./routes/me.js";
 import projectRoutes from "./routes/projects.js";
+import searchRoutes from "./routes/search.js";
 import taskRoutes from "./routes/tasks.js";
 import userRoutes from "./routes/users.js";
 import { RequestValidationError } from "./validation.js";
@@ -27,6 +28,7 @@ app.use("/api/me", meRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/projects/:projectId/tasks", taskRoutes);
+app.use("/api/search", searchRoutes);
 app.use("/api", (_req, res) => {
   res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Endpoint not found" } });
 });
