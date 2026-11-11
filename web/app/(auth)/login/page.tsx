@@ -144,11 +144,11 @@ export default function LoginPage() {
   // Prevent duplicate login requests before React updates isLoading.
   const isSubmitting = useRef(false);
 
-  // Used to distinguish clicking Log in from submitting with Enter.
-  const submitFromButton = useRef(false);
-
   const emailInputRef = useRef<HTMLInputElement>(null);
   const [emailFocusRequest, setEmailFocusRequest] = useState(0);
+
+  // A repeated identical announcement must still create a new live-region update.
+  const announcementTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (emailFocusRequest > 0) {
@@ -156,16 +156,36 @@ export default function LoginPage() {
     }
   }, [emailFocusRequest]);
 
+  useEffect(() => {
+    return () => {
+      if (announcementTimer.current !== null) {
+        clearTimeout(announcementTimer.current);
+      }
+    };
+  }, []);
+
   const emailValidationError = validateEmail(email);
   const showEmailError = emailTouched && emailValidationError !== null;
+
+  function announceEmailError(message: string) {
+    if (announcementTimer.current !== null) {
+      clearTimeout(announcementTimer.current);
+    }
+
+    // Clear first, then restore the message so repeated identical errors
+    // produce a fresh DOM update for assistive technology.
+    setEmailAnnouncement('');
+
+    announcementTimer.current = setTimeout(() => {
+      setEmailAnnouncement(message);
+      announcementTimer.current = null;
+    }, 50);
+  }
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (isSubmitting.current) return;
-
-    const submittedFromButton = submitFromButton.current;
-    submitFromButton.current = false;
 
     setFormError('');
     setEmailTouched(true);
@@ -173,15 +193,19 @@ export default function LoginPage() {
     const validationError = validateEmail(email);
 
     if (validationError) {
-      setEmailAnnouncement(validationError);
+      announceEmailError(validationError);
 
-      // Keep focus where it is for Enter submission.
-      // Move focus back to email when Log in was clicked.
-      if (submittedFromButton) {
-        setEmailFocusRequest((current) => current + 1);
-      }
+      // Return focus to the invalid email field for every submission method.
+      // Enter may also trigger the submit button's onClick handler, so focus
+      // behavior must not depend on distinguishing Enter from a button click.
+      setEmailFocusRequest((current) => current + 1);
 
       return;
+    }
+
+    if (announcementTimer.current !== null) {
+      clearTimeout(announcementTimer.current);
+      announcementTimer.current = null;
     }
 
     setEmailAnnouncement('');
@@ -218,10 +242,16 @@ export default function LoginPage() {
 
     const validationError = validateEmail(value);
 
-    // Once validation has appeared, keep it visible while the email
-    // remains invalid. Clear it as soon as the email becomes valid.
+    // Keep the visible validation error while the value remains invalid.
+    // Clear the validation state and any pending announcement when valid.
     if (!validationError) {
       setEmailTouched(false);
+
+      if (announcementTimer.current !== null) {
+        clearTimeout(announcementTimer.current);
+        announcementTimer.current = null;
+      }
+
       setEmailAnnouncement('');
     }
   }
@@ -332,7 +362,7 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* Live region stays mounted so Enter submission can announce errors. */}
+            {/* Keep this live region mounted so every invalid submission can be announced. */}
             <p
               className="sr-only"
               aria-live="polite"
@@ -432,9 +462,6 @@ export default function LoginPage() {
 
               <Button
                 type="submit"
-                onClick={() => {
-                  submitFromButton.current = true;
-                }}
                 disabled={!hydrated || isLoading}
                 isLoading={isLoading}
                 className="mt-1 min-h-11 rounded-sm bg-[#6a1f86] px-4 py-2.5 text-[14px] hover:bg-[#561670] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#6a1f86]"

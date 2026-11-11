@@ -53,22 +53,6 @@ async function fits(page) {
   );
 }
 
-// Check that an already-mounted live region announces the expected error.
-async function expectLiveRegion(page, expectedText) {
-  const liveRegion = page.locator('[aria-live="polite"]');
-
-  await liveRegion.waitFor();
-
-  await page.waitForFunction(
-    (text) => {
-      const region = document.querySelector('[aria-live="polite"]');
-
-      return region?.textContent?.trim() === text;
-    },
-    expectedText,
-  );
-}
-
 const browser = await chromium.launch({
   channel: 'chrome',
   headless: true,
@@ -254,12 +238,23 @@ try {
     exact: true,
   });
 
+  const emailError = page.locator('#login-email-error');
+  const liveRegion = page.locator('[aria-live="polite"]');
+
+  // The live region must exist in the DOM before any invalid submission.
+  await liveRegion.waitFor();
+
   // Test 1: Leave email empty and move focus away.
   await emailInput.fill('');
-
   await passwordInput.focus();
 
-  await page.locator('#login-email-error').waitFor();
+  await emailError.waitFor();
+
+  assert.equal(
+    await emailError.textContent(),
+    'Please enter your email.',
+    'empty email should show the correct error message',
+  );
 
   assert.equal(
     await emailInput.getAttribute('aria-invalid'),
@@ -270,60 +265,168 @@ try {
   assert.equal(
     await emailInput.getAttribute('aria-describedby'),
     'login-email-error',
-    'empty email should have aria-describedby',
+    'empty email should reference its error message',
   );
 
   console.log('Empty email validation: passed');
 
-  // Test 2: Change from one invalid email to another invalid email.
+  // Test 2: Change from one invalid email to another while email stays focused.
   await emailInput.fill('invalid-email');
 
-  await passwordInput.focus();
+  assert.equal(
+    await emailInput.evaluate(
+      (element) => element === document.activeElement,
+    ),
+    true,
+    'email should remain focused after editing',
+  );
+
+  assert.equal(
+    await emailError.textContent(),
+    'Please enter a valid email address.',
+    'invalid email should show the correct error immediately',
+  );
 
   assert.equal(
     await emailInput.getAttribute('aria-invalid'),
     'true',
-    'invalid email should remain invalid',
+    'invalid email should have aria-invalid true',
   );
 
   assert.equal(
     await emailInput.getAttribute('aria-describedby'),
     'login-email-error',
-    'invalid email should keep aria-describedby',
+    'invalid email should reference its error message',
   );
 
-  console.log('Persistent invalid email validation: passed');
+  // Change to another invalid value without blurring the email field.
+  await emailInput.fill('still-invalid');
 
-  // Test 3: Correct the email and clear validation state.
+  assert.equal(
+    await emailInput.evaluate(
+      (element) => element === document.activeElement,
+    ),
+    true,
+    'email should remain focused while changing to another invalid value',
+  );
+
+  assert.equal(
+    await emailError.textContent(),
+    'Please enter a valid email address.',
+    'error message should remain visible immediately after invalid-to-invalid change',
+  );
+
+  assert.equal(
+    await emailInput.getAttribute('aria-invalid'),
+    'true',
+    'aria-invalid should remain true after invalid-to-invalid change',
+  );
+
+  assert.equal(
+    await emailInput.getAttribute('aria-describedby'),
+    'login-email-error',
+    'aria-describedby should remain after invalid-to-invalid change',
+  );
+
+  console.log('Invalid-to-invalid validation while focused: passed');
+
+  // Test 3: Correct the email and clear all validation feedback.
   await emailInput.fill(email);
+
+  assert.equal(
+    await emailError.count(),
+    0,
+    'email error message should be removed when the email becomes valid',
+  );
 
   assert.equal(
     await emailInput.getAttribute('aria-invalid'),
     'false',
-    'valid email should clear aria-invalid',
+    'aria-invalid should be false when the email becomes valid',
   );
 
   assert.equal(
     await emailInput.getAttribute('aria-describedby'),
     null,
-    'valid email should remove aria-describedby',
+    'aria-describedby should be removed when the email becomes valid',
   );
 
   console.log('Valid email clears validation: passed');
 
-  // Test 4: Submit with Enter from the email input.
+  // Test 4: Press Enter twice with the same invalid value.
+  // Observe actual DOM updates, not merely the final text content.
   await emailInput.fill('');
 
+  await page.evaluate(() => {
+    const region = document.querySelector('[aria-live="polite"]');
+
+    if (!region) {
+      throw new Error('Live region is missing from the DOM');
+    }
+
+    window.__loginLiveRegionAnnouncementCount = 0;
+
+    window.__loginLiveRegionObserver = new MutationObserver(() => {
+      if (
+        region.textContent?.trim() === 'Please enter your email.'
+      ) {
+        window.__loginLiveRegionAnnouncementCount += 1;
+      }
+    });
+
+    window.__loginLiveRegionObserver.observe(region, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+  });
+
+  // First Enter submission.
   await emailInput.press('Enter');
 
-  await expectLiveRegion(
-    page,
+  await page.waitForFunction(() => {
+    return window.__loginLiveRegionAnnouncementCount >= 1;
+  });
+
+  assert.equal(
+    await liveRegion.textContent(),
     'Please enter your email.',
+    'first Enter submission should announce the email error',
   );
 
-  console.log('Enter submission announces email error: passed');
+  console.log('First Enter live-region update: passed');
 
-  // Test 5: Submit by clicking Log in and return focus to email.
+  // Second Enter submission with the exact same invalid value.
+  await emailInput.press('Enter');
+
+  await page.waitForFunction(() => {
+    return window.__loginLiveRegionAnnouncementCount >= 2;
+  });
+
+  assert.equal(
+    await liveRegion.textContent(),
+    'Please enter your email.',
+    'second Enter submission should announce the same email error again',
+  );
+
+  const announcementCount = await page.evaluate(
+    () => window.__loginLiveRegionAnnouncementCount,
+  );
+
+  assert.equal(
+    announcementCount,
+    2,
+    'live region should have updated twice for two Enter submissions',
+  );
+
+  await page.evaluate(() => {
+    window.__loginLiveRegionObserver?.disconnect();
+    delete window.__loginLiveRegionObserver;
+  });
+
+  console.log('Repeated Enter live-region updates: passed');
+
+  // Test 5: Clicking Log in with an invalid email returns focus to email.
   await emailInput.fill('');
 
   await loginButton.click();
@@ -347,7 +450,6 @@ try {
   // --------------------------------------------------
 
   await emailInput.fill(email);
-
   await passwordInput.fill(password);
 
   await loginButton.click();
@@ -393,7 +495,6 @@ try {
   // --------------------------------------------------
 
   await emailInput.fill(email);
-
   await passwordInput.fill(password);
 
   await loginButton.click();
