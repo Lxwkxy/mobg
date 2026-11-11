@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
@@ -139,12 +138,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [formError, setFormError] = useState('');
   const [emailTouched, setEmailTouched] = useState(false);
+  const [emailAnnouncement, setEmailAnnouncement] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   // Prevent duplicate login requests before React updates isLoading.
   const isSubmitting = useRef(false);
 
-  // Move focus to the email field after its validation message is rendered.
+  // Used to distinguish clicking Log in from submitting with Enter.
+  const submitFromButton = useRef(false);
+
   const emailInputRef = useRef<HTMLInputElement>(null);
   const [emailFocusRequest, setEmailFocusRequest] = useState(0);
 
@@ -162,15 +164,27 @@ export default function LoginPage() {
 
     if (isSubmitting.current) return;
 
+    const submittedFromButton = submitFromButton.current;
+    submitFromButton.current = false;
+
     setFormError('');
     setEmailTouched(true);
 
     const validationError = validateEmail(email);
 
     if (validationError) {
-      setEmailFocusRequest((current) => current + 1);
+      setEmailAnnouncement(validationError);
+
+      // Keep focus where it is for Enter submission.
+      // Move focus back to email when Log in was clicked.
+      if (submittedFromButton) {
+        setEmailFocusRequest((current) => current + 1);
+      }
+
       return;
     }
+
+    setEmailAnnouncement('');
 
     if (!password) {
       setFormError('Please enter your password.');
@@ -195,6 +209,20 @@ export default function LoginPage() {
     } finally {
       isSubmitting.current = false;
       setIsLoading(false);
+    }
+  }
+
+  function handleEmailChange(value: string) {
+    setEmail(value);
+    setFormError('');
+
+    const validationError = validateEmail(value);
+
+    // Once validation has appeared, keep it visible while the email
+    // remains invalid. Clear it as soon as the email becomes valid.
+    if (!validationError) {
+      setEmailTouched(false);
+      setEmailAnnouncement('');
     }
   }
 
@@ -288,6 +316,7 @@ export default function LoginPage() {
               </p>
             </div>
 
+            {/* Server/API errors are separate from email validation errors. */}
             {formError && (
               <div
                 id="login-form-error"
@@ -302,6 +331,15 @@ export default function LoginPage() {
                 </span>
               </div>
             )}
+
+            {/* Live region stays mounted so Enter submission can announce errors. */}
+            <p
+              className="sr-only"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              {emailAnnouncement}
+            </p>
 
             <form
               method="post"
@@ -333,11 +371,8 @@ export default function LoginPage() {
                     placeholder="you@example.com"
                     aria-invalid={showEmailError}
                     aria-describedby={showEmailError ? 'login-email-error' : undefined}
-                    onChange={(event) => {
-                      setEmail(event.target.value);
-                      setEmailTouched(false);
-                      setFormError('');
-                    }}
+                    onBlur={() => setEmailTouched(true)}
+                    onChange={(event) => handleEmailChange(event.target.value)}
                     className={`
                       ${fieldBase}
                       ${showEmailError ? 'border-[#991b1b] forced-colors:border-[Mark]' : ''}
@@ -397,6 +432,9 @@ export default function LoginPage() {
 
               <Button
                 type="submit"
+                onClick={() => {
+                  submitFromButton.current = true;
+                }}
                 disabled={!hydrated || isLoading}
                 isLoading={isLoading}
                 className="mt-1 min-h-11 rounded-sm bg-[#6a1f86] px-4 py-2.5 text-[14px] hover:bg-[#561670] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#6a1f86]"
