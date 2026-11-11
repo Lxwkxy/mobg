@@ -123,6 +123,47 @@ test("authentication, membership and ID validation come first", async () => {
   assert.equal((await api("owner", "GET", `${tasksUrl(shared)}/1abc`)).status, 400);
 });
 
+test("topbar search matches literal names and titles in current project memberships", async () => {
+  const search = (who: Who, q: string) => api(who, "GET", `/api/search?${new URLSearchParams({ q })}`);
+  assert.equal((await search(null, "test")).status, 401);
+  for (const invalid of [" ", "a".repeat(201), "\0"]) {
+    assert.equal((await search("owner", invalid)).status, 400);
+  }
+  assert.equal((await api("owner", "GET", "/api/search?q=a&q=b")).status, 400);
+
+  const name = "Search fixture 100%_";
+  const taskTitle = "Search task 100%_";
+  const memberProject = await api("owner", "POST", "/api/projects", {
+    projectName: name, startDate: "2026-01-01", memberIds: [ids.member],
+  });
+  const hiddenProject = await api("outsider", "POST", "/api/projects", {
+    projectName: name, startDate: "2026-01-01",
+  });
+  assert.equal(memberProject.status, 201);
+  assert.equal(hiddenProject.status, 201);
+  const projectId = memberProject.body.project.projectId;
+  const hiddenId = hiddenProject.body.project.projectId;
+  const match = await api("owner", "POST", tasksUrl(projectId), { ...valid([ids.owner]), taskTitle });
+  const hidden = await api("outsider", "POST", tasksUrl(hiddenId), { ...valid([ids.outsider]), taskTitle });
+  const decoy = await api("owner", "POST", tasksUrl(projectId), { ...valid([ids.owner]), taskTitle: "Search task 100XYZ" });
+  assert.equal(match.status, 201);
+  assert.equal(hidden.status, 201);
+  assert.equal(decoy.status, 201);
+
+  const response = await search("member", "  100%_  ");
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, {
+    success: true,
+    projects: [{ projectId, projectName: name }],
+    tasks: [{ projectId, projectName: name, taskId: match.body.task.taskId, taskTitle }],
+  });
+  assert.deepEqual(new Set((await search("member", "sEaRcH TaSk")).body.tasks.map((task: { taskId: number }) => task.taskId)),
+    new Set([match.body.task.taskId, decoy.body.task.taskId]));
+
+  await pool.query("DELETE FROM project_members WHERE project_id = $1 AND user_id = $2", [projectId, ids.member]);
+  assert.deepEqual((await search("member", "100%_")).body, { success: true, projects: [], tasks: [] });
+});
+
 test("membership lost after route validation returns 400 on create and update, with no partial writes", async () => {
   const project = await api("owner", "POST", "/api/projects", { projectName: "W4 validation race",
     startDate: "2026-01-01", memberIds: [ids.member] });

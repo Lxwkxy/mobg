@@ -348,6 +348,7 @@ Status: implemented in W2: 10.3 users, 10.4 projects, GET 10.5 member list, and 
 |---|---|---|---|---|
 | GET | `/api/me` | Logged in + linked profile | MobG current user | `findDomainUserByAuthId` |
 | GET | `/api/users` | Logged in | Users to pick as members | `listUsers` |
+| GET | `/api/search` | Logged in + linked profile | Topbar project and task search | `searchVisibleProjectsAndTasks` |
 | GET | `/api/projects` | Logged in | My projects (filter, pagination) | `listProjectsForUser` |
 | POST | `/api/projects` | Logged in | Create project; creator becomes Owner | `createProjectWithMembers`, `getProjectById` |
 | GET | `/api/projects/:projectId` | Owner, Member | Project details | `findProjectMembership`, `getProjectById` |
@@ -613,6 +614,24 @@ Activity object:
 - **[W4 decision, 2026-11-08]** The user delegated the scope choice: all tasks in projects where the user is currently a member. This matches `projectCount` and project progress; My Tasks separately scopes by assignment. This records the current task decision, not a new confirmation from Book/Bar.
 - The user confirmed `highPriorityCount` and the important-task list use `priority = 1` and status not `Done`. The list orders `due_date`, then `task_id`, ascending; default limit 5, allowed integer range 1–100.
 - DB implementations: `getDashboardSummary(user_id)` in `services/dashboardDb.ts`, `listHighPriorityTasks(user_id, limit = 5)` in `services/taskDb.ts`. Both use current membership scope, without assignee joins multiplying task counts. HTTP endpoint/list envelope and UI integration remain Book/Bar work.
+
+### 10.10 Topbar search
+
+`GET /api/search?q=keyword` returns up to eight projects and eight tasks from
+projects where the current user is an Owner or Member. The trimmed query must
+contain 1–200 characters. It matches literal substrings of project names or task
+titles, case-insensitively. Results are ordered by name or title, then by ID.
+
+```json
+{
+  "success": true,
+  "projects": [{ "projectId": 2, "projectName": "Design" }],
+  "tasks": [{ "taskId": 7, "taskTitle": "Design login", "projectId": 2, "projectName": "Design" }]
+}
+```
+
+No matches return empty arrays. Invalid queries return `400`. Missing sessions
+return `401` and sessions without linked MobG profiles return `403`.
 
 ---
 

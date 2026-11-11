@@ -116,6 +116,11 @@ export interface ApiFailure {
 export type ApiResponse<T extends object> = ({ success: true } & T) | ApiFailure;
 export type UserResponse = ApiResponse<{ user: UserProfile }>;
 export type UsersResponse = ApiResponse<{ users: UserProfile[] }>;
+export interface SearchResults {
+  projects: Pick<Project, "projectId" | "projectName">[];
+  tasks: Pick<Task, "projectId" | "projectName" | "taskId" | "taskTitle">[];
+}
+export type SearchResponse = ApiResponse<SearchResults>;
 export type ProjectsResponse = ApiResponse<{ projects: Project[]; pagination: Pagination }>;
 export type ProjectResponse = ApiResponse<{ project: Project }>;
 export type MembersResponse = ApiResponse<{ members: ProjectMember[] }>;

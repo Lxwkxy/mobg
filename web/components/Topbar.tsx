@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { Suspense, useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import GlobalSearch from '@/components/GlobalSearch';
 import { logoutApi } from '@/lib/authService';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 
@@ -67,19 +68,9 @@ export default function Topbar() {
 
   return (
     <header className="min-h-[72px] bg-white flex flex-wrap items-center justify-end gap-3 px-4 py-3 sm:px-6 lg:px-[36px] border-b border-[#e0e0e0] relative">
-      {/* Search Box */}
-      <div className="flex min-w-0 flex-1 basis-full sm:basis-0 max-w-[580px] items-center gap-2.5 bg-[#eaeaea] px-4 py-2 rounded-full mr-auto">
-        <span className="text-[14px] text-[#888888]">🔍</span>
-        <input
-          type="text"
-          placeholder="Search projects, tasks ..."
-          aria-label="Search projects and tasks"
-          className="min-w-0 min-h-7 border-none bg-transparent outline-none w-full text-[12px] text-[#333333]"
-        />
-        <span className="bg-white px-2.5 py-0.5 rounded-xl text-[11px] text-[#666666] shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
-          Enter
-        </span>
-      </div>
+      <Suspense fallback={<div className="mr-auto h-12 max-w-[580px] flex-1 basis-full rounded-full bg-[#eaeaea] sm:basis-0" />}>
+        <GlobalSearch userId={!isLoggingOut && status === 'ready' ? user?.userId ?? null : null} />
+      </Suspense>
 
       {/* User Account */}
       <div className="min-w-0 max-w-full sm:max-w-[45%] flex items-center gap-5">
