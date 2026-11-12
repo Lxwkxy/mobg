@@ -10,8 +10,13 @@ import meRoutes from "./routes/me.js";
 import projectRoutes from "./routes/projects.js";
 import searchRoutes from "./routes/search.js";
 import taskRoutes from "./routes/tasks.js";
+import memberRoutes from "./routes/members.js";
+import myTaskRoutes from "./routes/myTasks.js";
+import dashboardRoutes from "./routes/dashboard.js";
 import userRoutes from "./routes/users.js";
 import { RequestValidationError } from "./validation.js";
+
+
 
 const app = express();
 app.use(cors({ origin: webOrigin, credentials: true }));
@@ -79,3 +84,8 @@ function shutdown(signal: string) {
 }
 process.once("SIGINT", () => shutdown("SIGINT"));
 process.once("SIGTERM", () => shutdown("SIGTERM"));
+
+
+app.use("/api/projects/:projectId/members", memberRoutes);
+app.use("/ai/tasks", myTaskRoutes);
+app.use("/api/dashboard", dashboardRoutes);

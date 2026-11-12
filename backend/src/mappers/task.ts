@@ -3,7 +3,7 @@ import { domainIdToNumber } from "../services/dbHelpers.js";
 import type { TaskRow, TaskStatusName } from "../services/taskDb.js";
 
 // DB names (To Do / Doing / Done) <-> API labels (To do / In progress / Done).
-const toApiStatus: Record<TaskStatusName, TaskStatus> = {
+export const toApiStatus: Record<TaskStatusName, TaskStatus> = {
   "To Do": "To do",
   "Doing": "In progress",
   "Done": "Done",

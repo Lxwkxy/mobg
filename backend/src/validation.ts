@@ -90,3 +90,6 @@ export const createCommentSchema: z.ZodType<CreateCommentRequest> = z.strictObje
 });
 // Shape validation only. Membership, stored dates, Owner permissions and DB constraints
 // remain the responsibility of W2/W3 services and guards, before any database write.
+export const dashboardQuerySchema = z.strictObject({
+  limit: urlIdSchema.pipe(z.number().max(100)).default(5),
+});
