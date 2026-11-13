@@ -113,6 +113,7 @@ order, limit, Done excluded, member scope, removal).
 ## Not verified / open items
 
 - No browser check; Bar's My Tasks and Dashboard pages still need wiring and a manual pass.
-- Search (`q`) and priority filters from the W4 checklist were not added: the contract records a
-  status-only decision. Confirm with Bar/Pai; adding them needs new DB conditions from Pai first.
+- Search (`q`) and priority filters from the W4 checklist are deferred: on 2026-11-14 the user
+  decided to keep the single `status` filter for now. Adding them later needs new DB conditions
+  from Pai first, then schema, route, contract and HTTP test changes here.
 - Dashboard `summary` and `highPriorityTasks` come from two queries, not one snapshot.

@@ -699,7 +699,7 @@ Backend validates membership and minimum assignees first. W4 create/update also 
 
 `is_overdue` = `due_date` is before today in `Asia/Bangkok` and `status_name` is not `Done`.
 
-My Tasks requires both assignment and current project membership with role Owner or Member; unknown roles grant no access. Dashboard counts and important tasks use the same role whitelist. The W4 user confirmed status-only filtering; no search/priority/project query fields or pagination are added to the public interface. Existing mock UI controls are not API capabilities.
+My Tasks requires both assignment and current project membership with role Owner or Member; unknown roles grant no access. Dashboard counts and important tasks use the same role whitelist. The W4 user confirmed status-only filtering, and on 2026-11-14 kept the single `status` filter for this release; keyword search and priority filters are deferred. No search/priority/project query fields or pagination are added to the public interface. Existing mock UI controls are not API capabilities.
 Member add/remove implementations live in `projectDb.ts`; rejection task lists are ordered by `task_id` ascending. HTTP routes implemented in W4-Book.
 
 ### 11.4 Comments, activity, dashboard
