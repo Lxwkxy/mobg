@@ -48,19 +48,19 @@ router.delete("/:userId", requireProjectRole("Owner"), async (req: Request, res:
     res.json({ success: true, message: "Member removed" });
     return;
   }
-  if (result.reason === "NOT_MEMBER") throw notFound("Member not found in this project");
-  if (result.reason === "LAST_OWNER") {
-    throw conflict("The last Owner cannot be removed from the project.", [{ reason: "LAST_OWNER" }]);
+  if (result.reason === "SOLE_ASSIGNEE") {
+    throw conflict(
+      "Member is the sole assignee of one or more tasks (including completed tasks). Reassign those tasks before removing.",
+      result.tasks.map((task) => ({
+        reason: "SOLE_ASSIGNEE" as const,
+        taskId: domainIdToNumber(task.task_id),
+        taskTitle: task.task_title,
+        status: toApiStatus[task.status_name],
+      })),
+    );
   }
-  throw conflict(
-    "Member is the sole assignee of one or more tasks (including completed tasks). Reassign those tasks before removing.",
-    result.tasks.map((task) => ({
-      reason: "SOLE_ASSIGNEE" as const,
-      taskId: domainIdToNumber(task.task_id),
-      taskTitle: task.task_title,
-      status: toApiStatus[task.status_name],
-    })),
-  );
+  if (result.reason === "NOT_MEMBER") throw notFound("Member not found in this project");
+  throw conflict("The last Owner cannot be removed from the project.", [{ reason: "LAST_OWNER" }]);
 });
 
 export default router;

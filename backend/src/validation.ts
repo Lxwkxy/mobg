@@ -50,7 +50,9 @@ export const searchQuerySchema = z.strictObject({
 export const activityQuerySchema = z.strictObject({
   limit: urlIdSchema.pipe(z.number().max(100)).default(20),
 });
-
+export const dashboardQuerySchema = z.strictObject({
+  limit: urlIdSchema.pipe(z.number().max(100)).default(5),
+});
 // W2 must also check this relation against stored values after merging a PATCH.
 export function projectDatesAreValid(startDate: string, dueDate: string | null | undefined): boolean {
   return dueDate == null || dueDate > startDate;
@@ -90,6 +92,3 @@ export const createCommentSchema: z.ZodType<CreateCommentRequest> = z.strictObje
 });
 // Shape validation only. Membership, stored dates, Owner permissions and DB constraints
 // remain the responsibility of W2/W3 services and guards, before any database write.
-export const dashboardQuerySchema = z.strictObject({
-  limit: urlIdSchema.pipe(z.number().max(100)).default(5),
-});

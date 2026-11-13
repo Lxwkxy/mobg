@@ -485,15 +485,19 @@ test("GET /api/tasks/mine: only my assignments across my projects, ordered, filt
 
 const zeroSummary = { projectCount: 0, taskCount: 0, statusCounts: { todo: 0, inProgress: 0, done: 0 }, overdueCount: 0, highPriorityCount: 0 };
 
-test("GET /api/dashboard: query parameters are rejected and a user without projects gets zeros", async () => {
-  for (const query of ["?limit=5", `?userId=${ids.owner}`, "?projectId=1"]) {
+test("GET /api/dashboard: bad or unknown query values are rejected and a user without projects gets zeros", async () => {
+  for (const query of [`?userId=${ids.owner}`, "?projectId=1", "?limit=0", "?limit=101", "?limit=abc", "?limit=1.5",
+    "?limit=-1", "?limit=", "?limit=5&limit=6"]) {
     const res = await api("outsider", "GET", `/api/dashboard${query}`);
     assert.equal(res.status, 400, query);
     assert.equal(res.body.error.code, "VALIDATION_ERROR", query);
   }
   const res = await api("outsider", "GET", "/api/dashboard");
   assert.equal(res.status, 200);
-  assert.deepEqual(res.body, { success: true, summary: zeroSummary }); // exactly these keys, all numbers
+  assert.deepEqual(res.body, { success: true, summary: zeroSummary, highPriorityTasks: [] }); // exactly these keys
+  for (const limit of ["1", "100"]) {
+    assert.equal((await api("outsider", "GET", `/api/dashboard?limit=${limit}`)).status, 200, limit);
+  }
 });
 
 test("GET /api/dashboard: counts every task of my projects once, follows changes and membership", async () => {
@@ -528,4 +532,37 @@ test("GET /api/dashboard: counts every task of my projects once, follows changes
 
   await pool.query("UPDATE project_members SET role = 'Unknown' WHERE project_id = $1 AND user_id = $2", [pA, ids.dashOwner]);
   assert.deepEqual(await summary("dashOwner"), { ...zeroSummary, projectCount: 1 }); // only the empty project still counts
+});
+
+test("GET /api/dashboard: highPriorityTasks lists priority-1 open tasks of my projects in contract order", async () => {
+  const pA = await newProject("dashOwner", [ids.dashMember]);
+  const pB = await newProject("dashOwner", []); // dashMember is not a member of pB
+  const late = await newTask("dashOwner", pA, [ids.dashOwner], { taskTitle: "late", priority: 1, dueDate: bangkokDatePlus(-2) });
+  const soonA = await newTask("dashOwner", pA, [ids.dashOwner, ids.dashMember], { taskTitle: "soonA", priority: 1, dueDate: bangkokDatePlus(3) });
+  const soonB = await newTask("dashOwner", pB, [ids.dashOwner], { taskTitle: "soonB", priority: 1, dueDate: bangkokDatePlus(3) });
+  const done = await newTask("dashOwner", pA, [ids.dashOwner], { taskTitle: "done", priority: 1, dueDate: bangkokDatePlus(1) });
+  await newTask("dashOwner", pA, [ids.dashOwner], { taskTitle: "low", priority: 2, dueDate: bangkokDatePlus(0) });
+  await setStatus("dashOwner", pA, done.taskId, "Done");
+
+  const list = async (who: Name, query = "") => {
+    const res = await api(who, "GET", `/api/dashboard${query}`);
+    assert.equal(res.status, 200);
+    return res.body as { summary: any; highPriorityTasks: any[] };
+  };
+
+  // Due date, then task id (soonA and soonB tie on date); the same Task object as the project task API.
+  const owner = await list("dashOwner");
+  assert.deepEqual(owner.highPriorityTasks, [late, soonA, soonB]);
+  assert.equal(owner.summary.highPriorityCount, 3); // count and list use the same definition
+  assert.deepEqual((await list("dashOwner", "?limit=1")).highPriorityTasks, [late]);
+
+  // A member sees priority-1 tasks of projects they belong to, assigned or not; never another project's.
+  assert.deepEqual((await list("dashMember")).highPriorityTasks, [late, soonA]);
+  assert.deepEqual((await list("outsider")).highPriorityTasks, []);
+
+  // Leaving the project removes its tasks from the list at once.
+  await setStatus("dashOwner", pA, soonA.taskId, "Done");
+  assert.equal((await api("dashOwner", "DELETE", `${membersUrl(pA)}/${ids.dashMember}`)).status, 200);
+  assert.deepEqual((await list("dashMember")).highPriorityTasks, []);
+  assert.deepEqual((await list("dashOwner")).highPriorityTasks, [late, soonB]);
 });
