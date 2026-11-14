@@ -124,8 +124,14 @@ export async function createTask(input: CreateTaskInput): Promise<{ task_id: str
 }
 
 // Book must first authorize and resolve the task with getTaskById(projectId, taskId).
-export async function updateTask(taskId: number, changes: TaskChanges): Promise<boolean> {
+// With `actor`, the caller must still be an Owner/Member of `actor.project_id` (and the task must belong to it)
+// after the project lock is taken, in the same transaction as the write; otherwise nothing changes and the
+// result is false. This cuts off a caller removed from the project while the PATCH waited for the lock.
+export interface TaskWriteActor { project_id: number; user_id: number }
+
+export async function updateTask(taskId: number, changes: TaskChanges, actor?: TaskWriteActor): Promise<boolean> {
   assertDomainId(taskId);
+  if (actor) { assertDomainId(actor.project_id); assertDomainId(actor.user_id); }
   const fields = new Set(["task_title", "task_description", "priority", "due_date", "status_name", "assignee_ids"]);
   const entries = Object.entries(changes);
   if (entries.some(([key]) => !fields.has(key))) throw new TypeError("Unsupported task field");
@@ -143,7 +149,13 @@ export async function updateTask(taskId: number, changes: TaskChanges): Promise<
     const project = (await client.query<{ project_id: string }>(
       "SELECT project_id FROM tasks WHERE task_id = $1", [taskId])).rows[0];
     if (!project) return false;
+    if (actor && project.project_id !== String(actor.project_id)) return false;
     await lockProject(client, project.project_id);
+    if (actor) {
+      const member = await client.query(`SELECT 1 FROM project_members
+        WHERE project_id = $1 AND user_id = $2 AND role IN ('Owner', 'Member')`, [actor.project_id, actor.user_id]);
+      if (member.rowCount === 0) return false;
+    }
     // Serialize whole-set replacements, including assignee-only concurrent PATCHes.
     const found = await client.query<{ project_id: string }>("SELECT project_id FROM tasks WHERE task_id = $1 FOR UPDATE", [taskId]);
     if (found.rowCount === 0) return false;

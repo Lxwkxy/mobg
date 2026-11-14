@@ -105,7 +105,10 @@ router.patch("/:taskId", requireProjectRole("Member"), async (req: Request, res:
   if (body.assigneeIds !== undefined) changes.assignee_ids = body.assigneeIds;
 
   try {
-    if (!(await updateTask(taskId, changes))) throw taskNotFound();
+    // The service rechecks the caller's membership under the project lock: removed while waiting → 404, task unchanged.
+    if (!(await updateTask(taskId, changes, { project_id: projectId, user_id: req.currentUser!.userId }))) {
+      throw taskNotFound();
+    }
   } catch (error) {
     if (error instanceof InvalidTaskAssigneesError) throw assigneeError(error.userIds);
     if (body.assigneeIds && isAssigneeUserFkViolation(error)) throw assigneeError(body.assigneeIds);

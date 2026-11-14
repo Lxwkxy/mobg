@@ -5,6 +5,7 @@ import { pool } from "../src/db.js";
 import * as projects from "../src/services/projectDb.js";
 import * as tasks from "../src/services/taskDb.js";
 import { getDashboardSummary } from "../src/services/dashboardDb.js";
+import { withProjectLockHeld } from "./helpers/projectLock.js";
 
 before(async () => {
   const expected = process.env.POSTGRES_DB ?? "";
@@ -117,25 +118,66 @@ test("an actor demoted or removed while waiting for the project lock writes noth
       const f = await fixture();
       await pool.query("UPDATE project_members SET role = 'Owner' WHERE project_id = $1 AND user_id = $2", [f.project, f.first]);
       const before = await memberIds(f.project);
-      const gate = await pool.connect();
-      let pending: Promise<unknown> | undefined;
-      try {
-        await gate.query("BEGIN");
-        await gate.query("SELECT 1 FROM projects WHERE project_id = $1 FOR UPDATE", [f.project]);
-        pending = action === "add" ? addMember(f.project, f.first, f.outsider) : removeMember(f.project, f.first, f.second);
-        await waitFor(async () => (await pool.query(`SELECT 1 FROM pg_stat_activity
-          WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE%'`)).rowCount! > 0);
-        await gate.query(change === "demote"
-          ? "UPDATE project_members SET role = 'Member' WHERE project_id = $1 AND user_id = $2"
-          : "DELETE FROM project_members WHERE project_id = $1 AND user_id = $2", [f.project, f.first]);
-        await gate.query("COMMIT");
-      } finally { gate.release(); }
+      const pending = await withProjectLockHeld<unknown>(f.project,
+        () => action === "add" ? addMember(f.project, f.first, f.outsider) : removeMember(f.project, f.first, f.second),
+        async (gate) => {
+          await gate.query(change === "demote"
+            ? "UPDATE project_members SET role = 'Member' WHERE project_id = $1 AND user_id = $2"
+            : "DELETE FROM project_members WHERE project_id = $1 AND user_id = $2", [f.project, f.first]);
+        });
       const reason = change === "demote" ? "ACTOR_NOT_OWNER" : "ACTOR_NOT_MEMBER";
       assert.deepEqual(await pending, action === "add" ? { added: false, reason } : { removed: false, reason }, `${change} ${action}`);
       const expected = change === "demote" ? before : before.filter(id => id !== String(f.first));
       assert.deepEqual(await memberIds(f.project), expected, `${change} ${action}`);
     }
   }
+});
+
+test("updateTask with an actor rechecks membership under the project lock and leaves the task untouched otherwise", async () => {
+  const f = await fixture();
+  const other = await fixture();
+  const id = await task(f, [f.owner]);
+  const original = await tasks.getTaskById(f.project, id);
+  const change = { task_title: "Must not land", status_name: "Done" as const, assignee_ids: [f.second] };
+  assert.equal(await tasks.updateTask(id, change, { project_id: f.project, user_id: f.outsider }), false);
+  assert.equal(await tasks.updateTask(id, change, { project_id: other.project, user_id: other.owner }), false); // wrong project
+  await pool.query("UPDATE project_members SET role = 'Unknown' WHERE project_id = $1 AND user_id = $2", [f.project, f.second]);
+  assert.equal(await tasks.updateTask(id, change, { project_id: f.project, user_id: f.second }), false);
+  assert.deepEqual(await tasks.getTaskById(f.project, id), original);
+
+  // Removed while waiting for the lock: false, nothing written.
+  const pending = await withProjectLockHeld(f.project,
+    () => tasks.updateTask(id, { task_title: "Must not land", priority: 3 }, { project_id: f.project, user_id: f.first }),
+    async (gate) => {
+      await gate.query("DELETE FROM project_members WHERE project_id = $1 AND user_id = $2", [f.project, f.first]);
+    });
+  assert.equal(await pending, false);
+  assert.deepEqual(await tasks.getTaskById(f.project, id), original);
+
+  // A current member still updates.
+  assert.equal(await tasks.updateTask(id, { task_title: "Owner edit" }, { project_id: f.project, user_id: f.owner }), true);
+  assert.equal((await tasks.getTaskById(f.project, id))?.task_title, "Owner edit");
+});
+
+test("the lock helper rolls back, frees the lock and lets the waiting operation finish when a test fails before COMMIT", async () => {
+  const f = await fixture();
+  let finished = false;
+  await assert.rejects(withProjectLockHeld(f.project,
+    () => addMember(f.project, f.owner, f.outsider).finally(() => { finished = true; }),
+    async (gate) => {
+      await gate.query("DELETE FROM project_members WHERE project_id = $1 AND user_id = $2", [f.project, f.first]);
+      throw new Error("simulated assertion failure");
+    }), /simulated assertion failure/);
+  assert.equal(finished, true); // the blocked add completed before the error surfaced
+  assert.ok(await projects.findProjectMembership(f.project, f.first)); // the gate's delete was rolled back
+  assert.ok(await projects.findProjectMembership(f.project, f.outsider)); // the waiting add ran after the lock was freed
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT 1 FROM projects WHERE project_id = $1 FOR UPDATE NOWAIT", [f.project]); // lock is free
+    await client.query("ROLLBACK");
+  } finally { client.release(); }
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND state LIKE 'idle in transaction%'")).rows[0].n, 0);
 });
 
 test("adding a member prepares the response inside the transaction; a failed prepare leaves no member", async () => {
@@ -272,8 +314,11 @@ test("assignment replacement waits for member removal and rechecks membership be
     await waitFor(async () => settled || (await pool.query(`SELECT 1 FROM pg_stat_activity
       WHERE datname = current_database() AND wait_event_type = 'Lock' AND wait_event <> 'advisory'`)).rowCount! > 0);
   } finally {
-    await gate.query("SELECT pg_advisory_unlock(74001)");
-    gate.release();
+    // Free the advisory lock before returning the connection; if that fails, destroy the connection
+    // (which ends its session and its locks) instead of pooling a locked one.
+    let broken = false;
+    try { await gate.query("SELECT pg_advisory_unlock(74001)"); } catch { broken = true; }
+    gate.release(broken);
     await removal;
     if (replacement) await replacement;
     await pool.query("DROP TRIGGER w4_pause_removal ON project_members; DROP FUNCTION w4_pause_removal()");

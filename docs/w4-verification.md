@@ -142,6 +142,16 @@ Added for the PR #25 review (2026-11-14):
   the same user can be added afterwards.
 - guards.test.ts: `requireAuth` running twice on one request looks the session up once.
 
+Second review round (2026-11-14):
+
+- `PATCH /api/projects/:projectId/tasks/:taskId` rechecks the caller's membership after the project
+  lock, in the update transaction. A Member removed while the PATCH waits gets `404` and the task row,
+  status and assignees in the DB stay as they were (HTTP test with a passing control case, plus a DB
+  test for `updateTask(..., actor)`: outsider, wrong project, unknown role, removed during the wait).
+- Lock tests in w4Routes and w4Db share `test/helpers/projectLock.ts`: on a failure before COMMIT it
+  rolls back first, destroys the connection if ROLLBACK fails, and waits (max 10 s) for the blocked
+  request to finish, so CI shows the real assertion instead of hanging. A test checks that path.
+
 ## Observed results
 
 - 2026-11-13, implementing agent on Windows: `npm run typecheck` and `npm run typecheck:tests` pass.
