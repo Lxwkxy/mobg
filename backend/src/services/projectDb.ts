@@ -1,3 +1,4 @@
+import type { PoolClient } from "pg";
 import { pool } from "../db.js";
 import { assertDomainId, lockProject, withTransaction } from "./dbHelpers.js";
 import type { TaskStatus } from "../contracts/api.js";
@@ -140,27 +141,52 @@ export async function listProjectMembers(projectId: number): Promise<ProjectMemb
     ORDER BY CASE WHEN m.role = 'Owner' THEN 0 ELSE 1 END, u.user_name, u.user_id`, [projectId])).rows;
 }
 
-export interface AddedProjectMemberRow extends ProjectMembershipRow { role: "Member"; date_join: string }
+// Membership writes are authorized under the project lock, in the same transaction as the write:
+// a caller who lost Owner (or left the project) while waiting for the lock writes nothing.
+export interface ProjectMemberWriteInput { project_id: number; actor_user_id: number; user_id: number }
+export type ActorDenial = "ACTOR_NOT_MEMBER" | "ACTOR_NOT_OWNER";
 
-export async function addProjectMember(projectId: number, userId: number): Promise<AddedProjectMemberRow> {
-  assertDomainId(projectId); assertDomainId(userId);
+async function lockProjectForOwner(client: PoolClient, projectId: number, actorUserId: number): Promise<ActorDenial | null> {
+  await lockProject(client, projectId);
+  const actor = (await client.query<{ role: string }>(
+    "SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2", [projectId, actorUserId])).rows[0];
+  if (!actor) return "ACTOR_NOT_MEMBER"; // also an unknown or deleted project
+  return actor.role === "Owner" ? null : "ACTOR_NOT_OWNER"; // Member and unknown roles grant no write access
+}
+
+export type AddProjectMemberResult<T> = { added: true; member: T } | { added: false; reason: ActorDenial };
+
+// `prepare` builds the response from the inserted row before COMMIT; if it throws, the insert rolls back.
+// Duplicate and unknown-user key errors still propagate as native pg errors.
+export async function addProjectMember<T>(input: ProjectMemberWriteInput,
+  prepare: (row: ProjectMemberRow) => T): Promise<AddProjectMemberResult<T>> {
+  const { project_id: projectId, actor_user_id: actorUserId, user_id: userId } = input;
+  assertDomainId(projectId); assertDomainId(actorUserId); assertDomainId(userId);
   return withTransaction(async (client) => {
-    await lockProject(client, projectId);
-    return (await client.query<AddedProjectMemberRow>(`INSERT INTO project_members (project_id, user_id, role)
-      VALUES ($1, $2, 'Member') RETURNING project_id, user_id, role, date_join::text`, [projectId, userId])).rows[0]!;
+    const denied = await lockProjectForOwner(client, projectId, actorUserId);
+    if (denied) return { added: false, reason: denied };
+    await client.query("INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, 'Member')",
+      [projectId, userId]);
+    const row = (await client.query<ProjectMemberRow>(`SELECT u.user_id, u.user_name, u.email, m.role, m.date_join::text
+      FROM project_members m JOIN users u ON u.user_id = m.user_id WHERE m.project_id = $1 AND m.user_id = $2`,
+    [projectId, userId])).rows[0];
+    if (!row) throw new Error("Added member could not be read back");
+    return { added: true, member: prepare(row) };
   });
 }
 
 export interface SoleAssigneeTask { task_id: string; task_title: string; status_name: TaskStatusName }
 export type RemoveProjectMemberResult = { removed: true }
-  | { removed: false; reason: "NOT_MEMBER" | "LAST_OWNER" }
+  | { removed: false; reason: ActorDenial | "NOT_MEMBER" | "LAST_OWNER" }
   | { removed: false; reason: "SOLE_ASSIGNEE"; tasks: SoleAssigneeTask[] };
 
-export async function removeProjectMember(projectId: number, userId: number): Promise<RemoveProjectMemberResult> {
-  assertDomainId(projectId); assertDomainId(userId);
+export async function removeProjectMember(input: ProjectMemberWriteInput): Promise<RemoveProjectMemberResult> {
+  const { project_id: projectId, actor_user_id: actorUserId, user_id: userId } = input;
+  assertDomainId(projectId); assertDomainId(actorUserId); assertDomainId(userId);
   return withTransaction(async (client) => {
     // All membership/assignee writers must acquire the project lock before task locks.
-    await lockProject(client, projectId);
+    const denied = await lockProjectForOwner(client, projectId, actorUserId);
+    if (denied) return { removed: false, reason: denied };
     const member = (await client.query<{ role: string }>(
       "SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2", [projectId, userId])).rows[0];
     if (!member) return { removed: false, reason: "NOT_MEMBER" };

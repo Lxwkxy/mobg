@@ -479,6 +479,7 @@ Member object: `{ "userId": 2, "userName": "Somchai", "email": "somchai@mobg.loc
 
 - Unknown user → `400 VALIDATION_ERROR`. Already a member → `409 CONFLICT` (`reason: ALREADY_MEMBER`).
 - This version has no endpoint to change a member's role.
+- POST and DELETE recheck the caller's role after taking the project lock, in the same transaction as the write: a caller who left the project meanwhile → `404`, who is no longer Owner → `403`; nothing is written. The `201` member is built inside that transaction (a failure rolls the insert back).
 
 `DELETE /api/projects/:projectId/members/:userId` (Owner only) → `200` `{ "success": true, "message": "Member removed" }`. Rules and `409` responses are in section 8. A user who is not a member of this project → `404 NOT_FOUND`. After removal the user immediately gets `404` on every endpoint of that project and the project's tasks leave their My Tasks and Dashboard.
 
@@ -670,8 +671,8 @@ Owner of these functions: Pai. Called by the backend.
 | Function | Input | Output |
 |---|---|---|
 | `listProjectMembers(project_id)` | project id | `[{ user_id, user_name, email, role, date_join }]`, `Owner` first, then `user_name`, `user_id` |
-| `addProjectMember(project_id, user_id)` | ids | `{ project_id, user_id, role: 'Member', date_join }`. Duplicate or unknown user throws a key error. |
-| `removeProjectMember(project_id, user_id)` | ids | `{ removed: true }` or `{ removed: false, reason }` where `reason` is `NOT_MEMBER`, `LAST_OWNER`, or `SOLE_ASSIGNEE` (the last one also returns `tasks: [{ task_id, task_title, status_name }]`). The sole-assignee check covers tasks in every status including `Done`. On success it removes the user from the project's `task_assignees` rows and from `project_members` in one transaction. |
+| `addProjectMember({ project_id, actor_user_id, user_id }, prepare)` | ids; `prepare(row)` maps `{ user_id, user_name, email, role, date_join }` | Locks the project, then requires `actor_user_id` to be an Owner in the same transaction: `{ added: false, reason: 'ACTOR_NOT_MEMBER' \| 'ACTOR_NOT_OWNER' }`. Otherwise inserts a `Member` and returns `{ added: true, member: prepare(row) }`, computed before COMMIT (a throwing `prepare` rolls back). Duplicate or unknown user throws a key error. |
+| `removeProjectMember({ project_id, actor_user_id, user_id })` | ids | Same actor check under the project lock (`ACTOR_NOT_MEMBER`, `ACTOR_NOT_OWNER`). Then `{ removed: true }` or `{ removed: false, reason }` where `reason` is `NOT_MEMBER`, `LAST_OWNER`, or `SOLE_ASSIGNEE` (the last one also returns `tasks: [{ task_id, task_title, status_name }]`). The sole-assignee check covers tasks in every status including `Done`. On success it removes the user from the project's `task_assignees` rows and from `project_members` in one transaction. |
 
 ### 11.3 Tasks
 

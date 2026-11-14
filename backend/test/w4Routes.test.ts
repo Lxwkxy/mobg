@@ -17,7 +17,8 @@ const origin = process.env.CORS_ORIGIN ?? "http://localhost:3000";
 
 // Each group of tests has its own accounts so counts and lists stay exact when other test files ran first.
 // "outsider" and "newcomer" never become members of anything except where a test adds them explicitly.
-const names = ["owner", "member", "outsider", "newcomer", "mineOwner", "mineMember", "dashOwner", "dashMember"] as const;
+const names = ["owner", "member", "outsider", "newcomer", "mineOwner", "mineMember", "dashOwner", "dashMember",
+  "coOwner", "progressOwner"] as const;
 type Name = (typeof names)[number];
 const ids = {} as Record<Name, number>;
 const cookies = {} as Record<Name, string>;
@@ -388,6 +389,47 @@ test("concurrent member requests keep exactly one result per action", async () =
   }
 });
 
+// The route guard sees an Owner, then the request waits for the project lock while that caller loses Owner
+// (or leaves the project). The service recheck under the lock must refuse the write: 403 / 404, nothing written.
+test("member writes by a caller who loses rights while waiting for the project lock change nothing", async () => {
+  const cases = [
+    { change: "demote", method: "POST", status: 403, code: "FORBIDDEN" },
+    { change: "demote", method: "DELETE", status: 403, code: "FORBIDDEN" },
+    { change: "remove", method: "POST", status: 404, code: "NOT_FOUND" },
+    { change: "remove", method: "DELETE", status: 404, code: "NOT_FOUND" },
+  ] as const;
+  for (const { change, method, status, code } of cases) {
+    const label = `${change} ${method}`;
+    const project = await newProject("owner", [ids.coOwner, ids.member]);
+    await pool.query("UPDATE project_members SET role = 'Owner' WHERE project_id = $1 AND user_id = $2", [project, ids.coOwner]);
+    const gate = await pool.connect();
+    let pending: Promise<{ status: number; body: any }> | undefined;
+    try {
+      await gate.query("BEGIN");
+      await gate.query("SELECT 1 FROM projects WHERE project_id = $1 FOR UPDATE", [project]);
+      pending = method === "POST"
+        ? api("coOwner", "POST", membersUrl(project), { userId: ids.newcomer })
+        : api("coOwner", "DELETE", `${membersUrl(project)}/${ids.member}`);
+      let waiting = false;
+      for (let i = 0; i < 500 && !waiting; i++) {
+        waiting = (await pool.query(`SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
+          AND wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE%'`)).rowCount! > 0;
+        if (!waiting) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.ok(waiting, `${label}: request never waited for the project lock`);
+      await gate.query(change === "demote"
+        ? "UPDATE project_members SET role = 'Member' WHERE project_id = $1 AND user_id = $2"
+        : "DELETE FROM project_members WHERE project_id = $1 AND user_id = $2", [project, ids.coOwner]);
+      await gate.query("COMMIT");
+    } finally { gate.release(); }
+    const res = await pending!;
+    assert.equal(res.status, status, label);
+    assert.equal(res.body.error.code, code, label);
+    const expected = change === "demote" ? [ids.owner, ids.coOwner, ids.member] : [ids.owner, ids.member];
+    assert.deepEqual((await memberList("owner", project)).map((m) => m.userId).sort(), expected.sort(), label);
+  }
+});
+
 test("POST members maps only known constraints; other database errors are a safe 500", async () => {
   const project = await newProject("owner", []);
   const url = membersUrl(project);
@@ -565,4 +607,37 @@ test("GET /api/dashboard: highPriorityTasks lists priority-1 open tasks of my pr
   assert.equal((await api("dashOwner", "DELETE", `${membersUrl(pA)}/${ids.dashMember}`)).status, 200);
   assert.deepEqual((await list("dashMember")).highPriorityTasks, []);
   assert.deepEqual((await list("dashOwner")).highPriorityTasks, [late, soonB]);
+});
+
+// ---------------------------------------------------------------------------------------------
+// progressPercent on GET /api/projects (Dashboard project cards)
+// ---------------------------------------------------------------------------------------------
+
+test("GET /api/projects: progressPercent is ROUND(100 x done / total), 0 for a project without tasks", async () => {
+  const empty = await newProject("progressOwner", []);
+  const partial = await newProject("progressOwner", []);
+  const progress = async () => {
+    const res = await api("progressOwner", "GET", "/api/projects?pageSize=50");
+    assert.equal(res.status, 200);
+    const pick = (id: number) => {
+      const p = res.body.projects.find((row: any) => row.projectId === id);
+      return { progressPercent: p.progressPercent, totalTasks: p.totalTasks, completedTasks: p.completedTasks };
+    };
+    return { empty: pick(empty), partial: pick(partial) };
+  };
+  const detail = async (id: number) => (await api("progressOwner", "GET", projectUrl(id))).body.project.progressPercent;
+
+  assert.deepEqual((await progress()).empty, { progressPercent: 0, totalTasks: 0, completedTasks: 0 });
+  assert.equal(await detail(empty), 0);
+
+  const tasks = [];
+  for (let i = 0; i < 3; i++) tasks.push(await newTask("progressOwner", partial, [ids.progressOwner]));
+  assert.deepEqual((await progress()).partial, { progressPercent: 0, totalTasks: 3, completedTasks: 0 });
+  await setStatus("progressOwner", partial, tasks[0].taskId, "Done");
+  await setStatus("progressOwner", partial, tasks[1].taskId, "In progress"); // in progress is not completed
+  assert.deepEqual((await progress()).partial, { progressPercent: 33, totalTasks: 3, completedTasks: 1 }); // 33.3 -> 33
+  await setStatus("progressOwner", partial, tasks[1].taskId, "Done");
+  assert.deepEqual((await progress()).partial, { progressPercent: 67, totalTasks: 3, completedTasks: 2 }); // 66.7 -> 67
+  assert.equal(await detail(partial), 67);
+  assert.deepEqual((await progress()).empty, { progressPercent: 0, totalTasks: 0, completedTasks: 0 }); // still 0
 });

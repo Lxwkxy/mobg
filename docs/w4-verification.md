@@ -58,6 +58,19 @@ On success the user is removed from the project and from every task of it in one
 transaction; they get `404` on that project at once, and its tasks leave their My Tasks and Dashboard.
 After a `SOLE_ASSIGNEE` 409 the UI should show the listed tasks so the Owner can reassign them first.
 
+How authorization works (PR #25 review fixes, 2026-11-14):
+
+- `GET`, `POST` and `DELETE` members share one router and one middleware chain (`requireAuth` +
+  membership lookup), mounted before `/api/projects`, so each request checks the session once.
+  `requireAuth` is also idempotent, so nested routers never repeat the lookup. `GET` is open to Owner
+  and Member; `POST`/`DELETE` reject a Member with `403` before touching the database.
+- The service then takes the project lock and rechecks the caller (`actorUserId` from the session) in
+  the same transaction as the write: not in the project → `404`, no longer Owner → `403`. A caller who
+  loses Owner or leaves while waiting for the lock writes nothing. `ALREADY_MEMBER`, `LAST_OWNER` and
+  `SOLE_ASSIGNEE` behave as before.
+- The `201` member (name, email, role, joinDate) is read and mapped inside the add transaction before
+  COMMIT; if that fails the insert rolls back. There is no second read after the insert.
+
 ### 3. Dashboard — `GET /api/dashboard?limit=5`
 
 ```json
@@ -77,12 +90,30 @@ After a `SOLE_ASSIGNEE` 409 the UI should show the listed tasks so the Owner can
 - `highPriorityTasks`: priority 1, not Done, ordered by `dueDate` then `taskId`; `limit` 1–100, default 5.
 - No projects → all zeros and `highPriorityTasks: []`. `?limit=0`, `?limit=101`, `?limit=abc`, `?userId=…` → `400`.
 
+### 4. Dashboard page wiring for Bar — which endpoint feeds what
+
+The Dashboard page needs two calls. `GET /api/dashboard` does **not** return per-project progress.
+
+| Dashboard part | Endpoint | Fields |
+|---|---|---|
+| Summary numbers (projects, tasks, To do / In progress / Done, overdue, high priority) | `GET /api/dashboard` | `summary.projectCount`, `summary.taskCount`, `summary.statusCounts.{todo,inProgress,done}`, `summary.overdueCount`, `summary.highPriorityCount` |
+| Important tasks list | `GET /api/dashboard?limit=5` | `highPriorityTasks[]` (same task object as My Tasks) |
+| Progress per project (cards / bars) | `GET /api/projects` (paginated, `pageSize` max 50) | `projects[].progressPercent`, plus `totalTasks`, `completedTasks`, `derivedStatus` |
+
+- `progressPercent = ROUND(100 × completedTasks / totalTasks)`, where completed means status `Done`
+  (`In progress` does not count). Rounding is half away from zero: 1 of 3 → `33`, 2 of 3 → `67`.
+- A project with no tasks has `progressPercent: 0` (no division by zero), `totalTasks: 0`.
+- The value is an integer 0–100 computed by the API; the UI should display it as-is, not recompute it.
+- `GET /api/projects/:projectId` returns the same `progressPercent` for one project.
+- After changing a task status, re-fetch both endpoints; neither pushes updates.
+
 ## Where the code lives
 
 | Path | Purpose |
 |---|---|
 | backend/src/routes/myTasks.ts | `GET /api/tasks/mine`, mounted at `/api/tasks` |
-| backend/src/routes/members.ts | `POST` / `DELETE` members (list stays in routes/projects.ts) |
+| backend/src/routes/members.ts | `GET` / `POST` / `DELETE` members under one middleware chain |
+| backend/src/services/projectDb.ts | `addProjectMember` / `removeProjectMember`: Owner recheck under the project lock, 201 member prepared before COMMIT |
 | backend/src/routes/dashboard.ts | `GET /api/dashboard` |
 | backend/src/mappers/dashboard.ts | `DashboardSummaryRow` → `DashboardSummary` |
 | backend/src/validation.ts | `taskListQuerySchema` (status only), `dashboardQuerySchema` (`limit`), `addMemberSchema` |
@@ -99,6 +130,17 @@ safe 500 with rollback); My Tasks (rejected keys, empty list, several projects, 
 filter, removed membership, unknown role); Dashboard (rejected/invalid query, zeros, counts
 across statuses/overdue/high priority/multi-assignee, membership change, important-task list
 order, limit, Done excluded, member scope, removal).
+
+Added for the PR #25 review (2026-11-14):
+
+- w4Routes: a caller who is demoted or removed while its `POST`/`DELETE` waits for the project lock
+  gets `403`/`404` and the member list is unchanged (4 cases, lock held from the test, wait confirmed in
+  `pg_stat_activity`); `GET /api/projects` `progressPercent` for an empty project (`0`) and a partly done
+  one (0 → 33 → 67, `In progress` not counted), also via `GET /api/projects/:projectId`.
+- w4Db: actor checks for outsider / Member / unknown role / unknown project; demote or remove the actor
+  while add/remove waits for the lock (writes nothing); a throwing `prepare` rolls the insert back and
+  the same user can be added afterwards.
+- guards.test.ts: `requireAuth` running twice on one request looks the session up once.
 
 ## Observed results
 

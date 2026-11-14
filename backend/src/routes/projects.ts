@@ -1,14 +1,12 @@
 import { Router, type Request, type Response } from "express";
-import type {
-  MembersResponse, MessageResponse, ProjectResponse, ProjectsResponse,
-} from "../contracts/api.js";
+import type { MessageResponse, ProjectResponse, ProjectsResponse } from "../contracts/api.js";
 import { ApiError, notFound } from "../errors.js";
 import { requireAuth, requireProjectRole } from "../guards.js";
-import { countToNumber, mapMember, mapProject } from "../mappers/project.js";
+import { countToNumber, mapProject } from "../mappers/project.js";
 import { CHECK_VIOLATION, FOREIGN_KEY_VIOLATION, pgErrorInfo } from "../pgErrors.js";
 import { domainIdToNumber } from "../services/dbHelpers.js";
 import {
-  createProjectWithMembers, deleteProject, getProjectById, listProjectMembers,
+  createProjectWithMembers, deleteProject, getProjectById,
   listProjectsForUser, updateProject, type ProjectChanges,
 } from "../services/projectDb.js";
 import {
@@ -107,12 +105,6 @@ router.patch("/:projectId", requireProjectRole("Owner"), async (req: Request, re
 router.delete("/:projectId", requireProjectRole("Owner"), async (req: Request, res: Response<MessageResponse>) => {
   if (!(await deleteProject(req.projectAccess!.projectId))) throw notFound();
   res.json({ success: true, message: "Project deleted" });
-});
-
-// GET /api/projects/:projectId/members  (Owner, Member; feeds the assignee dropdown)
-router.get("/:projectId/members", requireProjectRole("Member"), async (req: Request, res: Response<MembersResponse>) => {
-  const members = await listProjectMembers(req.projectAccess!.projectId);
-  res.json({ success: true, members: members.map(mapMember) });
 });
 
 export default router;

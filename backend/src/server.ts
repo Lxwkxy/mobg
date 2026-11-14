@@ -31,9 +31,10 @@ app.get("/api/health", (_req, res) => {
 // W2 business routes: each router applies requireAuth itself.
 app.use("/api/me", meRoutes);
 app.use("/api/users", userRoutes);
+// Members first: GET/POST/DELETE members never pass through the /api/projects router's requireAuth.
+app.use("/api/projects/:projectId/members", memberRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/projects/:projectId/tasks", taskRoutes);
-app.use("/api/projects/:projectId/members", memberRoutes);
 app.use("/api/tasks", myTaskRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/search", searchRoutes);

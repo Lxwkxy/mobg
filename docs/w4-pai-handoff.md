@@ -32,6 +32,11 @@ const members = await listProjectMembers(projectId);
 | `removeProjectMember` / `RemoveProjectMemberResult` (`projectDb.ts`) | `{removed:true}` หรือ NOT_MEMBER, LAST_OWNER, SOLE_ASSIGNEE; กรณีหลังมี tasks พร้อม task_id/task_title/status_name เรียง task_id |
 | `getDashboardSummary` / `DashboardSummaryRow` (`dashboardDb.ts`) | project_count/task_count/todo_count/in_progress_count/done_count/overdue_count/high_priority_count; COUNT เป็น decimal string รวม `"0"` |
 
+หมายเหตุ 2026-11-14 (PR #25): `addProjectMember` และ `removeProjectMember` เปลี่ยนเป็นรับ
+`{ project_id, actor_user_id, user_id }` แล้วตรวจสิทธิ์ Owner ของ actor หลังได้ project lock ใน transaction เดียวกับการเขียน
+(คืน `ACTOR_NOT_MEMBER` / `ACTOR_NOT_OWNER`); `addProjectMember` รับ `prepare(row)` และคืน `{ added: true, member }`
+ที่เตรียมก่อน COMMIT. ดูลายเซ็นปัจจุบันใน backend/API-CONTRACT.md และ docs/w4-verification.md.
+
 TaskRow BIGINT ทั้งนอกและ nested assignees คงเป็น string; assignees เรียงชื่อแล้ว ID.
 My Tasks/Dashboard/งานสำคัญรับ membership ที่ role เป็น Owner/Member เท่านั้น; unknown role ไม่ได้สิทธิ์อ่าน.
 ใช้ `mapTask` เดิมสำหรับ Task DTO. Counts ให้แปลงหลังตรวจเลขฐานสิบ, safe integer และ >=0;
