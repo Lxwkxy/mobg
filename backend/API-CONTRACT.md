@@ -7,7 +7,7 @@ The previous bcrypt/custom-session agreement from Book's PR #5 is superseded for
 authentication. This update records Pai's requested implementation direction; it
 does not claim renewed confirmation from Bar and Book. Existing confirmed business
 rules in sections 5-11 are retained. Dashboard scope and priority rules were resolved for W4 on 2026-11-08 (see section 10.9).
-As of W2-Book-01/02: /api/me, /api/users, project CRUD and the project member list are database-backed behind session guards. As of W3-Book-01/02: the project task endpoints (section 10.6, except `GET /api/tasks/mine`) are implemented behind the same guards and covered by automated HTTP tests; they have not been checked from the web UI yet. W4 DB functions for Dashboard, important tasks, My Tasks and member add/remove are implemented; their HTTP endpoints remain pending. Comments and activity remain contract-only. See docs/w2-verification.md, docs/w3-verification.md and docs/w4-pai-verification.md.
+As of W2-Book-01/02: /api/me, /api/users, project CRUD and the project member list are database-backed behind session guards. As of W3-Book-01/02: the project task endpoints (section 10.6, except `GET /api/tasks/mine`) are implemented behind the same guards and covered by automated HTTP tests; they have not been checked from the web UI yet. As of W4-Book: `GET /api/tasks/mine`, member add/remove and `GET /api/dashboard` are implemented over Pai's W4 DB functions and covered by automated HTTP tests; they have not been checked from the web UI yet. Comments and activity remain contract-only. See docs/w2-verification.md, docs/w3-verification.md, docs/w4-pai-verification.md and docs/w4-verification.md.
 
 ## 0. Running the Backend
 
@@ -333,7 +333,7 @@ For validation errors the top-level message may be generic ("Request validation 
 
 ## 10. Endpoint Contracts (business rules confirmed previously; auth revised by Pai)
 
-Status: implemented in W2: 10.3 users, 10.4 projects, GET 10.5 member list, and GET /api/me. Implemented in W3: the project task endpoints of 10.6 (not `GET /api/tasks/mine`). Remaining HTTP endpoints are contracts. W4 My Tasks, member add/remove and Dashboard DB functions are implemented; Dashboard definitions in 10.9 are resolved for this W4 task.
+Status: implemented in W2: 10.3 users, 10.4 projects, GET 10.5 member list, and GET /api/me. Implemented in W3: the project task endpoints of 10.6. Implemented in W4: `GET /api/tasks/mine`, POST/DELETE in 10.5, and 10.9 Dashboard (definitions resolved for this W4 task). Comments and activity HTTP endpoints remain contracts.
 
 **Conventions**
 - Base path `/api`. Requests and responses are JSON.
@@ -367,7 +367,7 @@ Status: implemented in W2: 10.3 users, 10.4 projects, GET 10.5 member list, and 
 | POST | `/api/projects/:projectId/tasks/:taskId/comments` | Owner, Member | Add a comment | `findProjectMembership`, `getTaskById`, `createComment` |
 | GET | `/api/projects/:projectId/activity` | Owner, Member | Project activity feed | `findProjectMembership`, `listActivityByProject` |
 | GET | `/api/projects/:projectId/tasks/:taskId/activity` | Owner, Member | Task activity feed | `findProjectMembership`, `getTaskById`, `listActivityByTask` |
-| GET | `/api/dashboard` | Logged in | Dashboard counts | `getDashboardSummary` |
+| GET | `/api/dashboard` | Logged in | Dashboard counts and important tasks | `getDashboardSummary`, `listHighPriorityTasks` |
 
 ### 10.2 Auth
 
@@ -479,8 +479,9 @@ Member object: `{ "userId": 2, "userName": "Somchai", "email": "somchai@mobg.loc
 
 - Unknown user → `400 VALIDATION_ERROR`. Already a member → `409 CONFLICT` (`reason: ALREADY_MEMBER`).
 - This version has no endpoint to change a member's role.
+- POST and DELETE recheck the caller's role after taking the project lock, in the same transaction as the write: a caller who left the project meanwhile → `404`, who is no longer Owner → `403`; nothing is written. The `201` member is built inside that transaction (a failure rolls the insert back).
 
-`DELETE /api/projects/:projectId/members/:userId` (Owner only) → `200` `{ "success": true, "message": "Member removed" }`. Rules and `409` responses are in section 8.
+`DELETE /api/projects/:projectId/members/:userId` (Owner only) → `200` `{ "success": true, "message": "Member removed" }`. Rules and `409` responses are in section 8. A user who is not a member of this project → `404 NOT_FOUND`. After removal the user immediately gets `404` on every endpoint of that project and the project's tasks leave their My Tasks and Dashboard.
 
 ### 10.6 Tasks
 
@@ -549,6 +550,8 @@ Task object:
 
 `GET /api/tasks/mine?status=Done` → `200` `{ "success": true, "tasks": [ ... ] }`
 - Tasks assigned to the current user across all projects. Same task object (includes `projectId` and `projectName`). Order: `dueDate` ascending, then `taskId`.
+- The user is always the session user. Only a task the user is assigned to **and** whose project the user is still an `Owner`/`Member` of is returned; each task appears once.
+- Query: only optional `status` (`To do` / `In progress` / `Done`). No query → every such task. Any other key (`userId`, `projectId`, `q`, `priority`, `page`, …), an unknown status, or a repeated `status` → `400 VALIDATION_ERROR`. No match or no assigned tasks → `200` with `tasks: []`.
 
 ### 10.7 Comments
 
@@ -595,7 +598,7 @@ Activity object:
 
 ### 10.9 Dashboard
 
-`GET /api/dashboard` → `200`
+`GET /api/dashboard?limit=5` → `200`
 
 ```json
 {
@@ -606,14 +609,19 @@ Activity object:
     "statusCounts": { "todo": 10, "inProgress": 6, "done": 9 },
     "overdueCount": 2,
     "highPriorityCount": 5
-  }
+  },
+  "highPriorityTasks": [ { "...": "task object (section 10.6)" } ]
 }
 ```
+
+- Query: only optional `limit` (integer 1–100, default `5`) for the length of `highPriorityTasks`; it does not change `summary`. Any other key (such as `userId`), a non-integer or out-of-range `limit`, or a repeated `limit` → `400 VALIDATION_ERROR`.
+- A user with no projects gets every count `0` and `highPriorityTasks: []`.
+- `summary` and `highPriorityTasks` are read by two queries, not one snapshot; they can differ only if data changes between them.
 
 - Scope: projects the current user belongs to. Each distinct task is counted once.
 - **[W4 decision, 2026-11-08]** The user delegated the scope choice: all tasks in projects where the user is currently a member. This matches `projectCount` and project progress; My Tasks separately scopes by assignment. This records the current task decision, not a new confirmation from Book/Bar.
 - The user confirmed `highPriorityCount` and the important-task list use `priority = 1` and status not `Done`. The list orders `due_date`, then `task_id`, ascending; default limit 5, allowed integer range 1–100.
-- DB implementations: `getDashboardSummary(user_id)` in `services/dashboardDb.ts`, `listHighPriorityTasks(user_id, limit = 5)` in `services/taskDb.ts`. Both use current membership scope, without assignee joins multiplying task counts. HTTP endpoint/list envelope and UI integration remain Book/Bar work.
+- DB implementations: `getDashboardSummary(user_id)` in `services/dashboardDb.ts`, `listHighPriorityTasks(user_id, limit = 5)` in `services/taskDb.ts`. Both use current membership scope, without assignee joins multiplying task counts. HTTP endpoint implemented in W4-Book (see docs/w4-verification.md); UI integration remains Bar work.
 
 ### 10.10 Topbar search
 
@@ -663,8 +671,8 @@ Owner of these functions: Pai. Called by the backend.
 | Function | Input | Output |
 |---|---|---|
 | `listProjectMembers(project_id)` | project id | `[{ user_id, user_name, email, role, date_join }]`, `Owner` first, then `user_name`, `user_id` |
-| `addProjectMember(project_id, user_id)` | ids | `{ project_id, user_id, role: 'Member', date_join }`. Duplicate or unknown user throws a key error. |
-| `removeProjectMember(project_id, user_id)` | ids | `{ removed: true }` or `{ removed: false, reason }` where `reason` is `NOT_MEMBER`, `LAST_OWNER`, or `SOLE_ASSIGNEE` (the last one also returns `tasks: [{ task_id, task_title, status_name }]`). The sole-assignee check covers tasks in every status including `Done`. On success it removes the user from the project's `task_assignees` rows and from `project_members` in one transaction. |
+| `addProjectMember({ project_id, actor_user_id, user_id }, prepare)` | ids; `prepare(row)` maps `{ user_id, user_name, email, role, date_join }` | Locks the project, then requires `actor_user_id` to be an Owner in the same transaction: `{ added: false, reason: 'ACTOR_NOT_MEMBER' \| 'ACTOR_NOT_OWNER' }`. Otherwise inserts a `Member` and returns `{ added: true, member: prepare(row) }`, computed before COMMIT (a throwing `prepare` rolls back). Duplicate or unknown user throws a key error. |
+| `removeProjectMember({ project_id, actor_user_id, user_id })` | ids | Same actor check under the project lock (`ACTOR_NOT_MEMBER`, `ACTOR_NOT_OWNER`). Then `{ removed: true }` or `{ removed: false, reason }` where `reason` is `NOT_MEMBER`, `LAST_OWNER`, or `SOLE_ASSIGNEE` (the last one also returns `tasks: [{ task_id, task_title, status_name }]`). The sole-assignee check covers tasks in every status including `Done`. On success it removes the user from the project's `task_assignees` rows and from `project_members` in one transaction. |
 
 ### 11.3 Tasks
 
@@ -686,14 +694,14 @@ Backend validates membership and minimum assignees first. W4 create/update also 
 | `getTaskById(project_id, task_id)` | ids | `task`, or `null` if the task does not exist **in that project** |
 | `listTasksForAssignee({ user_id, status_name })` | as above | `[task]` ordered by `due_date`, `task_id` |
 | `listHighPriorityTasks(user_id, limit = 5)` | linked session MobG ID; limit integer 1–100 | `[task]` in current member projects, priority 1, excluding Done; ordered by `due_date`, `task_id`, then limited |
-| `createTask({ project_id, task_title, task_description, priority, due_date, created_by, assignee_ids })` | `assignee_ids`: array of ids | `{ task_id }`. Resolves the `To Do` `status_id` by name; inserts the task and its assignees in one transaction. The backend validates membership and the minimum of one assignee first (section 6). |
-| `updateTask(task_id, changes)` | `changes`: any of `task_title`, `task_description`, `priority`, `due_date`, `status_name`, `assignee_ids` | `true` if the task exists, else `false`. `status_name` is resolved to `status_id` by name. `assignee_ids` replaces the whole set in the same transaction. |
+| `createTask({ project_id, task_title, task_description, priority, due_date, created_by, assignee_ids })` | `assignee_ids`: array of ids | `{ task_id }`. Resolves the `To Do` `status_id` by name; inserts the task and its assignees in one transaction. The backend validates membership and the minimum of one assignee first (section 6). After taking the project lock, `created_by` must still be Owner/Member in the same transaction; otherwise it throws `TaskCreatorNotMemberError`, nothing is written, and POST answers `404`. |
+| `updateTask(task_id, changes, actor?)` | `changes`: any of `task_title`, `task_description`, `priority`, `due_date`, `status_name`, `assignee_ids`; optional `actor: { project_id, user_id }` | `true` if the task exists, else `false`. With `actor` (the PATCH route always passes it), after taking the project lock the task must belong to `actor.project_id` and the caller must still be Owner/Member, in the same transaction as the write; otherwise `false` and nothing changes (PATCH → `404`). `status_name` is resolved to `status_id` by name. `assignee_ids` replaces the whole set in the same transaction. |
 | `deleteTask(task_id)` | task id | `true` if deleted, else `false`. Removes `task_assignees` rows and the task; comments are removed by `ON DELETE CASCADE`. |
 
 `is_overdue` = `due_date` is before today in `Asia/Bangkok` and `status_name` is not `Done`.
 
-My Tasks requires both assignment and current project membership with role Owner or Member; unknown roles grant no access. Dashboard counts and important tasks use the same role whitelist. The W4 user confirmed status-only filtering; no search/priority/project query fields or pagination are added to the public interface. Existing mock UI controls are not API capabilities.
-Member add/remove implementations live in `projectDb.ts`; rejection task lists are ordered by `task_id` ascending. Their HTTP routes remain pending.
+My Tasks requires both assignment and current project membership with role Owner or Member; unknown roles grant no access. Dashboard counts and important tasks use the same role whitelist. The W4 user confirmed status-only filtering, and on 2026-11-14 kept the single `status` filter for this release; keyword search and priority filters are deferred. No search/priority/project query fields or pagination are added to the public interface. Existing mock UI controls are not API capabilities.
+Member add/remove implementations live in `projectDb.ts`; rejection task lists are ordered by `task_id` ascending. HTTP routes implemented in W4-Book.
 
 ### 11.4 Comments, activity, dashboard
 
@@ -718,5 +726,5 @@ Member add/remove implementations live in `projectDb.ts`; rejection task lists a
    | `GET /api/me`, `GET /api/users` | Implemented, session-guarded |
    | `GET /api/projects`, `POST /api/projects`, `GET/PATCH/DELETE /api/projects/:projectId`, `GET /api/projects/:projectId/members` | Implemented, database-backed, Owner/Member guards; manual curl checks only |
    | Project task endpoints in section 10.6 (`GET` list/detail, `POST`, `PATCH`, `DELETE` under `/api/projects/:projectId/tasks`) | Implemented, database-backed, Owner/Member guards; covered by automated HTTP tests (docs/w3-verification.md). Web UI flow not verified yet |
-   | `GET /api/tasks/mine` | Contract defined; no endpoint implementation yet (W4) |
-   | All other endpoints in section 10 (member add/remove, comments, activity, dashboard) | Contract defined; no endpoint implementation yet |
+   | `GET /api/tasks/mine`, `POST/DELETE /api/projects/:projectId/members`, `GET /api/dashboard` | Implemented (W4), database-backed, session guards; covered by automated HTTP tests (docs/w4-verification.md). Web UI flow not verified yet |
+   | All other endpoints in section 10 (comments, activity) | Contract defined; no endpoint implementation yet |

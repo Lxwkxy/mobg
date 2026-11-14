@@ -10,8 +10,13 @@ import meRoutes from "./routes/me.js";
 import projectRoutes from "./routes/projects.js";
 import searchRoutes from "./routes/search.js";
 import taskRoutes from "./routes/tasks.js";
+import memberRoutes from "./routes/members.js";
+import myTaskRoutes from "./routes/myTasks.js";
+import dashboardRoutes from "./routes/dashboard.js";
 import userRoutes from "./routes/users.js";
 import { RequestValidationError } from "./validation.js";
+
+
 
 const app = express();
 app.use(cors({ origin: webOrigin, credentials: true }));
@@ -26,8 +31,12 @@ app.get("/api/health", (_req, res) => {
 // W2 business routes: each router applies requireAuth itself.
 app.use("/api/me", meRoutes);
 app.use("/api/users", userRoutes);
+// Members first: GET/POST/DELETE members never pass through the /api/projects router's requireAuth.
+app.use("/api/projects/:projectId/members", memberRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/projects/:projectId/tasks", taskRoutes);
+app.use("/api/tasks", myTaskRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api", (_req, res) => {
   res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Endpoint not found" } });

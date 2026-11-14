@@ -5,6 +5,7 @@ import { pool } from "../src/db.js";
 import * as projects from "../src/services/projectDb.js";
 import * as tasks from "../src/services/taskDb.js";
 import { getDashboardSummary } from "../src/services/dashboardDb.js";
+import { withProjectLockHeld } from "./helpers/projectLock.js";
 
 before(async () => {
   const expected = process.env.POSTGRES_DB ?? "";
@@ -42,18 +43,19 @@ test("Dashboard counts each task once in current member projects, using Bangkok 
   await assert.rejects(getDashboardSummary(Number.MAX_SAFE_INTEGER + 1), TypeError);
 });
 
-test("adding a member returns the contract row and propagates duplicate and foreign key errors", async () => {
+test("adding a member returns the full member row and propagates duplicate and foreign key errors", async () => {
   const f = await fixture();
-  const added = await projects.addProjectMember(f.project, f.outsider);
-  assert.deepEqual({ ...added, date_join: "date" }, {
-    project_id: String(f.project), user_id: String(f.outsider), role: "Member", date_join: "date",
+  const added = await addMember(f.project, f.owner, f.outsider);
+  assert.ok(added.added);
+  assert.deepEqual({ ...added.member, date_join: "date" }, {
+    user_id: String(f.outsider), user_name: "Outsider", email: `w4-${sequence}-3@w4.example.test`, role: "Member", date_join: "date",
   });
-  assert.match(added.date_join, /^\d{4}-\d{2}-\d{2}$/);
+  assert.match(added.member.date_join, /^\d{4}-\d{2}-\d{2}$/);
   assert.equal((await projects.listProjectMembers(f.project)).length, 4);
-  await assert.rejects(projects.addProjectMember(f.project, f.outsider), { code: "23505" });
-  await assert.rejects(projects.addProjectMember(f.project, 999999), { code: "23503" });
-  await assert.rejects(projects.addProjectMember(999999, f.first), { code: "23503" });
-  await assert.rejects(projects.addProjectMember(0, f.first), TypeError);
+  await assert.rejects(addMember(f.project, f.owner, f.outsider), { code: "23505" });
+  await assert.rejects(addMember(f.project, f.owner, 999999), { code: "23503" });
+  await assert.rejects(addMember(0, f.owner, f.first), TypeError);
+  await assert.rejects(addMember(f.project, 0, f.first), TypeError);
 });
 
 test("important tasks share Dashboard scope, exclude Done, and apply stable order before limit", async () => {
@@ -88,16 +90,124 @@ test("unknown membership roles grant no My Tasks or Dashboard access", async () 
 
 let sequence = 0;
 
+// Actor-scoped wrappers; `row => row` keeps the raw row as the prepared member.
+const addMember = (project: number, actor: number, user: number) =>
+  projects.addProjectMember({ project_id: project, actor_user_id: actor, user_id: user }, (row) => row);
+const removeMember = (project: number, actor: number, user: number) =>
+  projects.removeProjectMember({ project_id: project, actor_user_id: actor, user_id: user });
+const memberIds = async (project: number) => (await projects.listProjectMembers(project)).map(m => m.user_id).sort();
+
+test("member writes authorize the actor under the project lock: outsider 404-class, Member/unknown role 403-class", async () => {
+  const f = await fixture();
+  const before = await memberIds(f.project);
+  assert.deepEqual(await addMember(f.project, f.outsider, f.outsider), { added: false, reason: "ACTOR_NOT_MEMBER" });
+  assert.deepEqual(await addMember(f.project, f.first, f.outsider), { added: false, reason: "ACTOR_NOT_OWNER" });
+  assert.deepEqual(await addMember(999999, f.owner, f.outsider), { added: false, reason: "ACTOR_NOT_MEMBER" });
+  assert.deepEqual(await removeMember(f.project, f.outsider, f.second), { removed: false, reason: "ACTOR_NOT_MEMBER" });
+  assert.deepEqual(await removeMember(f.project, f.first, f.second), { removed: false, reason: "ACTOR_NOT_OWNER" });
+  assert.deepEqual(await removeMember(999999, f.owner, f.first), { removed: false, reason: "ACTOR_NOT_MEMBER" });
+  await pool.query("UPDATE project_members SET role = 'Unknown' WHERE project_id = $1 AND user_id = $2", [f.project, f.first]);
+  assert.deepEqual(await addMember(f.project, f.first, f.outsider), { added: false, reason: "ACTOR_NOT_OWNER" });
+  assert.deepEqual(await removeMember(f.project, f.first, f.second), { removed: false, reason: "ACTOR_NOT_OWNER" });
+  assert.deepEqual(await memberIds(f.project), before);
+});
+
+test("an actor demoted or removed while waiting for the project lock writes nothing", async () => {
+  for (const change of ["demote", "remove"] as const) {
+    for (const action of ["add", "remove"] as const) {
+      const f = await fixture();
+      await pool.query("UPDATE project_members SET role = 'Owner' WHERE project_id = $1 AND user_id = $2", [f.project, f.first]);
+      const before = await memberIds(f.project);
+      const result = await withProjectLockHeld<unknown>(f.project,
+        () => action === "add" ? addMember(f.project, f.first, f.outsider) : removeMember(f.project, f.first, f.second),
+        async (gate) => {
+          await gate.query(change === "demote"
+            ? "UPDATE project_members SET role = 'Member' WHERE project_id = $1 AND user_id = $2"
+            : "DELETE FROM project_members WHERE project_id = $1 AND user_id = $2", [f.project, f.first]);
+        });
+      const reason = change === "demote" ? "ACTOR_NOT_OWNER" : "ACTOR_NOT_MEMBER";
+      assert.deepEqual(result, action === "add" ? { added: false, reason } : { removed: false, reason }, `${change} ${action}`);
+      const expected = change === "demote" ? before : before.filter(id => id !== String(f.first));
+      assert.deepEqual(await memberIds(f.project), expected, `${change} ${action}`);
+    }
+  }
+});
+
+test("updateTask with an actor rechecks membership under the project lock and leaves the task untouched otherwise", async () => {
+  const f = await fixture();
+  const other = await fixture();
+  const id = await task(f, [f.owner]);
+  const original = await tasks.getTaskById(f.project, id);
+  const change = { task_title: "Must not land", status_name: "Done" as const, assignee_ids: [f.second] };
+  assert.equal(await tasks.updateTask(id, change, { project_id: f.project, user_id: f.outsider }), false);
+  assert.equal(await tasks.updateTask(id, change, { project_id: other.project, user_id: other.owner }), false); // wrong project
+  await pool.query("UPDATE project_members SET role = 'Unknown' WHERE project_id = $1 AND user_id = $2", [f.project, f.second]);
+  assert.equal(await tasks.updateTask(id, change, { project_id: f.project, user_id: f.second }), false);
+  assert.deepEqual(await tasks.getTaskById(f.project, id), original);
+
+  // Removed while waiting for the lock: false, nothing written.
+  const result = await withProjectLockHeld(f.project,
+    () => tasks.updateTask(id, { task_title: "Must not land", priority: 3 }, { project_id: f.project, user_id: f.first }),
+    async (gate) => {
+      await gate.query("DELETE FROM project_members WHERE project_id = $1 AND user_id = $2", [f.project, f.first]);
+    });
+  assert.equal(result, false);
+  assert.deepEqual(await tasks.getTaskById(f.project, id), original);
+
+  // A current member still updates.
+  assert.equal(await tasks.updateTask(id, { task_title: "Owner edit" }, { project_id: f.project, user_id: f.owner }), true);
+  assert.equal((await tasks.getTaskById(f.project, id))?.task_title, "Owner edit");
+});
+
+test("the lock helper rolls back, frees the lock and lets the waiting operation finish when a test fails before COMMIT", async () => {
+  const f = await fixture();
+  let finished = false;
+  await assert.rejects(withProjectLockHeld(f.project,
+    () => addMember(f.project, f.owner, f.outsider).finally(() => { finished = true; }),
+    async (gate) => {
+      await gate.query("DELETE FROM project_members WHERE project_id = $1 AND user_id = $2", [f.project, f.first]);
+      throw new Error("simulated assertion failure");
+    }), /simulated assertion failure/);
+  assert.equal(finished, true); // the blocked add completed before the error surfaced
+  assert.ok(await projects.findProjectMembership(f.project, f.first)); // the gate's delete was rolled back
+  assert.ok(await projects.findProjectMembership(f.project, f.outsider)); // the waiting add ran after the lock was freed
+  const client = await pool.connect();
+  let broken = false;
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT 1 FROM projects WHERE project_id = $1 FOR UPDATE NOWAIT", [f.project]); // lock is free
+  } finally {
+    // ROLLBACK even when NOWAIT failed (the transaction is then aborted); destroy the connection if that fails too.
+    try { await client.query("ROLLBACK"); } catch { broken = true; }
+    client.release(broken);
+  }
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND state LIKE 'idle in transaction%'")).rows[0].n, 0);
+});
+
+test("adding a member prepares the response inside the transaction; a failed prepare leaves no member", async () => {
+  const f = await fixture();
+  const before = await memberIds(f.project);
+  await assert.rejects(projects.addProjectMember({ project_id: f.project, actor_user_id: f.owner, user_id: f.outsider },
+    () => { throw new Error("prepare failed"); }), /prepare failed/);
+  assert.deepEqual(await memberIds(f.project), before);
+  assert.equal(await projects.findProjectMembership(f.project, f.outsider), null);
+  // The same user can still be added afterwards: nothing from the failed attempt remained.
+  const seen: string[] = [];
+  const added = await projects.addProjectMember({ project_id: f.project, actor_user_id: f.owner, user_id: f.outsider },
+    (row) => { seen.push(row.user_id); return { id: row.user_id, role: row.role }; });
+  assert.deepEqual(added, { added: true, member: { id: String(f.outsider), role: "Member" } });
+  assert.deepEqual(seen, [String(f.outsider)]);
+});
+
 test("removal rejects absent membership, last Owner and sole assignees including Done without partial writes", async () => {
   const f = await fixture();
-  assert.deepEqual(await projects.removeProjectMember(f.project, f.outsider), { removed: false, reason: "NOT_MEMBER" });
-  assert.deepEqual(await projects.removeProjectMember(999999, f.first), { removed: false, reason: "NOT_MEMBER" });
-  assert.deepEqual(await projects.removeProjectMember(f.project, f.owner), { removed: false, reason: "LAST_OWNER" });
+  assert.deepEqual(await removeMember(f.project, f.owner, f.outsider), { removed: false, reason: "NOT_MEMBER" });
+  assert.deepEqual(await removeMember(f.project, f.owner, f.owner), { removed: false, reason: "LAST_OWNER" });
   const ids = [];
   for (const status of ["Done", "To Do", "Doing"] as const) ids.push(await task(f, [f.first], status));
   const shared = await task(f, [f.first, f.second]);
   const before = await tasks.listTasksByProject({ project_id: f.project, status_name: null });
-  assert.deepEqual(await projects.removeProjectMember(f.project, f.first), { removed: false, reason: "SOLE_ASSIGNEE",
+  assert.deepEqual(await removeMember(f.project, f.owner, f.first), { removed: false, reason: "SOLE_ASSIGNEE",
     tasks: ids.map((id, index) => ({ task_id: String(id), task_title: "W4 task", status_name: ["Done", "To Do", "Doing"][index] })) });
   assert.deepEqual(await tasks.listTasksByProject({ project_id: f.project, status_name: null }), before);
   assert.equal((await tasks.getTaskById(f.project, shared))?.assignees.length, 2);
@@ -126,7 +236,7 @@ async function task(f: Awaited<ReturnType<typeof fixture>>, assignees: number[],
 test("successful member removal keeps co-assigned tasks and other projects; failures roll back all tables", async () => {
   const f = await fixture();
   const other = await fixture();
-  await projects.addProjectMember(other.project, f.first);
+  await addMember(other.project, other.owner, f.first);
   const kept = await task(other, [f.first]);
   const ids = [await task(f, [f.first, f.second]), await task(f, [f.owner, f.first], "Done")];
   const before = await tasks.listTasksByProject({ project_id: f.project, status_name: null });
@@ -135,13 +245,13 @@ test("successful member removal keeps co-assigned tasks and other projects; fail
     CREATE TRIGGER w4_fail_member_delete BEFORE DELETE ON project_members
     FOR EACH ROW EXECUTE FUNCTION w4_fail_member_delete()`);
   try {
-    await assert.rejects(projects.removeProjectMember(f.project, f.first), { code: "P0001" });
+    await assert.rejects(removeMember(f.project, f.owner, f.first), { code: "P0001" });
     assert.deepEqual(await tasks.listTasksByProject({ project_id: f.project, status_name: null }), before);
     assert.ok(await projects.findProjectMembership(f.project, f.first));
   } finally {
     await pool.query("DROP TRIGGER w4_fail_member_delete ON project_members; DROP FUNCTION w4_fail_member_delete()");
   }
-  assert.deepEqual(await projects.removeProjectMember(f.project, f.first), { removed: true });
+  assert.deepEqual(await removeMember(f.project, f.owner, f.first), { removed: true });
   assert.equal(await projects.findProjectMembership(f.project, f.first), null);
   assert.deepEqual((await tasks.getTaskById(f.project, ids[0]!))?.assignees.map(a => a.user_id), [String(f.second)]);
   assert.deepEqual((await tasks.getTaskById(f.project, ids[1]!))?.assignees.map(a => a.user_id), [String(f.owner)]);
@@ -152,13 +262,13 @@ test("successful member removal keeps co-assigned tasks and other projects; fail
 test("concurrent removals preserve a last Owner and at least one assignee", async () => {
   const f = await fixture();
   const id = await task(f, [f.first, f.second], "Done");
-  const results = await Promise.all([projects.removeProjectMember(f.project, f.first), projects.removeProjectMember(f.project, f.second)]);
+  const results = await Promise.all([removeMember(f.project, f.owner, f.first), removeMember(f.project, f.owner, f.second)]);
   assert.equal(results.filter(r => r.removed).length, 1);
   assert.equal(results.filter(r => !r.removed && r.reason === "SOLE_ASSIGNEE").length, 1);
   assert.equal((await tasks.getTaskById(f.project, id))?.assignees.length, 1);
   const owners = await fixture();
   await pool.query("UPDATE project_members SET role = 'Owner' WHERE project_id = $1", [owners.project]);
-  const removed = await Promise.all([owners.owner, owners.first, owners.second].map(user => projects.removeProjectMember(owners.project, user)));
+  const removed = await Promise.all([owners.owner, owners.first, owners.second].map(user => removeMember(owners.project, user, user)));
   assert.equal(removed.filter(r => r.removed).length, 2);
   assert.equal(removed.filter(r => !r.removed && r.reason === "LAST_OWNER").length, 1);
   assert.equal((await projects.listProjectMembers(owners.project)).filter(m => m.role === "Owner").length, 1);
@@ -197,7 +307,7 @@ test("assignment replacement waits for member removal and rechecks membership be
     BEGIN PERFORM pg_advisory_xact_lock(74001); RETURN OLD; END $$;
     CREATE TRIGGER w4_pause_removal BEFORE DELETE ON project_members
     FOR EACH ROW EXECUTE FUNCTION w4_pause_removal()`);
-  const removal = projects.removeProjectMember(f.project, f.first);
+  const removal = removeMember(f.project, f.owner, f.first);
   let replacement: Promise<PromiseSettledResult<boolean>[]> | undefined;
   try {
     await waitFor(async () => (await pool.query(`SELECT 1 FROM pg_stat_activity
@@ -208,8 +318,11 @@ test("assignment replacement waits for member removal and rechecks membership be
     await waitFor(async () => settled || (await pool.query(`SELECT 1 FROM pg_stat_activity
       WHERE datname = current_database() AND wait_event_type = 'Lock' AND wait_event <> 'advisory'`)).rowCount! > 0);
   } finally {
-    await gate.query("SELECT pg_advisory_unlock(74001)");
-    gate.release();
+    // Free the advisory lock before returning the connection; if that fails, destroy the connection
+    // (which ends its session and its locks) instead of pooling a locked one.
+    let broken = false;
+    try { await gate.query("SELECT pg_advisory_unlock(74001)"); } catch { broken = true; }
+    gate.release(broken);
     await removal;
     if (replacement) await replacement;
     await pool.query("DROP TRIGGER w4_pause_removal ON project_members; DROP FUNCTION w4_pause_removal()");
@@ -225,7 +338,7 @@ test("concurrent create and removal either retain the sole assignee member or re
   for (let i = 0; i < 8; i++) {
     const f = await fixture();
     const [created, removed] = await Promise.allSettled([
-      task(f, [f.first]), projects.removeProjectMember(f.project, f.first),
+      task(f, [f.first]), removeMember(f.project, f.owner, f.first),
     ]);
     assert.equal(removed.status, "fulfilled");
     if (created.status === "fulfilled") {
@@ -245,8 +358,8 @@ test("concurrent add, remove and task replacement preserve membership and assign
   const f = await fixture();
   const id = await task(f, [f.owner]);
   const outcomes = await Promise.allSettled(Array.from({ length: 18 }, (_, index) => {
-    if (index % 3 === 0) return projects.addProjectMember(f.project, f.first);
-    if (index % 3 === 1) return projects.removeProjectMember(f.project, f.first);
+    if (index % 3 === 0) return addMember(f.project, f.owner, f.first);
+    if (index % 3 === 1) return removeMember(f.project, f.owner, f.first);
     return tasks.updateTask(id, { assignee_ids: index % 2 ? [f.first] : [f.owner, f.first] });
   }));
   for (const outcome of outcomes) {

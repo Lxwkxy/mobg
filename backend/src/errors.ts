@@ -19,3 +19,5 @@ export const forbidden = (message = "You do not have permission to perform this 
   new ApiError(403, "FORBIDDEN", message);
 export const notFound = (message = "Project not found") =>
   new ApiError(404, "NOT_FOUND", message);
+export const conflict = (message: string, details?: ErrorDetail[]) =>
+  new ApiError(409, "CONFLICT", message, details);

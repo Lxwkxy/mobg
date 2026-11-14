@@ -130,5 +130,5 @@ export type TaskResponse = ApiResponse<{ task: Task }>;
 export type CommentsResponse = ApiResponse<{ comments: TaskComment[] }>;
 export type CommentResponse = ApiResponse<{ comment: TaskComment }>;
 export type ActivitiesResponse = ApiResponse<{ activities: Activity[] }>;
-export type DashboardResponse = ApiResponse<{ summary: DashboardSummary }>;
+export type DashboardResponse = ApiResponse<{ summary: DashboardSummary; highPriorityTasks: Task[] }>;
 export type MessageResponse = ApiResponse<{ message: string }>;

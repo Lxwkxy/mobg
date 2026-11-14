@@ -148,8 +148,10 @@ test("create failures propagate database errors and roll back task plus assignme
   const before = await getTaskById(projectId, Number(kept.task_id));
   await assert.rejects(createTask({ ...input, assignee_ids: [first, 999999] }), { code: "23503" });
   await assert.rejects(createTask({ ...input, assignee_ids: [first, first] }), { code: "23505" });
-  await assert.rejects(createTask({ ...input, project_id: 999999 }), { code: "23503" });
-  await assert.rejects(createTask({ ...input, created_by: 999999 }), { code: "23503" });
+  // The creator must be a current Owner/Member under the project lock, so an unknown project or creator is
+  // rejected by that recheck before any insert.
+  await assert.rejects(createTask({ ...input, project_id: 999999 }), { name: "TaskCreatorNotMemberError" });
+  await assert.rejects(createTask({ ...input, created_by: 999999 }), { name: "TaskCreatorNotMemberError" });
   await assert.rejects(createTask({ ...input, priority: 4 as never }), { code: "23514" });
   await assert.rejects(createTask({ ...input, due_date: null as never }), { code: "23502" });
   await assert.rejects(createTask({ ...input, created_by: "better-auth-id" as never }), TypeError);

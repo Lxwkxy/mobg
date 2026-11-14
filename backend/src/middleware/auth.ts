@@ -18,16 +18,26 @@ declare global {
   }
 }
 
+type GetSession = (headers: Headers) => Promise<{ user: { id: string } } | null>;
+
 export interface GuardDeps {
   findDomainUserByAuthId: FindDomainUserByAuthId;
   findProjectMembership: FindProjectMembership;
+  getSession?: GetSession;
 }
 
-export function createGuards({ findDomainUserByAuthId, findProjectMembership }: GuardDeps) {
+const betterAuthSession: GetSession = (headers) => auth.api.getSession({ headers });
+
+export function createGuards({ findDomainUserByAuthId, findProjectMembership, getSession = betterAuthSession }: GuardDeps) {
   // 401: no/expired session. 403: valid session but no linked MobG profile.
   // Express 5 forwards rejected promises to the error handler.
+  // Idempotent: a request that already passed requireAuth (nested routers) is not looked up again.
   const requireAuth: RequestHandler = async (req: Request, _res: Response, next: NextFunction) => {
-    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
+    if (req.currentUser) {
+      next();
+      return;
+    }
+    const session = await getSession(fromNodeHeaders(req.headers));
     if (!session) throw unauthenticated();
 
     // session.user.id is a Better Auth string ID; never cast it to a number.
