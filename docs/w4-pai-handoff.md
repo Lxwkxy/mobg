@@ -39,6 +39,7 @@ const members = await listProjectMembers(projectId);
 | `addProjectMember<T>(input: ProjectMemberWriteInput, prepare: (row: ProjectMemberRow) => T)` / `AddProjectMemberResult<T>` (`projectDb.ts`) | ล็อก project แล้วตรวจว่า actor ยังเป็น Owner ใน transaction เดียวกัน: `{ added: false, reason: "ACTOR_NOT_MEMBER" \| "ACTOR_NOT_OWNER" }`. ถ้าผ่าน INSERT role Member แล้วอ่านแถวสมาชิกกลับด้วย client ของ transaction เดียวกัน (`ProjectMemberRow`: user_id เป็น string, user_name, email, role, date_join เป็น YYYY-MM-DD) ส่งให้ `prepare` ก่อน COMMIT และคืน `{ added: true, member: prepare(row) }`; ไม่มีการอ่าน `listProjectMembers()` ซ้ำหลังเพิ่ม. duplicate/FK ส่งต่อเป็น pg error |
 | `removeProjectMember(input: ProjectMemberWriteInput)` / `RemoveProjectMemberResult` (`projectDb.ts`) | ตรวจ actor ใต้ project lock แบบเดียวกัน (`ACTOR_NOT_MEMBER`, `ACTOR_NOT_OWNER`) แล้วคืน `{removed:true}` หรือ NOT_MEMBER, LAST_OWNER, SOLE_ASSIGNEE; กรณีหลังมี tasks พร้อม task_id/task_title/status_name เรียง task_id |
 | `ProjectMemberWriteInput` (`projectDb.ts`) | `{ project_id: number; actor_user_id: number; user_id: number }` ทุกค่าเป็น positive safe MobG ID |
+| `createTask(input)` / `TaskCreatorNotMemberError` (`taskDb.ts`) | หลังได้ project lock ตรวจว่า `created_by` ยังเป็น Owner/Member ใน transaction เดียวกับ INSERT; ไม่ผ่าน throw `TaskCreatorNotMemberError` และไม่มี task/assignee ถูกเขียน (POST ตอบ 404) |
 | `updateTask(taskId, changes, actor?)` (`taskDb.ts`) | ถ้าส่ง `actor: { project_id, user_id }` จะตรวจหลังได้ project lock ว่า task อยู่ในโปรเจกต์นั้นและผู้เรียกยังเป็น Owner/Member; ไม่ผ่านคืน `false` และไม่แก้อะไร (PATCH ตอบ 404) |
 | `getDashboardSummary` / `DashboardSummaryRow` (`dashboardDb.ts`) | project_count/task_count/todo_count/in_progress_count/done_count/overdue_count/high_priority_count; COUNT เป็น decimal string รวม `"0"` |
 
@@ -86,12 +87,18 @@ Lock ระดับโปรเจกต์ทำให้การเขีย
 ## สิ่งที่ Backend ยังต้องรับผิดชอบ
 
 - requireAuth, resolve auth string → MobG userId; ห้ามรับ identity จาก client.
-- Owner เท่านั้นเพิ่ม/ลบสมาชิก; guards รับเฉพาะ Owner/Member ตาม contract. DB functions ไม่รับ actor และไม่ใช่ authorization boundary.
+- Owner เท่านั้นเพิ่ม/ลบสมาชิก. guard ใน route เป็นการตรวจเบื้องต้น ส่วน `addProjectMember` / `removeProjectMember` รับ actor
+  (`actor_user_id` จาก session) และตรวจซ้ำหลังได้ project lock ใน transaction เดียวกับการเขียน (`ACTOR_NOT_MEMBER` → 404,
+  `ACTOR_NOT_OWNER` → 403). `createTask` ตรวจว่า `created_by` ยังเป็น Owner/Member หลังได้ lock (ไม่ผ่าน → `TaskCreatorNotMemberError`
+  → 404) และ `updateTask(..., actor)` ตรวจผู้แก้แบบเดียวกัน (ไม่ผ่าน → `false` → 404).
 - ตรวจ IDs, request body, status mapping, assignee distinct/nonempty/membership ก่อน write เช่นเดิม; DB recheck ปิด race ด้านความสัมพันธ์ ไม่แทน guard.
 - map NOT_MEMBER →404; LAST_OWNER/SOLE_ASSIGNEE →409 พร้อม reason/task DTO; duplicate member →409 ALREADY_MEMBER; FK ตาม contract; DB failure → generic 500.
-- Added member DB row ไม่มีชื่อ/email: re-read `listProjectMembers` หากต้องคืน `MemberResponse` เต็มตาม API.
-- My Tasks/member add-remove/Dashboard HTTP routes ยังไม่มี และไม่ถูกสร้างในงานนี้. W3 task routes เดิมมี HTTP regression จริงเพิ่มแล้ว.
-- Authorization ที่ตรวจใน guards ก่อน transaction ยังมีช่วงเวลาระหว่างตรวจสิทธิ์กับ write; งานนี้รับรอง Owner/assignee data invariants ไม่ได้อ้างว่า serialize actor authorization ทั้งระบบ.
+- ผล `201` ของการเพิ่มสมาชิกเตรียมใน service: หลัง INSERT จะอ่านแถวสมาชิก (ชื่อ, email, role, date_join) ด้วย client
+  ของ transaction เดียวกันแล้วส่งให้ `prepare` (route ใช้ `mapMember`) ก่อน COMMIT; ถ้า `prepare` ล้ม การเพิ่ม rollback.
+  ไม่ต้องและไม่ควรเรียก `listProjectMembers()` ซ้ำหลังเพิ่ม.
+- My Tasks, member add/remove และ Dashboard HTTP routes ทำแล้วใน PR #25 (ดู docs/w4-verification.md).
+- สิทธิ์ของผู้เรียกสำหรับเพิ่ม/ลบสมาชิก สร้างงาน และแก้งาน ถูกตรวจซ้ำใต้ project lock ใน transaction เดียวกับการเขียน
+  จึงไม่มีช่วงที่ผู้ถูกถอดหรือถูกลดสิทธิ์ระหว่างรอ lock เขียนข้อมูลได้. การลบงาน (Owner) ยังตรวจที่ guard อย่างเดียว.
 
 ## Responsive และ dependency
 

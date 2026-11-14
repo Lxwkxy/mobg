@@ -4,13 +4,13 @@ import { pool } from "../../src/db.js";
 
 // Holds the project row lock (as a concurrent writer would), starts `start()` so it blocks on that lock,
 // waits until PostgreSQL reports it waiting, runs `whileWaiting(gate)` inside the lock transaction, then COMMITs.
-// Returns start()'s promise; the caller awaits it after the lock is released.
+// Resolves with start()'s result once the lock is released and the operation has finished (await it once).
 //
 // Cleanup when anything fails before COMMIT: ROLLBACK first so the lock is freed (if ROLLBACK itself fails the
 // connection is destroyed instead of going back to the pool), then let the blocked operation finish (bounded)
 // before the original error surfaces, so a failing test reports its cause instead of hanging teardown.
 export async function withProjectLockHeld<T>(projectId: number, start: () => Promise<T>,
-  whileWaiting: (gate: PoolClient) => Promise<void>): Promise<Promise<T>> {
+  whileWaiting: (gate: PoolClient) => Promise<void>): Promise<T> {
   const gate = await pool.connect();
   let committed = false;
   let pending: Promise<T> | undefined;
@@ -31,7 +31,7 @@ export async function withProjectLockHeld<T>(projectId: number, start: () => Pro
     gate.release(broken); // true destroys the connection, which also ends its transaction server-side
     if (!committed && pending) await Promise.race([Promise.allSettled([pending]), delay(10000)]);
   }
-  return pending!;
+  return await pending!;
 }
 
 async function waitForLockWaiter(): Promise<void> {

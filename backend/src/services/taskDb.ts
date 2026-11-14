@@ -102,13 +102,22 @@ export async function listHighPriorityTasks(userId: number, limit = 5): Promise<
     ORDER BY t.due_date, t.task_id LIMIT $2`, [userId, limit])).rows;
 }
 
-// Book validates input/permissions first; membership and minimum count are rechecked under the project lock.
+// Thrown (and the transaction rolled back) when the creator is not a current Owner/Member after the project lock.
+export class TaskCreatorNotMemberError extends Error {
+  constructor() { super("Task creator is not a current member of the project"); this.name = "TaskCreatorNotMemberError"; }
+}
+
+// Book validates input/permissions first; the creator's membership, assignee membership and minimum count are
+// rechecked under the project lock in the same transaction as the insert.
 // created_by is the linked MobG user_id from the verified session, never an Auth string ID.
 export async function createTask(input: CreateTaskInput): Promise<{ task_id: string }> {
   assertDomainId(input.project_id); assertDomainId(input.created_by);
   input.assignee_ids.forEach(assertDomainId);
   return withTransaction(async (client) => {
     await lockProject(client, input.project_id);
+    const creator = await client.query(`SELECT 1 FROM project_members
+      WHERE project_id = $1 AND user_id = $2 AND role IN ('Owner', 'Member')`, [input.project_id, input.created_by]);
+    if (creator.rowCount === 0) throw new TaskCreatorNotMemberError();
     const result = await client.query<{ task_id: string }>(`INSERT INTO tasks
       (project_id, task_title, task_description, priority, due_date, created_by, status_id)
       VALUES ($1, $2, $3, $4, $5::date, $6,

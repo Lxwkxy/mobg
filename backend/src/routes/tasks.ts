@@ -7,7 +7,8 @@ import { FOREIGN_KEY_VIOLATION, pgErrorInfo } from "../pgErrors.js";
 import { domainIdToNumber } from "../services/dbHelpers.js";
 import { listProjectMembers } from "../services/projectDb.js";
 import {
-  createTask, deleteTask, getTaskById, InvalidTaskAssigneesError, listTasksByProject, updateTask, type TaskChanges,
+  createTask, deleteTask, getTaskById, InvalidTaskAssigneesError, listTasksByProject, TaskCreatorNotMemberError,
+  updateTask, type TaskChanges,
 } from "../services/taskDb.js";
 import {
   createTaskSchema, parseRequest, taskListQuerySchema, updateTaskSchema, urlIdSchema,
@@ -78,6 +79,8 @@ router.post("/", requireProjectRole("Member"), async (req: Request, res: Respons
     });
     taskId = domainIdToNumber(created.task_id);
   } catch (error) {
+    // Creator removed from the project while waiting for the project lock: no task was written.
+    if (error instanceof TaskCreatorNotMemberError) throw notFound();
     if (error instanceof InvalidTaskAssigneesError) throw assigneeError(error.userIds);
     // A user deleted between the membership check and the insert; the transaction rolled back.
     if (isAssigneeUserFkViolation(error)) throw assigneeError(body.assigneeIds);

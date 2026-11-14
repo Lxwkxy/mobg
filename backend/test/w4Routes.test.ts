@@ -403,7 +403,7 @@ test("member writes by a caller who loses rights while waiting for the project l
     const label = `${change} ${method}`;
     const project = await newProject("owner", [ids.coOwner, ids.member]);
     await pool.query("UPDATE project_members SET role = 'Owner' WHERE project_id = $1 AND user_id = $2", [project, ids.coOwner]);
-    const pending = await withProjectLockHeld(project,
+    const result = await withProjectLockHeld(project,
       () => method === "POST"
         ? api("coOwner", "POST", membersUrl(project), { userId: ids.newcomer })
         : api("coOwner", "DELETE", `${membersUrl(project)}/${ids.member}`),
@@ -412,7 +412,7 @@ test("member writes by a caller who loses rights while waiting for the project l
           ? "UPDATE project_members SET role = 'Member' WHERE project_id = $1 AND user_id = $2"
           : "DELETE FROM project_members WHERE project_id = $1 AND user_id = $2", [project, ids.coOwner]);
       });
-    const res = await pending;
+    const res = result;
     assert.equal(res.status, status, label);
     assert.equal(res.body.error.code, code, label);
     const expected = change === "demote" ? [ids.owner, ids.coOwner, ids.member] : [ids.owner, ids.member];
@@ -433,26 +433,56 @@ test("PATCH task by a caller removed from the project while waiting for the proj
   // Control: the same lock wait without a membership change lets the Member's PATCH through.
   const control = await newProject("owner", [ids.member]);
   const controlTask = await newTask("owner", control, [ids.owner]);
-  const allowed = await (await withProjectLockHeld(control,
-    () => api("member", "PATCH", `${tasksUrl(control)}/${controlTask.taskId}`, { taskTitle: "Edited" }), async () => {}));
+  const allowed = await withProjectLockHeld(control,
+    () => api("member", "PATCH", `${tasksUrl(control)}/${controlTask.taskId}`, { taskTitle: "Edited" }), async () => {});
   assert.equal(allowed.status, 200);
   assert.equal((await taskRow(controlTask.taskId)).task_title, "Edited");
 
   const project = await newProject("owner", [ids.member]);
   const task = await newTask("owner", project, [ids.owner], { taskTitle: "Original", taskDescription: "keep" });
   const before = await taskRow(task.taskId);
-  const pending = await withProjectLockHeld(project,
+  const result = await withProjectLockHeld(project,
     () => api("member", "PATCH", `${tasksUrl(project)}/${task.taskId}`, edit),
     async (gate) => {
       await gate.query("DELETE FROM project_members WHERE project_id = $1 AND user_id = $2", [project, ids.member]);
     });
-  const res = await pending;
+  const res = result;
   assert.equal(res.status, 404);
   assert.equal(res.body.error.code, "NOT_FOUND");
   assert.deepEqual(await taskRow(task.taskId), before);
   assert.deepEqual(before.assignees, [String(ids.owner)]);
   assert.equal(before.task_title, "Original");
   assert.equal((await api("member", "GET", `${tasksUrl(project)}/${task.taskId}`)).status, 404);
+});
+
+// POST task: the creator passes the guard as a Member, then is removed while the request waits for the project lock.
+// The only assignee is the Owner, who stays a member, so the assignee checks would pass: a 404 here can only come
+// from the creator recheck under the lock. No task (and no assignee row) may be written.
+test("POST task by a creator removed from the project while waiting for the project lock is 404 and writes no task", async () => {
+  const taskCount = async (projectId: number) => (await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM tasks
+    WHERE project_id = $1`, [projectId])).rows[0]!.n;
+  const assigneeRows = async (projectId: number) => (await pool.query<{ n: number }>(`SELECT count(*)::int AS n
+    FROM task_assignees a JOIN tasks t USING (task_id) WHERE t.project_id = $1`, [projectId])).rows[0]!.n;
+  const body = { taskTitle: "Created while removed", priority: 1, dueDate: bangkokDatePlus(5), assigneeIds: [ids.owner] };
+
+  // Control: the same lock wait without a membership change creates the task (201).
+  const control = await newProject("owner", [ids.member]);
+  const allowed = await withProjectLockHeld(control, () => api("member", "POST", tasksUrl(control), body), async () => {});
+  assert.equal(allowed.status, 201);
+  assert.equal(allowed.body.task.createdById, ids.member);
+  assert.equal(await taskCount(control), 1);
+
+  const project = await newProject("owner", [ids.member]);
+  assert.equal(await taskCount(project), 0);
+  const res = await withProjectLockHeld(project, () => api("member", "POST", tasksUrl(project), body), async (gate) => {
+    await gate.query("DELETE FROM project_members WHERE project_id = $1 AND user_id = $2", [project, ids.member]);
+  });
+  assert.equal(res.status, 404);
+  assert.equal(res.body.error.code, "NOT_FOUND");
+  assert.equal(await taskCount(project), 0);
+  assert.equal(await assigneeRows(project), 0);
+  assert.ok((await memberList("owner", project)).some((m) => m.userId === ids.owner)); // assignee still a member
+  assert.equal((await api("owner", "GET", tasksUrl(project))).body.tasks.length, 0);
 });
 
 test("POST members maps only known constraints; other database errors are a safe 500", async () => {

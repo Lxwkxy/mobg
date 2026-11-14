@@ -118,7 +118,7 @@ test("an actor demoted or removed while waiting for the project lock writes noth
       const f = await fixture();
       await pool.query("UPDATE project_members SET role = 'Owner' WHERE project_id = $1 AND user_id = $2", [f.project, f.first]);
       const before = await memberIds(f.project);
-      const pending = await withProjectLockHeld<unknown>(f.project,
+      const result = await withProjectLockHeld<unknown>(f.project,
         () => action === "add" ? addMember(f.project, f.first, f.outsider) : removeMember(f.project, f.first, f.second),
         async (gate) => {
           await gate.query(change === "demote"
@@ -126,7 +126,7 @@ test("an actor demoted or removed while waiting for the project lock writes noth
             : "DELETE FROM project_members WHERE project_id = $1 AND user_id = $2", [f.project, f.first]);
         });
       const reason = change === "demote" ? "ACTOR_NOT_OWNER" : "ACTOR_NOT_MEMBER";
-      assert.deepEqual(await pending, action === "add" ? { added: false, reason } : { removed: false, reason }, `${change} ${action}`);
+      assert.deepEqual(result, action === "add" ? { added: false, reason } : { removed: false, reason }, `${change} ${action}`);
       const expected = change === "demote" ? before : before.filter(id => id !== String(f.first));
       assert.deepEqual(await memberIds(f.project), expected, `${change} ${action}`);
     }
@@ -146,12 +146,12 @@ test("updateTask with an actor rechecks membership under the project lock and le
   assert.deepEqual(await tasks.getTaskById(f.project, id), original);
 
   // Removed while waiting for the lock: false, nothing written.
-  const pending = await withProjectLockHeld(f.project,
+  const result = await withProjectLockHeld(f.project,
     () => tasks.updateTask(id, { task_title: "Must not land", priority: 3 }, { project_id: f.project, user_id: f.first }),
     async (gate) => {
       await gate.query("DELETE FROM project_members WHERE project_id = $1 AND user_id = $2", [f.project, f.first]);
     });
-  assert.equal(await pending, false);
+  assert.equal(result, false);
   assert.deepEqual(await tasks.getTaskById(f.project, id), original);
 
   // A current member still updates.
@@ -172,11 +172,15 @@ test("the lock helper rolls back, frees the lock and lets the waiting operation 
   assert.ok(await projects.findProjectMembership(f.project, f.first)); // the gate's delete was rolled back
   assert.ok(await projects.findProjectMembership(f.project, f.outsider)); // the waiting add ran after the lock was freed
   const client = await pool.connect();
+  let broken = false;
   try {
     await client.query("BEGIN");
     await client.query("SELECT 1 FROM projects WHERE project_id = $1 FOR UPDATE NOWAIT", [f.project]); // lock is free
-    await client.query("ROLLBACK");
-  } finally { client.release(); }
+  } finally {
+    // ROLLBACK even when NOWAIT failed (the transaction is then aborted); destroy the connection if that fails too.
+    try { await client.query("ROLLBACK"); } catch { broken = true; }
+    client.release(broken);
+  }
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND state LIKE 'idle in transaction%'")).rows[0].n, 0);
 });
 

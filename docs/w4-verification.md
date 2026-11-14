@@ -152,6 +152,16 @@ Second review round (2026-11-14):
   rolls back first, destroys the connection if ROLLBACK fails, and waits (max 10 s) for the blocked
   request to finish, so CI shows the real assertion instead of hanging. A test checks that path.
 
+Third review round (2026-11-14):
+
+- `POST /api/projects/:projectId/tasks` rechecks that the creator (from the session) is still Owner/Member
+  after the project lock, in the insert transaction. A creator removed while waiting gets `404` and no task
+  or assignee row is written. The HTTP test assigns the task to the Owner, who stays a member, so only the
+  creator check can reject it; a control case with the same lock wait returns `201`.
+- `withProjectLockHeld` now resolves with the operation's result (awaited once at each call site); the
+  NOWAIT probe in w4Db rolls back in `finally` even if NOWAIT fails, and destroys the connection if
+  ROLLBACK fails.
+
 ## Observed results
 
 - 2026-11-13, implementing agent on Windows: `npm run typecheck` and `npm run typecheck:tests` pass.
