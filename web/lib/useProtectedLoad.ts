@@ -55,9 +55,13 @@ export function useProtectedLoad<T>(
     refreshSession,
     replaceSession,
     updateSessionUser,
+    isCurrentSessionRevision,
   } = useSession();
 
   const [attempt, setAttempt] = useState(0);
+
+  // หน้าเหล่านี้ต้องตรวจ Session ใหม่ก่อนโหลดข้อมูลทุกครั้งที่ Mount
+  const [mountValidated, setMountValidated] = useState(false);
 
   const [result, setResult] = useState<{
     token: object;
@@ -75,6 +79,27 @@ export function useProtectedLoad<T>(
     [load, attempt, session.revision],
   );
 
+  // ตรวจ Session ก่อนเริ่มโหลดข้อมูลทุกครั้งที่เปิดหน้านี้
+  useEffect(() => {
+    if (!revalidateOnFocus) {
+      return;
+    }
+
+    let cancelled = false;
+
+    lastRefreshAt.current = Date.now();
+
+    void refreshSession().then(() => {
+      if (!cancelled) {
+        setMountValidated(true);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [revalidateOnFocus, refreshSession]);
+
   // ตรวจ Session เมื่อกลับมาเปิดหน้าต่างหรือแท็บ
   useEffect(() => {
     if (!revalidateOnFocus) {
@@ -87,7 +112,7 @@ export function useProtectedLoad<T>(
       const now = Date.now();
 
       // ป้องกัน focus, visibilitychange และ pageshow
-      // ทำให้เกิด request ซ้ำในช่วงเวลาใกล้กัน
+      // ทำให้เกิด Request ซ้ำในช่วงเวลาใกล้กัน
       if (now - lastRefreshAt.current < 500) {
         return;
       }
@@ -126,43 +151,114 @@ export function useProtectedLoad<T>(
   }, [revalidateOnFocus, refreshSession]);
 
   const sessionUserId = session.user?.userId;
+
   const sessionReady =
     session.status === 'ready' && session.user !== null;
 
   // โหลดข้อมูลเมื่อ Session ผ่านการตรวจสอบแล้วเท่านั้น
   useEffect(() => {
+    // ถ้าเปิด revalidateOnFocus ต้องรอการตรวจ Session ตอน Mount ก่อน
+    if (revalidateOnFocus && !mountValidated) {
+      return;
+    }
+
     if (!sessionReady || sessionUserId === undefined) {
       return;
     }
 
     let cancelled = false;
 
+    // จำ Revision ตอนเริ่ม Request
+    const requestRevision = session.revision;
+
+    // ตรวจว่า Request ยังทำงานอยู่และ Revision ยังตรงกัน
+    const isRequestCurrent = () => {
+      return (
+        !cancelled &&
+        isCurrentSessionRevision(requestRevision)
+      );
+    };
+
     async function run(): Promise<Outcome<T>> {
       try {
         const data = await load();
 
+        if (!isRequestCurrent()) {
+          return { status: 'error' };
+        }
+
         // ตรวจ /api/me รอบสองเฉพาะหน้าที่เปิด revalidateOnFocus
         if (revalidateOnFocus) {
-          const currentUser = await getCurrentUser();
+          let currentUser;
+
+          try {
+            currentUser = await getCurrentUser();
+          } catch (error) {
+            if (!isRequestCurrent()) {
+              return { status: 'error' };
+            }
+
+            const httpStatus = (
+              error as { status?: number }
+            ).status;
+
+            if (httpStatus === 401) {
+              replaceSession(
+                null,
+                'login-required',
+                requestRevision,
+              );
+            } else if (httpStatus === 403) {
+              replaceSession(
+                null,
+                'no-profile',
+                requestRevision,
+              );
+            }
+
+            throw error;
+          }
+
+          if (!isRequestCurrent()) {
+            return { status: 'error' };
+          }
 
           if (!currentUser) {
-            replaceSession(null, 'login-required');
-            return {
-              status: 'error',
-            };
+            replaceSession(
+              null,
+              'login-required',
+              requestRevision,
+            );
+
+            return { status: 'error' };
           }
 
           // ถ้าบัญชีเปลี่ยนระหว่างโหลดข้อมูล
-          // ให้เปลี่ยน Session กลางและเริ่มโหลดใหม่
+          // ให้เปลี่ยน Session และเริ่มโหลดข้อมูลใหม่
           if (currentUser.userId !== sessionUserId) {
-            replaceSession(currentUser);
-            return {
-              status: 'error',
-            };
+            replaceSession(
+              currentUser,
+              'ready',
+              requestRevision,
+            );
+
+            return { status: 'error' };
           }
 
-          // อัปเดตชื่อและอีเมลล่าสุด แม้ userId จะเหมือนเดิม
-          updateSessionUser(currentUser);
+          // อัปเดตชื่อและอีเมลของบัญชีเดิม
+          // โดยไม่เพิ่ม Revision
+          const updated = updateSessionUser(
+            currentUser,
+            requestRevision,
+          );
+
+          if (!updated || !isRequestCurrent()) {
+            return { status: 'error' };
+          }
+        }
+
+        if (!isRequestCurrent()) {
+          return { status: 'error' };
         }
 
         return {
@@ -170,14 +266,27 @@ export function useProtectedLoad<T>(
           data,
         };
       } catch (error) {
+        // Request เก่าหรือถูกยกเลิกไม่มีสิทธิ์เปลี่ยน Session
+        if (!isRequestCurrent()) {
+          return { status: 'error' };
+        }
+
         const httpStatus = (
           error as { status?: number }
         ).status;
 
         if (httpStatus === 401) {
-          replaceSession(null, 'login-required');
+          replaceSession(
+            null,
+            'login-required',
+            requestRevision,
+          );
         } else if (httpStatus === 403) {
-          replaceSession(null, 'no-profile');
+          replaceSession(
+            null,
+            'no-profile',
+            requestRevision,
+          );
         } else {
           console.error(
             'Failed to load protected data:',
@@ -193,7 +302,7 @@ export function useProtectedLoad<T>(
     }
 
     void run().then((outcome) => {
-      if (cancelled) {
+      if (!isRequestCurrent()) {
         return;
       }
 
@@ -211,9 +320,12 @@ export function useProtectedLoad<T>(
     load,
     sessionReady,
     sessionUserId,
+    session.revision,
     revalidateOnFocus,
+    mountValidated,
     replaceSession,
     updateSessionUser,
+    isCurrentSessionRevision,
   ]);
 
   const retry = useCallback(() => {
@@ -232,7 +344,11 @@ export function useProtectedLoad<T>(
 
   const shouldHideData =
     hideDataWhileRefreshing &&
-    (isStale || !sessionReady);
+    (
+      isStale ||
+      !sessionReady ||
+      (revalidateOnFocus && !mountValidated)
+    );
 
   const visibleOutcome = shouldHideData
     ? undefined
