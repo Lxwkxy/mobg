@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { usePathname } from 'next/navigation';
 
 import { getCurrentUser } from '@/lib/authService';
 import type { User } from '@/types';
@@ -28,15 +29,19 @@ type Outcome<T> =
 export type ProtectedLoadOptions = {
   /**
    * ตรวจ Session และโหลดข้อมูลใหม่เมื่อกลับมาเปิดหน้าต่างหรือแท็บ
-   * ค่าเริ่มต้น false
    */
   revalidateOnFocus?: boolean;
 
   /**
    * ซ่อนข้อมูลเดิมระหว่างตรวจ Session และโหลดข้อมูลใหม่
-   * ค่าเริ่มต้น false
    */
   hideDataWhileRefreshing?: boolean;
+
+  /**
+   * ตรวจ Session และโหลดข้อมูลใหม่เมื่อกลับเข้าหน้านี้จาก Next.js cache
+   * ระบุ pathname ของหน้าที่ต้องการ เช่น '/mytasks'
+   */
+  revalidateOnRoute?: string;
 };
 
 export function useProtectedLoad<T>(
@@ -46,7 +51,15 @@ export function useProtectedLoad<T>(
   const {
     revalidateOnFocus = false,
     hideDataWhileRefreshing = false,
+    revalidateOnRoute,
   } = options;
+
+  const pathname = usePathname();
+
+  // เป็น false เมื่อผู้ใช้ออกจากหน้าที่กำหนด
+  // เมื่อกลับเข้าหน้าอีกครั้งจะเปลี่ยนเป็น true ทันที
+  const routeActive =
+    !revalidateOnRoute || pathname === revalidateOnRoute;
 
   const [attempt, setAttempt] = useState(0);
 
@@ -58,8 +71,8 @@ export function useProtectedLoad<T>(
   const lastFocusRefreshAt = useRef(0);
 
   const token = useMemo(
-    () => ({ load, attempt }),
-    [load, attempt],
+    () => ({ load, attempt, routeActive }),
+    [load, attempt, routeActive],
   );
 
   // ตรวจ Session และโหลดข้อมูลใหม่เมื่อกลับมาเปิดหน้าต่างหรือแท็บ
@@ -87,7 +100,6 @@ export function useProtectedLoad<T>(
     };
 
     window.addEventListener('focus', refresh);
-
     document.addEventListener(
       'visibilitychange',
       handleVisibilityChange,
@@ -95,7 +107,6 @@ export function useProtectedLoad<T>(
 
     return () => {
       window.removeEventListener('focus', refresh);
-
       document.removeEventListener(
         'visibilitychange',
         handleVisibilityChange,
@@ -105,6 +116,12 @@ export function useProtectedLoad<T>(
 
   // ตรวจ Session ก่อนโหลดข้อมูลทุกครั้ง
   useEffect(() => {
+    // ไม่โหลดข้อมูลขณะที่ผู้ใช้อยู่หน้าอื่น
+    // แต่ token จะเปลี่ยน ทำให้ข้อมูลเดิมถูกซ่อนทันที
+    if (!routeActive) {
+      return;
+    }
+
     let cancelled = false;
 
     async function run(): Promise<Outcome<T>> {
@@ -154,7 +171,7 @@ export function useProtectedLoad<T>(
     return () => {
       cancelled = true;
     };
-  }, [token, load]);
+  }, [token, load, routeActive]);
 
   const retry = useCallback(() => {
     setAttempt((value) => value + 1);

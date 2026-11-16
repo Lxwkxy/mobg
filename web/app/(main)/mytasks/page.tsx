@@ -25,11 +25,11 @@ export default function MyTasksPage() {
   const [updatingTaskId, setUpdatingTaskId] = useState<number | null>(null);
   const [actionError, setActionError] = useState('');
 
-  const { status, data, retry, isRefreshing } =
-    useProtectedLoad(loadMyTasks, {
-      revalidateOnFocus: true,
-      hideDataWhileRefreshing: true,
-    });
+  const { status, data, retry } = useProtectedLoad(loadMyTasks, {
+    revalidateOnFocus: true,
+    hideDataWhileRefreshing: true,
+    revalidateOnRoute: '/mytasks',
+  });
 
   const handleStatusChange = async (
     task: Task,
@@ -163,12 +163,6 @@ export default function MyTasksPage() {
             </button>
           ))}
         </div>
-
-        {isRefreshing && (
-          <p className="text-[12px] text-[#888888]" role="status">
-            Updating tasks...
-          </p>
-        )}
 
         {actionError && (
           <div

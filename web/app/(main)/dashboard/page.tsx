@@ -77,11 +77,11 @@ const formatDate = (date: string) => {
 };
 
 export default function DashboardPage() {
-  const { status, data, isRefreshing, retry } =
-    useProtectedLoad(loadDashboard, {
-      revalidateOnFocus: true,
-      hideDataWhileRefreshing: true,
-    });
+  const { status, data, retry } = useProtectedLoad(loadDashboard, {
+    revalidateOnFocus: true,
+    hideDataWhileRefreshing: true,
+    revalidateOnRoute: '/dashboard',
+  });
 
   if (status !== 'ready' || data === null) {
     return (
@@ -128,11 +128,7 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div
-      className={`min-w-0 flex flex-col gap-6 [overflow-wrap:anywhere] transition-opacity ${
-        isRefreshing ? 'opacity-60' : ''
-      }`}
-    >
+    <div className="min-w-0 flex flex-col gap-6 [overflow-wrap:anywhere]">
       {/* DASHBOARD SUMMARY */}
       <section
         aria-label="Dashboard summary"
