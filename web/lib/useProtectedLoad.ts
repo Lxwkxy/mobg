@@ -102,7 +102,6 @@ export function useProtectedLoad<T>(
   // ตรวจ Session ก่อนโหลดข้อมูลครั้งแรก
   useEffect(() => {
     if (!revalidateOnFocus) {
-      setMountValidated(true);
       return;
     }
 
