@@ -24,6 +24,7 @@ type Outcome<T> =
   | { status: 'ready'; data: T; user: User }
   | { status: 'login-required' }
   | { status: 'no-profile' }
+  | { status: 'session-changed' }
   | { status: 'error'; httpStatus?: number };
 
 export type ProtectedLoadOptions = {
@@ -38,8 +39,7 @@ export type ProtectedLoadOptions = {
   hideDataWhileRefreshing?: boolean;
 
   /**
-   * ตรวจ Session และโหลดข้อมูลใหม่เมื่อกลับเข้าหน้านี้จาก Next.js cache
-   * ระบุ pathname ของหน้าที่ต้องการ เช่น '/mytasks'
+   * ตรวจ Session และโหลดข้อมูลใหม่เมื่อกลับเข้าหน้าที่กำหนด
    */
   revalidateOnRoute?: string;
 };
@@ -56,8 +56,6 @@ export function useProtectedLoad<T>(
 
   const pathname = usePathname();
 
-  // เป็น false เมื่อผู้ใช้ออกจากหน้าที่กำหนด
-  // เมื่อกลับเข้าหน้าอีกครั้งจะเปลี่ยนเป็น true ทันที
   const routeActive =
     !revalidateOnRoute || pathname === revalidateOnRoute;
 
@@ -100,6 +98,7 @@ export function useProtectedLoad<T>(
     };
 
     window.addEventListener('focus', refresh);
+
     document.addEventListener(
       'visibilitychange',
       handleVisibilityChange,
@@ -107,6 +106,7 @@ export function useProtectedLoad<T>(
 
     return () => {
       window.removeEventListener('focus', refresh);
+
       document.removeEventListener(
         'visibilitychange',
         handleVisibilityChange,
@@ -116,8 +116,6 @@ export function useProtectedLoad<T>(
 
   // ตรวจ Session ก่อนโหลดข้อมูลทุกครั้ง
   useEffect(() => {
-    // ไม่โหลดข้อมูลขณะที่ผู้ใช้อยู่หน้าอื่น
-    // แต่ token จะเปลี่ยน ทำให้ข้อมูลเดิมถูกซ่อนทันที
     if (!routeActive) {
       return;
     }
@@ -126,18 +124,32 @@ export function useProtectedLoad<T>(
 
     async function run(): Promise<Outcome<T>> {
       try {
-        const user = await getCurrentUser();
+        // ตรวจสอบบัญชีก่อนโหลดข้อมูล
+        const initialUser = await getCurrentUser();
 
-        if (!user) {
+        if (!initialUser) {
           return { status: 'login-required' };
         }
 
         const data = await load();
 
+        // ตรวจสอบบัญชีอีกครั้งหลังโหลดข้อมูลเสร็จ
+        const currentUser = await getCurrentUser();
+
+        if (!currentUser) {
+          return { status: 'login-required' };
+        }
+
+        // หากบัญชีเปลี่ยนระหว่างโหลด ให้โหลดข้อมูลใหม่
+        // โดยไม่แสดงข้อมูลจากบัญชีเดิม
+        if (currentUser.userId !== initialUser.userId) {
+          return { status: 'session-changed' };
+        }
+
         return {
           status: 'ready',
           data,
-          user,
+          user: currentUser,
         };
       } catch (error) {
         const httpStatus = (error as { status?: number }).status;
@@ -163,9 +175,16 @@ export function useProtectedLoad<T>(
     }
 
     void run().then((outcome) => {
-      if (!cancelled) {
-        setResult({ token, outcome });
+      if (cancelled) {
+        return;
       }
+
+      if (outcome.status === 'session-changed') {
+        setAttempt((value) => value + 1);
+        return;
+      }
+
+      setResult({ token, outcome });
     });
 
     return () => {
@@ -182,14 +201,17 @@ export function useProtectedLoad<T>(
 
   const outcome = result?.outcome;
 
-  // ซ่อนข้อมูลเดิมเฉพาะหน้าที่เปิด hideDataWhileRefreshing
+  // ซ่อนข้อมูลเดิมระหว่างตรวจสอบ Session และโหลดข้อมูลใหม่
   const visibleOutcome =
     hideDataWhileRefreshing && isStale
       ? undefined
       : outcome;
 
+  // แปลง session-changed เป็น loading
+  // เพื่อไม่ให้หลุดเข้าไปใน LoadStatus
   const status: LoadStatus =
-    visibleOutcome === undefined
+    visibleOutcome === undefined ||
+    visibleOutcome.status === 'session-changed'
       ? 'loading'
       : visibleOutcome.status === 'ready'
         ? 'ready'
