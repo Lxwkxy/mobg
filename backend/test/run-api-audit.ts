@@ -242,6 +242,7 @@ try {
       undefined, (b) => b.project.projectName === "Audit renamed" && b.project.dueDate === null);
 
     // ---- Members ------------------------------------------------------------------------------
+    check("members", null, "GET /api/projects/:main/members", "no cookie", await api(null, "GET", `/api/projects/${P.main}/members`), 401, "UNAUTHENTICATED");
     check("members", "outsider", "GET /api/projects/:main/members", "non-member", await api("outsider", "GET", `/api/projects/${P.main}/members`), 404, "NOT_FOUND");
     check("members", "member", "GET /api/projects/:main/members", "assignee dropdown", await api("member", "GET", `/api/projects/${P.main}/members`), 200,
       undefined, (b) => b.members.length === 2 && b.members.every((m: object) => keys(m) === "email,joinDate,role,userId,userName"));

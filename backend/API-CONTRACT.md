@@ -8,7 +8,7 @@ authentication. This update records Pai's requested implementation direction; it
 does not claim renewed confirmation from Bar and Book. Existing confirmed business
 rules in sections 5-11 are retained. Dashboard scope and priority rules were resolved for W4 on 2026-11-08 (see section 10.9).
 As of W2-Book-01/02: /api/me, /api/users, project CRUD and the project member list are database-backed behind session guards. As of W3-Book-01/02: the project task endpoints (section 10.6, except `GET /api/tasks/mine`) are implemented behind the same guards and covered by automated HTTP tests; they have not been checked from the web UI yet. As of W4-Book: `GET /api/tasks/mine`, member add/remove and `GET /api/dashboard` are implemented over Pai's W4 DB functions and covered by automated HTTP tests; they have not been checked from the web UI yet. Comments and activity remain contract-only. See docs/w2-verification.md, docs/w3-verification.md, docs/w4-pai-verification.md and docs/w4-verification.md.
-As of W5-Book-01 (2026-11-16): every W1–W4 endpoint was audited against Pai's W5 seed with `npm run test:api-audit` (169/169 checks: success, invalid input, unknown ID, empty result, no permission, logout, expired session) and this document was checked against the code. Projects/tasks/members/search/`/api/me` were also walked from the web UI; Dashboard and My Tasks pages still use mock data. Results: docs/w5-backend-report.md and docs/w5-api-audit-results.md.
+As of W5-Book-01 (2026-11-16): every W1–W4 endpoint was audited against Pai's W5 seed with `npm run test:api-audit` (170/170 checks: success, invalid input, unknown ID, empty result, no permission, logout, expired session) and this document was checked against the code. Projects/tasks/members/search/`/api/me` were also walked from the web UI; Dashboard and My Tasks pages still use mock data. Results: docs/w5-backend-report.md and docs/w5-api-audit-results.md.
 
 ## 0. Running the Backend
 
@@ -60,9 +60,16 @@ Remove-Variable secure
 curl.exe -s -b cookies.txt "$api/api/me"                    # 200 { success, user: { userId, userName, email } }
 curl.exe -s -b cookies.txt "$api/api/projects?status=In%20progress"
 
+# Find the IDs instead of guessing them: they differ in every database.
+$projectId = ((curl.exe -s -b cookies.txt "$api/api/projects" | ConvertFrom-Json).projects |
+  Where-Object projectName -eq 'MobG W5 Main Demo').projectId
+$taskId = ((curl.exe -s -b cookies.txt "$api/api/projects/$projectId/tasks" | ConvertFrom-Json).tasks |
+  Where-Object taskTitle -eq 'Future Medium').taskId
+"projectId=$projectId taskId=$taskId"                        # both must be numbers before the PATCH
+
 @{ status = 'Done' } | ConvertTo-Json -Compress |
   curl.exe -s -b cookies.txt -X PATCH -H 'Content-Type: application/json' --data-binary '@-' `
-    "$api/api/projects/<projectId>/tasks/<taskId>"          # 200 { success, task }
+    "$api/api/projects/$projectId/tasks/$taskId"            # 200 { success, task }
 
 curl.exe -s -b cookies.txt -X POST -H "Origin: $o" -H 'Content-Type: application/json' -d '{}' "$api/api/auth/sign-out"
 curl.exe -s -b cookies.txt "$api/api/me"                    # 401 UNAUTHENTICATED

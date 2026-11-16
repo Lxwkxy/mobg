@@ -111,7 +111,7 @@ Commands:
 | `npm run seed:demo -- --database NAME --w5` | Provision/verify accounts and seed W5 in a separate `mobg_w5_demo_*` DB |
 | `npm run db:backup -- --database SOURCE --restore-database NEW_NAME` | Private backup plus verified restore to a new `mobg_w5_restore_*` DB |
 | `npm run test:demo-rehearsal` | Disposable W5 setup, native auth, seed rerun and Docker backup/restore |
-| `npm run test:api-audit [-- --out FILE]` | W5 API audit: fresh `mobg_w5_demo_audit_*` DB with Pai's seed, real server, 169 HTTP checks; removes its DB |
+| `npm run test:api-audit [-- --out FILE]` | W5 API audit: fresh `mobg_w5_demo_audit_*` DB with Pai's seed, real server, 170 HTTP checks; removes its DB |
 
 Run `npm run typecheck` before committing; `npm run dev` does not report type errors.
 `GET /api/health` is a server health endpoint, not a database or Login check.

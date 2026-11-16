@@ -3,13 +3,13 @@
 Date: 2026-11-16 (Asia/Bangkok). Base: `main` at `39462c8` (after PR #25, W4 API).
 Scope: every business endpoint from W1–W4 plus the Better Auth routes the web app uses.
 Contract: [backend/API-CONTRACT.md](../backend/API-CONTRACT.md). Setup: [backend/README.md](../backend/README.md).
-Raw results: [w5-api-audit-results.md](w5-api-audit-results.md) (169 rows, one per request).
+Raw results: [w5-api-audit-results.md](w5-api-audit-results.md) (170 rows, one per request).
 
 ## 1. Summary
 
 | Item | Result |
 |---|---|
-| Automated API audit on Pai's W5 seed | **169/169 PASS** after one fix (162/166 before; 4 failures, 1 a real bug). Rerun after the PR #26 review changes (full envelope check, seed-relative due date): still 169/169 |
+| Automated API audit on Pai's W5 seed | **169/169 PASS** after one fix (162/166 before; 4 failures, 1 a real bug). Rerun after the PR #26 review changes (full envelope check, seed-relative due date): 169/169; after adding the no-session members check: **170/170** |
 | Existing suite `npm run test:db` | Before and after: 101 tests, 100 pass, 1 skipped, 0 fail. The regression for the bug was added inside the existing W4 "POST members" test (section 5). `typecheck`, `typecheck:tests`, `build` pass |
 | Bug found | Request body over 100 kB returned `500 INTERNAL_ERROR`. Now `413 VALIDATION_ERROR`; unreadable charset/encoding `415 VALIDATION_ERROR` |
 | Permission checks | Non-member, wrong role, other project's task ID, tampered `userId`/`projectId` query, expired session, logged-out cookie and unlinked profile all denied with the contract code. No case returned another account's data |
@@ -45,7 +45,7 @@ Requires Docker DB running and root `.env` (same as `npm run test:db`).
 
 ## 3. Endpoint table: success / invalid / not found / empty / no permission
 
-Number of checks per area: projects 44, tasks 42, members 17, dashboard 11, my tasks 10,
+Number of checks per area: projects 44, tasks 42, members 18, dashboard 11, my tasks 10,
 delete policy 9, session 9, search 8, auth 6, body 5, me 4, users 2, health 1, routing 1.
 
 | Endpoint | Success | Invalid data → 400 | ID not found → 404 | Empty result → 200 | No permission |
@@ -57,12 +57,12 @@ delete policy 9, session 9, search 8, auth 6, body 5, me 4, users 2, health 1, r
 | `POST /api/projects` | 201, creator Owner, name trimmed | missing/blank/long name, due = start, `2026-02-30`, unknown/duplicate `memberIds`, forged `createdBy` | — | — | no cookie → 401 |
 | `PATCH /api/projects/:id` | rename, clear `dueDate` | `{}`, due before stored start, start after stored due | `999999` | — | Member → 403, non-member → 404 |
 | `DELETE /api/projects/:id` | 200, cascade | — | already deleted → 404 | — | Member → 403 |
-| `GET …/members` | Owner first, 5 fields | — | — | — | non-member → 404 |
+| `GET …/members` | Owner first, 5 fields | — | — | — | no cookie → 401; non-member → 404 |
 | `POST …/members` | 201 Member | unknown user, forged `role` | — | — | Member → 403, non-member → 404; duplicate → 409 `ALREADY_MEMBER` |
 | `DELETE …/members/:userId` | 200, access lost at once | `abc` | not in project → 404 | — | Member → 403; 409 `SOLE_ASSIGNEE` / `LAST_OWNER` |
 | `GET …/tasks` | 5 tasks, due-date order, overdue rules | `status=Doing`, `priority=1` | — | Empty project `[]` | non-member → 404 |
 | `GET …/tasks/:taskId` | detail | `abc` (member) | `999999`; task of another project → 404 | — | non-member → 404 even for `abc` |
-| `POST …/tasks` | 201 `To do`, creator from session | 11 cases (title, priority, dueDate, assignees, forged `status`/`createdById`) | — | — | non-member → 404 |
+| `POST …/tasks` | 201 `To do`, creator from session | 11 cases (title, priority, dueDate, assignees, forged `status`/`createdById`) | — | — | no cookie → 401; non-member → 404 |
 | `PATCH …/tasks/:taskId` | status, assignees, clear description | `{}`, `dueDate:null`, `[]` assignees, `Doing`, unknown field | other project's task → 404 | — | non-member → 404; expired session → 401 and nothing written |
 | `DELETE …/tasks/:taskId` | Owner 200; comments/assignees cascade | — | deleted / other project → 404 | — | Member → 403, non-member → 404 |
 | `GET /api/tasks/mine` | only my assignments (Owner 8, Member 4) | `userId`, `projectId`, `q`, bad/repeated `status` | — | Outsider `[]` | no cookie → 401 |
@@ -90,7 +90,7 @@ On the untouched seed (columns: projects/tasks/To do/In progress/Done/overdue/hi
 
 | # | Problem | Cause | Fix | Retest |
 |---|---|---|---|---|
-| 1 | `POST` with a JSON body over 100 kB → `500 INTERNAL_ERROR` (and a server error log) | The error handler only knew `entity.parse.failed`; other `express.json()` errors (`entity.too.large`, `charset.unsupported`, `encoding.unsupported`) fell through to 500 | `src/server.ts`: keep body-parser's 4xx status (413/415) with code `VALIDATION_ERROR` and a fixed message (no raw error text) | Regression case in `test/w4Routes.test.ts`: fails on the old code (500), passes now. Audit 169/169 |
+| 1 | `POST` with a JSON body over 100 kB → `500 INTERNAL_ERROR` (and a server error log) | The error handler only knew `entity.parse.failed`; other `express.json()` errors (`entity.too.large`, `charset.unsupported`, `encoding.unsupported`) fell through to 500 | `src/server.ts`: keep body-parser's 4xx status (413/415) with code `VALIDATION_ERROR` and a fixed message (no raw error text) | Regression case in `test/w4Routes.test.ts`: fails on the old code (500), passes now. Audit 170/170 |
 
 The other three failures in the first audit run were mistakes in my audit expectations, not
 backend bugs: Dashboard was measured after the audit had created an extra project (now
@@ -180,4 +180,4 @@ FK/unique errors are mapped to 400/409 by constraint name; anything else becomes
    past-due tasks; Dashboard numbers equal Pai's table.
 5. **Delete policy** — remove Member from Main → 409 `SOLE_ASSIGNEE` with the task list; delete the
    sandbox task (comment and assignees cascade), remove Member from Sandbox, delete Sandbox.
-6. **Evidence** — run `npm run test:api-audit` (169/169) and show [the results](w5-api-audit-results.md).
+6. **Evidence** — run `npm run test:api-audit` (170/170) and show [the results](w5-api-audit-results.md).
