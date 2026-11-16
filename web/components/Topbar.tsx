@@ -317,7 +317,7 @@ export default function Topbar() {
         </div>
       )}
 
-      {logoutError && status === 'loading' && (
+      {logoutError && !isLoggingOut && (
         <p
           role="alert"
           className="basis-full text-right text-[12px] text-red-600"

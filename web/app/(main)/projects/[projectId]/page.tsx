@@ -42,7 +42,15 @@ export default function ProjectDetailPage() {
     return projectApi.getProjectById(projectId);
   }, [params.projectId]);
 
-  const { status, data: project, httpStatus, retry } = useProtectedLoad(load);
+  const {
+    status,
+    data: project,
+    httpStatus,
+    retry,
+    } = useProtectedLoad(load, {
+  revalidateOnFocus: true,
+  hideDataWhileRefreshing: true,
+  });
 
   if (status === 'error') {
     const canRetry = httpStatus !== 400 && httpStatus !== 404;

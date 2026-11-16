@@ -142,7 +142,10 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
     data: tasks,
     httpStatus,
     retry,
-  } = useProtectedLoad(load);
+  } = useProtectedLoad(load, {
+  revalidateOnFocus: true,
+  hideDataWhileRefreshing: true,
+  });
 
   const numericProjectId = Number(projectId);
 

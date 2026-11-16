@@ -81,7 +81,6 @@ export function useProtectedLoad<T>(
 
   const lastRefreshAt = useRef(0);
 
-  // แยก User ออกมาก่อน เพื่อให้ TypeScript ตรวจสอบ null ได้
   const currentUser = session.user;
 
   const sessionReady =
@@ -103,6 +102,7 @@ export function useProtectedLoad<T>(
   // ตรวจ Session ก่อนโหลดข้อมูลครั้งแรก
   useEffect(() => {
     if (!revalidateOnFocus) {
+      setMountValidated(true);
       return;
     }
 
@@ -203,6 +203,8 @@ export function useProtectedLoad<T>(
     }
 
     let cancelled = false;
+    let loadStarted = false;
+    let postLoadVerificationStarted = false;
 
     const requestRevision = session.revision;
     const requestUserId = sessionUserId;
@@ -214,96 +216,15 @@ export function useProtectedLoad<T>(
       );
     };
 
-    async function run(): Promise<Outcome<T>> {
+    // ตรวจว่าบัญชีปัจจุบันยังเป็นบัญชีเดียวกับ Request หรือไม่
+    async function verifyCurrentSession(): Promise<boolean> {
+      let verifiedUser: User | null;
+
       try {
-        const data = await load();
-
-        if (!isRequestCurrent()) {
-          return { status: 'error' };
-        }
-
-        // ตรวจ /api/me ซ้ำเฉพาะหน้าที่เปิด revalidateOnFocus
-        if (revalidateOnFocus) {
-          let currentUser: User | null;
-
-          try {
-            currentUser = await getCurrentUser();
-          } catch (error) {
-            if (!isRequestCurrent()) {
-              return { status: 'error' };
-            }
-
-            const httpStatus = (
-              error as { status?: number }
-            ).status;
-
-            if (httpStatus === 401) {
-              replaceSession(
-                null,
-                'login-required',
-                requestRevision,
-              );
-            } else if (httpStatus === 403) {
-              replaceSession(
-                null,
-                'no-profile',
-                requestRevision,
-              );
-            }
-
-            throw error;
-          }
-
-          if (!isRequestCurrent()) {
-            return { status: 'error' };
-          }
-
-          if (!currentUser) {
-            replaceSession(
-              null,
-              'login-required',
-              requestRevision,
-            );
-
-            return { status: 'error' };
-          }
-
-          // ตรวจว่าผู้ใช้ยังเป็นบัญชีเดิมหรือไม่
-          if (currentUser.userId !== requestUserId) {
-            replaceSession(
-              currentUser,
-              'ready',
-              requestRevision,
-            );
-
-            return { status: 'error' };
-          }
-
-          // อัปเดตชื่อและอีเมล โดยไม่เปลี่ยน Revision
-          const updated = updateSessionUser(
-            currentUser,
-            requestRevision,
-          );
-
-          if (
-            !updated ||
-            !isRequestCurrent()
-          ) {
-            return { status: 'error' };
-          }
-        }
-
-        if (!isRequestCurrent()) {
-          return { status: 'error' };
-        }
-
-        return {
-          status: 'ready',
-          data,
-        };
+        verifiedUser = await getCurrentUser();
       } catch (error) {
         if (!isRequestCurrent()) {
-          return { status: 'error' };
+          return false;
         }
 
         const httpStatus = (
@@ -322,10 +243,144 @@ export function useProtectedLoad<T>(
             'no-profile',
             requestRevision,
           );
+        }
+
+        throw error;
+      }
+
+      if (!isRequestCurrent()) {
+        return false;
+      }
+
+      if (!verifiedUser) {
+        replaceSession(
+          null,
+          'login-required',
+          requestRevision,
+        );
+
+        return false;
+      }
+
+      // ถ้าบัญชีเปลี่ยน ให้เปลี่ยน Session
+      // แล้วให้ Effect เริ่มโหลดข้อมูลใหม่ด้วยบัญชีล่าสุด
+      if (verifiedUser.userId !== requestUserId) {
+        replaceSession(
+          verifiedUser,
+          'ready',
+          requestRevision,
+        );
+
+        return false;
+      }
+
+      // เป็นบัญชีเดิม อัปเดตข้อมูล User ได้
+      const updated = updateSessionUser(
+        verifiedUser,
+        requestRevision,
+      );
+
+      return (
+        updated &&
+        isRequestCurrent()
+      );
+    }
+
+    async function run(): Promise<Outcome<T>> {
+      try {
+        // ตรวจ Session ก่อนเริ่มโหลดข้อมูล
+        if (revalidateOnFocus) {
+          const verified = await verifyCurrentSession();
+
+          if (!verified || !isRequestCurrent()) {
+            return { status: 'error' };
+          }
+        }
+
+        if (!isRequestCurrent()) {
+          return { status: 'error' };
+        }
+
+        loadStarted = true;
+
+        const data = await load();
+
+        if (!isRequestCurrent()) {
+          return { status: 'error' };
+        }
+
+        // ตรวจ Session หลังโหลดข้อมูลเสร็จ
+        if (revalidateOnFocus) {
+          postLoadVerificationStarted = true;
+
+          const verified = await verifyCurrentSession();
+
+          if (!verified || !isRequestCurrent()) {
+            return { status: 'error' };
+          }
+        }
+
+        if (!isRequestCurrent()) {
+          return { status: 'error' };
+        }
+
+        return {
+          status: 'ready',
+          data,
+        };
+      } catch (error) {
+        if (!isRequestCurrent()) {
+          return { status: 'error' };
+        }
+
+        let errorToReport: unknown = error;
+
+        // ถ้า Load API ล้มเหลว ให้ตรวจ Session อีกครั้ง
+        // ก่อนนำ Error ของ Request เก่ามาแสดง
+        if (
+          revalidateOnFocus &&
+          loadStarted &&
+          !postLoadVerificationStarted
+        ) {
+          try {
+            const verified = await verifyCurrentSession();
+
+            if (!verified || !isRequestCurrent()) {
+              return { status: 'error' };
+            }
+          } catch (verificationError) {
+            if (!isRequestCurrent()) {
+              return { status: 'error' };
+            }
+
+            errorToReport = verificationError;
+          }
+        }
+
+        if (!isRequestCurrent()) {
+          return { status: 'error' };
+        }
+
+        const httpStatus = (
+          errorToReport as { status?: number }
+        ).status;
+
+        if (httpStatus === 401) {
+          replaceSession(
+            null,
+            'login-required',
+            requestRevision,
+          );
+        } else if (httpStatus === 403) {
+          replaceSession(
+            null,
+            'no-profile',
+            requestRevision,
+          );
         } else {
           console.error(
             'Failed to load protected data:',
-            error,
+            errorToReport,
           );
         }
 
@@ -434,7 +489,7 @@ export function useProtectedLoad<T>(
       : null;
 
   // รักษาข้อมูลเดิมไว้สำหรับ Edit Task
-  // ระหว่าง Session กำลังตรวจสอบหรือเชื่อมต่อไม่ได้
+  // แต่จะแสดงได้เฉพาะเมื่อเป็นบัญชีเจ้าของข้อมูลเดิม
   const retainedAllowed =
     session.status === 'loading' ||
     session.status === 'error' ||

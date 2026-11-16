@@ -1,3 +1,4 @@
+
 'use client';
 
 import {
@@ -620,12 +621,24 @@ function EditTaskLoader({
     </div>
   );
 
+  // 400 และ 404 ต้องแสดง Error แม้มี retained form อยู่
+  const isNotFoundOrInvalid =
+    httpStatus === 400 ||
+    httpStatus === 404;
+
+  const shouldShowError =
+    loadStatus === 'error' &&
+    (
+      isNotFoundOrInvalid ||
+      !hasRetainedContent
+    );
+
   return (
     <>
       {hasRetainedContent && retainedData && (
         <div
-          hidden={!showContent}
-          inert={!showContent}
+          hidden={!showContent || shouldShowError}
+          inert={!showContent || shouldShowError}
         >
           <EditTaskContent
             key={`${projectId}-${taskId}-${retainedUserId}`}
@@ -637,8 +650,7 @@ function EditTaskLoader({
       )}
 
       {!showContent && (
-        loadStatus === 'error' &&
-        !hasRetainedContent
+        shouldShowError
           ? errorContent
           : (
             <ProtectedState
