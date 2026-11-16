@@ -1,7 +1,14 @@
 
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+
 import { getCurrentUser } from '@/lib/authService';
 import type { User } from '@/types';
 
@@ -18,33 +25,85 @@ type Outcome<T> =
   | { status: 'no-profile' }
   | { status: 'error'; httpStatus?: number };
 
-export function useProtectedLoad<T>(load: () => Promise<T>) {
+export type ProtectedLoadOptions = {
+  /**
+   * ตรวจ Session และโหลดข้อมูลใหม่เมื่อกลับมาเปิดหน้าต่างหรือแท็บ
+   * ค่าเริ่มต้น false
+   */
+  revalidateOnFocus?: boolean;
+
+  /**
+   * ซ่อนข้อมูลเดิมระหว่างตรวจ Session และโหลดข้อมูลใหม่
+   * ค่าเริ่มต้น false
+   */
+  hideDataWhileRefreshing?: boolean;
+};
+
+export function useProtectedLoad<T>(
+  load: () => Promise<T>,
+  options: ProtectedLoadOptions = {},
+) {
+  const {
+    revalidateOnFocus = false,
+    hideDataWhileRefreshing = false,
+  } = options;
+
   const [attempt, setAttempt] = useState(0);
+
   const [result, setResult] = useState<{
     token: object;
     outcome: Outcome<T>;
   } | null>(null);
 
-  const token = useMemo(() => ({ load, attempt }), [load, attempt]);
+  const lastFocusRefreshAt = useRef(0);
 
-  // เมื่อกลับมาเปิดแท็บ ให้ตรวจ Session และโหลดข้อมูลใหม่
+  const token = useMemo(
+    () => ({ load, attempt }),
+    [load, attempt],
+  );
+
+  // ตรวจ Session และโหลดข้อมูลใหม่เมื่อกลับมาเปิดหน้าต่างหรือแท็บ
   useEffect(() => {
+    if (!revalidateOnFocus) {
+      return;
+    }
+
+    const refresh = () => {
+      const now = Date.now();
+
+      // ป้องกันการโหลดซ้ำจาก focus และ visibilitychange
+      if (now - lastFocusRefreshAt.current < 500) {
+        return;
+      }
+
+      lastFocusRefreshAt.current = now;
+      setAttempt((value) => value + 1);
+    };
+
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        setAttempt((value) => value + 1);
+        refresh();
       }
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', refresh);
+
+    document.addEventListener(
+      'visibilitychange',
+      handleVisibilityChange,
+    );
 
     return () => {
+      window.removeEventListener('focus', refresh);
+
       document.removeEventListener(
         'visibilitychange',
         handleVisibilityChange,
       );
     };
-  }, []);
+  }, [revalidateOnFocus]);
 
+  // ตรวจ Session ก่อนโหลดข้อมูลทุกครั้ง
   useEffect(() => {
     let cancelled = false;
 
@@ -79,7 +138,10 @@ export function useProtectedLoad<T>(load: () => Promise<T>) {
           error,
         );
 
-        return { status: 'error', httpStatus };
+        return {
+          status: 'error',
+          httpStatus,
+        };
       }
     }
 
@@ -98,27 +160,52 @@ export function useProtectedLoad<T>(load: () => Promise<T>) {
     setAttempt((value) => value + 1);
   }, []);
 
-  const isStale = result === null || result.token !== token;
-  const outcome = isStale ? undefined : result.outcome;
+  const isStale =
+    result === null || result.token !== token;
+
+  const outcome = result?.outcome;
+
+  // ซ่อนข้อมูลเดิมเฉพาะหน้าที่เปิด hideDataWhileRefreshing
+  const visibleOutcome =
+    hideDataWhileRefreshing && isStale
+      ? undefined
+      : outcome;
 
   const status: LoadStatus =
-    outcome === undefined
+    visibleOutcome === undefined
       ? 'loading'
-      : outcome.status;
+      : visibleOutcome.status === 'ready'
+        ? 'ready'
+        : isStale
+          ? 'loading'
+          : visibleOutcome.status;
 
   return {
     status,
-    data: outcome?.status === 'ready' ? outcome.data : null,
-    user: outcome?.status === 'ready' ? outcome.user : null,
-    userId:
-      outcome?.status === 'ready'
-        ? outcome.user.userId
+
+    data:
+      visibleOutcome?.status === 'ready'
+        ? visibleOutcome.data
         : null,
+
+    user:
+      visibleOutcome?.status === 'ready'
+        ? visibleOutcome.user
+        : null,
+
+    userId:
+      visibleOutcome?.status === 'ready'
+        ? visibleOutcome.user.userId
+        : null,
+
     httpStatus:
-      outcome?.status === 'error'
-        ? outcome.httpStatus
+      visibleOutcome?.status === 'error'
+        ? visibleOutcome.httpStatus
         : undefined,
-    isRefreshing: isStale,
+
+    isRefreshing:
+      isStale && outcome?.status === 'ready',
+
     retry,
   };
 }

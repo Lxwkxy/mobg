@@ -78,7 +78,10 @@ const formatDate = (date: string) => {
 
 export default function DashboardPage() {
   const { status, data, isRefreshing, retry } =
-    useProtectedLoad(loadDashboard);
+    useProtectedLoad(loadDashboard, {
+      revalidateOnFocus: true,
+      hideDataWhileRefreshing: true,
+    });
 
   if (status !== 'ready' || data === null) {
     return (
