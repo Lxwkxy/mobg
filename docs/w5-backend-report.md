@@ -9,7 +9,7 @@ Raw results: [w5-api-audit-results.md](w5-api-audit-results.md) (169 rows, one p
 
 | Item | Result |
 |---|---|
-| Automated API audit on Pai's W5 seed | **169/169 PASS** after one fix (166 checks before; 4 failures, 1 a real bug) |
+| Automated API audit on Pai's W5 seed | **169/169 PASS** after one fix (162/166 before; 4 failures, 1 a real bug). Rerun after the PR #26 review changes (full envelope check, seed-relative due date): still 169/169 |
 | Existing suite `npm run test:db` | Before and after: 101 tests, 100 pass, 1 skipped, 0 fail. The regression for the bug was added inside the existing W4 "POST members" test (section 5). `typecheck`, `typecheck:tests`, `build` pass |
 | Bug found | Request body over 100 kB returned `500 INTERNAL_ERROR`. Now `413 VALIDATION_ERROR`; unreadable charset/encoding `415 VALIDATION_ERROR` |
 | Permission checks | Non-member, wrong role, other project's task ID, tampered `userId`/`projectId` query, expired session, logged-out cookie and unlinked profile all denied with the contract code. No case returned another account's data |
@@ -27,7 +27,12 @@ Raw results: [w5-api-audit-results.md](w5-api-audit-results.md) (169 rows, one p
    (same seed and oracle Pai used in [w5-db-verification.md](w5-db-verification.md)).
 3. Starts the real `src/server.ts` on a random port and signs in Owner, Member and Outsider with
    disposable passwords that exist only in memory. Responses are checked for leaked secrets.
-4. Sends every request in the results file and compares status code, `error.code` and body.
+4. Sends every request in the results file and compares the status code and body. Every business
+   response must use the section 9 envelope: success → `success: true`; error → `success: false`
+   with the expected `error.code` and a non-empty `error.message`. Better Auth (`/api/auth/*`) and
+   `/api/health` keep their own shapes and are checked by status and their own fields.
+   Dates that decide `isOverdue` are computed from the seed's `reference_date` (as in Pai's
+   fixture), so the audit gives the same result on any day.
 5. Drops only the database it created. Exit code 0 = all PASS.
 
 ```powershell

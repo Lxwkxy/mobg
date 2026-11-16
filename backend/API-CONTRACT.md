@@ -40,17 +40,30 @@ the business envelope in section 9 does not apply to these routes.
 | POST /api/auth/reset-password | authClient.resetPassword({ token, newPassword }) | Spends token, replaces password and revokes sessions |
 | GET /api/me | Business API (mounted in W2) | { success: true, user: { userId, userName, email } } |
 
-Example flow with curl (PowerShell: use `curl.exe`; type the password yourself, never save it in a script).
+Example flow with curl in PowerShell (Windows PowerShell 5.1 and PowerShell 7). Use `curl.exe`,
+not the `curl` alias. The password is typed into a hidden prompt and never appears on the command
+line or in history. JSON bodies are built with `ConvertTo-Json` and sent to curl through stdin
+(`--data-binary '@-'`), so no quote escaping is needed: hand-escaped `\"` inside a PowerShell
+argument reaches the server as a literal backslash on PowerShell 7.3+ and breaks the JSON.
 Better Auth checks `Origin` on POST, so send the web origin:
 
 ```powershell
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)   # pipe UTF-8 (5.1 defaults to ASCII)
 $o = 'http://localhost:3000'; $api = 'http://localhost:5000'
-curl.exe -s -c cookies.txt -H "Origin: $o" -H 'Content-Type: application/json' `
-  -d '{\"email\":\"mobg-member@example.test\",\"password\":\"<your password>\"}' "$api/api/auth/sign-in/email"
+
+$secure = Read-Host 'Password for mobg-member@example.test' -AsSecureString
+@{ email = 'mobg-member@example.test'; password = [System.Net.NetworkCredential]::new('', $secure).Password } |
+  ConvertTo-Json -Compress |
+  curl.exe -s -c cookies.txt -H "Origin: $o" -H 'Content-Type: application/json' --data-binary '@-' "$api/api/auth/sign-in/email"
+Remove-Variable secure
+
 curl.exe -s -b cookies.txt "$api/api/me"                    # 200 { success, user: { userId, userName, email } }
 curl.exe -s -b cookies.txt "$api/api/projects?status=In%20progress"
-curl.exe -s -b cookies.txt -X PATCH -H 'Content-Type: application/json' -d '{\"status\":\"Done\"}' `
-  "$api/api/projects/<projectId>/tasks/<taskId>"            # 200 { success, task }
+
+@{ status = 'Done' } | ConvertTo-Json -Compress |
+  curl.exe -s -b cookies.txt -X PATCH -H 'Content-Type: application/json' --data-binary '@-' `
+    "$api/api/projects/<projectId>/tasks/<taskId>"          # 200 { success, task }
+
 curl.exe -s -b cookies.txt -X POST -H "Origin: $o" -H 'Content-Type: application/json' -d '{}' "$api/api/auth/sign-out"
 curl.exe -s -b cookies.txt "$api/api/me"                    # 401 UNAUTHENTICATED
 Remove-Item cookies.txt

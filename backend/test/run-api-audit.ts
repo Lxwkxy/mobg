@@ -46,13 +46,28 @@ async function raw(cookie: string | undefined, method: string, path: string, ini
 const api = (who: Who, method: string, path: string, body?: unknown) =>
   raw(who ? cookies[who] : undefined, method, path, body === undefined ? {} : { body: JSON.stringify(body) });
 
+// Business routes use the contract envelope (section 9). Better Auth (/api/auth/*) and /api/health
+// answer in their own shapes, so only their status and `extra` checks apply.
+const isBusiness = (request: string) => !/ \/api\/(auth|health)\b/.test(request);
+function envelopeProblem(body: any, expected: number, code?: string): string | undefined {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return "body is not a JSON object";
+  if (expected < 400) return body.success === true ? undefined : "success is not true";
+  if (body.success !== false) return "success is not false";
+  if (!code) return "audit row has no expected error.code";
+  if (body.error?.code !== code) return `error.code ${String(body.error?.code)}`;
+  if (typeof body.error.message !== "string" || body.error.message.trim() === "") return "error.message missing";
+  return undefined;
+}
+
 // Records one row. `extra` checks the body; a false/throwing check is a failure with the reason shown.
 function check(area: string, who: Who | string, request: string, scenario: string, res: Result,
   expected: number, code?: string, extra?: (body: any) => boolean | string) {
   let pass = res.status === expected;
   let note = `${res.status}${res.body?.error?.code ? " " + res.body.error.code : ""}`;
-  if (pass && code && res.body?.error?.code !== code) pass = false;
-  if (pass && expected < 400 && res.body?.success === false) pass = false;
+  if (pass && isBusiness(request)) {
+    const problem = envelopeProblem(res.body, expected, code);
+    if (problem) { pass = false; note += ` (${problem})`; }
+  }
   if (pass && extra) {
     try {
       const outcome = extra(res.body);
@@ -99,6 +114,10 @@ try {
     const P = Object.fromEntries(Object.entries(fixture.project_ids).map(([k, v]) => [k, Number(v)])) as Record<"main" | "completed" | "empty" | "delete", number>;
     const T = (fixture.task_ids as string[]).map(Number); // 0-4 main, 5-6 completed, 7 sandbox
     const R = fixture.roles as { owner_id: number; member_id: number; outsider_id: number };
+    // Dates relative to the seed's reference date (Bangkok "today" when seeded), like Pai's fixture,
+    // so isOverdue expectations hold on any day the audit runs.
+    const referenceDate = fixture.reference_date as string;
+    const seedDay = (days: number) => new Date(Date.parse(`${referenceDate}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
     const emails = Object.fromEntries((await db.query("SELECT user_id::int AS id, email FROM users WHERE user_id = ANY($1::bigint[])",
       [Object.values(R)])).rows.map((r) => [r.id, r.email]));
 
@@ -267,7 +286,7 @@ try {
     check("tasks", "owner", "GET /api/projects/:main/tasks/abc", "invalid task id", await api("owner", "GET", `${mainTasks}/abc`), 400, "VALIDATION_ERROR");
     check("tasks", "outsider", "GET /api/projects/:main/tasks/abc", "non-member gets 404 before id validation", await api("outsider", "GET", `${mainTasks}/abc`), 404, "NOT_FOUND");
 
-    const goodTask = { taskTitle: "Audit task", priority: 2, dueDate: "2026-12-24", assigneeIds: [R.member_id] };
+    const goodTask = { taskTitle: "Audit task", priority: 2, dueDate: seedDay(30), assigneeIds: [R.member_id] };
     const invalidTasks: [string, unknown][] = [
       ["missing taskTitle", { ...goodTask, taskTitle: undefined }], ["title > 200", { ...goodTask, taskTitle: "x".repeat(201) }],
       ["priority 4", { ...goodTask, priority: 4 }], ["priority as string", { ...goodTask, priority: "1" }],
