@@ -19,7 +19,8 @@
     "check:demo": "tsx src/check-demo.ts",
     "db:verify": "tsx src/verify-db.ts",
     "db:backup": "tsx src/backup-db.ts",
-    "test:demo-rehearsal": "tsx test/run-demo-rehearsal.ts"
+    "test:demo-rehearsal": "tsx test/run-demo-rehearsal.ts",
+    "test:api-audit": "tsx test/run-api-audit.ts"
   },
   "keywords": [],
   "author": "",

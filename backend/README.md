@@ -1,14 +1,67 @@
 # MobG Backend
 
 Express 5 + TypeScript (ESM), a shared PostgreSQL pool and Better Auth 1.7.7.
-Session guards, `GET /api/me`, `GET /api/users` and the project routes are backed by
-PostgreSQL. The project task routes (`/api/projects/:projectId/tasks`) are implemented and
-covered by HTTP tests; they are not verified from the web UI yet. Comments, activity,
-dashboard, My Tasks and member add/remove endpoints are not implemented yet.
+Implemented and database-backed: `GET /api/me`, `GET /api/users`, `GET /api/search`,
+project CRUD, project members (list/add/remove), project tasks (CRUD), `GET /api/tasks/mine`
+and `GET /api/dashboard`. Comments and activity are contract-only (no endpoint yet).
+All of these passed the W5 audit on Pai's seed (`npm run test:api-audit`, see
+[W5 backend report](../docs/w5-backend-report.md)). The web app calls the project, task,
+member, search and `/api/me` endpoints; its Dashboard and My Tasks pages still use mock data.
 Frontend Login uses Better Auth. Public signup, email verification and password reset
 are described in [account setup](../docs/account-registration.md).
-The frontend has a project API client; Dashboard/My Tasks
-still use mock data. Do not infer full browser integration from DB/HTTP tests.
+
+## Quick start (one flow)
+
+A teammate can follow this to get a running API with three accounts and demo data.
+Use PowerShell. Start in the repository root (the folder with `compose.yml`).
+Variable names come from [`.env.example`](../.env.example).
+
+1. Create `.env` only if it does not exist yet. An existing `.env` keeps its real values;
+   do not overwrite it (an existing Docker volume keeps its original DB password):
+
+   ```powershell
+   if (!(Test-Path .env)) { Copy-Item .env.example .env }
+   ```
+
+   If you just created it, edit `.env` privately: set `POSTGRES_PASSWORD` and delete the
+   `BETTER_AUTH_SECRET=change_me...` placeholder line. Keep `POSTGRES_HOST=127.0.0.1`,
+   `POSTGRES_PORT=5433`, `PORT=5000`, `CORS_ORIGIN=http://localhost:3000`,
+   `BETTER_AUTH_URL=http://localhost:5000`. If `.env` already existed, only check that
+   these keys are present and that `BETTER_AUTH_SECRET` is not the placeholder.
+2. Start PostgreSQL (repository root): `docker compose up -d`.
+3. Install and create the auth secret (it keeps an existing real secret):
+
+   ```powershell
+   cd backend
+   npm ci
+   npm run setup:auth-secret
+   cd ..
+   ```
+
+4. **Back in the repository root**, make a demo database with Pai's seed (accounts Owner /
+   Member / Outsider): follow
+   [database/README.md → isolated demonstration database](../database/README.md#prepare-a-persistent-isolated-demonstration-database)
+   in this same terminal. It starts at the root and ends inside `backend/` with
+   `$env:POSTGRES_DB` set; `set-seed-env.ps1` asks for the three passwords without showing them.
+5. In that same terminal (still in `backend/`, `$env:POSTGRES_DB` still set), start the API:
+   `npm run dev`. Check `http://localhost:5000/api/health` → `{"status":"OK",...}`.
+6. **Open a second PowerShell terminal in the repository root** for the web app (the first
+   one keeps running the API):
+
+   ```powershell
+   cd web
+   if (!(Test-Path .env.local)) { Copy-Item env.example .env.local }
+   npm ci
+   npm run dev
+   ```
+
+   Open `http://localhost:3000/login`, sign in as `mobg-member@example.test`, open
+   **MobG W5 Main Demo** (progress 20%), change "Future Medium" to Done (40%), then Log out.
+   The same flow by API with curl is in [API contract → section 1](API-CONTRACT.md#1-login--logout--current-user).
+7. Optional automatic check of every endpoint, from `backend/` in any terminal:
+   `npm run test:api-audit` (prints `N/N checks PASS`; it uses its own temporary database).
+
+Close the first terminal (or `Remove-Item Env:POSTGRES_DB`) before normal development on `mobg_db`.
 
 ## Local setup
 
@@ -58,6 +111,7 @@ Commands:
 | `npm run seed:demo -- --database NAME --w5` | Provision/verify accounts and seed W5 in a separate `mobg_w5_demo_*` DB |
 | `npm run db:backup -- --database SOURCE --restore-database NEW_NAME` | Private backup plus verified restore to a new `mobg_w5_restore_*` DB |
 | `npm run test:demo-rehearsal` | Disposable W5 setup, native auth, seed rerun and Docker backup/restore |
+| `npm run test:api-audit [-- --out FILE]` | W5 API audit: fresh `mobg_w5_demo_audit_*` DB with Pai's seed, real server, 170 HTTP checks; removes its DB |
 
 Run `npm run typecheck` before committing; `npm run dev` does not report type errors.
 `GET /api/health` is a server health endpoint, not a database or Login check.
@@ -73,8 +127,8 @@ Run `npm run typecheck` before committing; `npm run dev` does not report type er
 | `src/guards.ts`, `src/middleware/auth.ts` | `requireAuth` and `requireProjectRole("Member" \| "Owner")` |
 | `src/errors.ts`, `src/pgErrors.ts` | `ApiError` and PostgreSQL error helpers |
 | `src/mappers/` | DB rows to public DTOs (BIGINT strings to numbers, dates, roles) |
-| `src/routes/` | `me.ts`, `users.ts`, `projects.ts`, `tasks.ts` |
-| `src/services/` | Database functions (`authDb.ts`, `projectDb.ts`, `taskDb.ts`, `dbHelpers.ts`) |
+| `src/routes/` | `me.ts`, `users.ts`, `projects.ts`, `members.ts`, `tasks.ts`, `myTasks.ts`, `dashboard.ts`, `search.ts` |
+| `src/services/` | Pai's database functions (`authDb.ts`, `projectDb.ts`, `taskDb.ts`, `dashboardDb.ts`, `searchDb.ts`, `dbHelpers.ts`) |
 | `src/provisioning/`, `src/seed-accounts.ts` | Account provisioning (not part of the serving app) |
 
 ## Authentication and permissions

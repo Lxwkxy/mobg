@@ -196,6 +196,20 @@ test("POST members: role checks, project lookup and body validation", async () =
     headers: { "Content-Type": "application/json", Origin: origin, Cookie: cookies.owner } });
   assert.equal(raw.status, 400);
   assert.equal(((await raw.json()) as any).error.code, "VALIDATION_ERROR");
+  // W5 audit: a body over express.json()'s 100 kB limit, or an unreadable charset/encoding, keeps
+  // body-parser's 4xx status with a fixed message instead of falling through to 500.
+  for (const [label, init, status] of [
+    ["over 100 kB", { body: JSON.stringify({ userId: ids.newcomer, pad: "x".repeat(150_000) }), headers: {} }, 413],
+    ["unknown charset", { body: "{}", headers: { "Content-Type": "application/json; charset=x-unknown" } }, 415],
+    ["unknown encoding", { body: "{}", headers: { "Content-Encoding": "x-unknown" } }, 415],
+  ] as const) {
+    const res = await fetch(base + url, { method: "POST", body: init.body,
+      headers: { "Content-Type": "application/json", Origin: origin, Cookie: cookies.owner, ...init.headers } });
+    const json = (await res.json()) as any;
+    assert.equal(res.status, status, label);
+    assert.equal(json.error.code, "VALIDATION_ERROR", label);
+    assert.equal(JSON.stringify(json).includes("stack"), false, label);
+  }
   assert.deepEqual((await memberList("owner", project)).map((m) => m.userId).sort(), [ids.owner, ids.member].sort());
 });
 

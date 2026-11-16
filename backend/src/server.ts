@@ -65,6 +65,13 @@ const handleError: ErrorRequestHandler = (error, _req, res, next) => {
     res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Request body must be valid JSON" } });
     return;
   }
+  // Other express.json() rejections (body over 100 kB, unsupported charset/encoding) are client errors,
+  // not 500s. Keep body-parser's 4xx status and send a fixed message, never the raw error text.
+  if (typeof error?.type === "string" && Number.isInteger(error?.status) && error.status >= 400 && error.status < 500) {
+    const message = error.type === "entity.too.large" ? "Request body is too large (limit 100 kB)" : "Request body could not be read";
+    res.status(error.status).json({ success: false, error: { code: "VALIDATION_ERROR", message } });
+    return;
+  }
   console.error(error);
   res.status(500).json({ success: false, error: { code: "INTERNAL_ERROR", message: "Internal server error" } });
 };
