@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -17,16 +18,6 @@ type Outcome<T> =
   | { status: 'no-profile' }
   | { status: 'error'; httpStatus?: number };
 
-/**
- * ตรวจ session (GET /api/me) แล้วโหลดข้อมูลของหน้า
- *
- * - `load` ต้องมี identity คงที่ (module-level function หรือ useCallback)
- *   เมื่อ `load` เปลี่ยน (เช่น เปลี่ยนหน้า pagination) จะโหลดใหม่เอง
- * - ไม่เรียก setState แบบ synchronous ใน effect: สถานะ loading คำนวณจาก
- *   token เทียบกับผลล่าสุด ส่วน setState เกิดหลัง await เท่านั้น
- * - ระหว่างโหลดใหม่ ถ้าผลก่อนหน้าสำเร็จ จะคง `data` เดิมไว้และตั้ง isRefreshing
- * - 401 -> login-required, 403 -> no-profile, อย่างอื่น -> error (พร้อม httpStatus)
- */
 export function useProtectedLoad<T>(load: () => Promise<T>) {
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{
@@ -34,8 +25,25 @@ export function useProtectedLoad<T>(load: () => Promise<T>) {
     outcome: Outcome<T>;
   } | null>(null);
 
-  // identity ของ token เปลี่ยนทุกครั้งที่ load เปลี่ยนหรือกด retry
   const token = useMemo(() => ({ load, attempt }), [load, attempt]);
+
+  // เมื่อกลับมาเปิดแท็บ ให้ตรวจ Session และโหลดข้อมูลใหม่
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        setAttempt((value) => value + 1);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener(
+        'visibilitychange',
+        handleVisibilityChange,
+      );
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,22 +51,42 @@ export function useProtectedLoad<T>(load: () => Promise<T>) {
     async function run(): Promise<Outcome<T>> {
       try {
         const user = await getCurrentUser();
-        if (!user) return { status: 'login-required' };
 
-        return { status: 'ready', data: await load(), user };
+        if (!user) {
+          return { status: 'login-required' };
+        }
+
+        const data = await load();
+
+        return {
+          status: 'ready',
+          data,
+          user,
+        };
       } catch (error) {
         const httpStatus = (error as { status?: number }).status;
 
-        if (httpStatus === 401) return { status: 'login-required' };
-        if (httpStatus === 403) return { status: 'no-profile' };
+        if (httpStatus === 401) {
+          return { status: 'login-required' };
+        }
 
-        console.error('Failed to verify session or load data:', error);
+        if (httpStatus === 403) {
+          return { status: 'no-profile' };
+        }
+
+        console.error(
+          'Failed to verify session or load data:',
+          error,
+        );
+
         return { status: 'error', httpStatus };
       }
     }
 
     void run().then((outcome) => {
-      if (!cancelled) setResult({ token, outcome });
+      if (!cancelled) {
+        setResult({ token, outcome });
+      }
     });
 
     return () => {
@@ -66,26 +94,31 @@ export function useProtectedLoad<T>(load: () => Promise<T>) {
     };
   }, [token, load]);
 
-  const retry = useCallback(() => setAttempt((value) => value + 1), []);
+  const retry = useCallback(() => {
+    setAttempt((value) => value + 1);
+  }, []);
 
-  const outcome = result?.outcome;
   const isStale = result === null || result.token !== token;
+  const outcome = isStale ? undefined : result.outcome;
 
   const status: LoadStatus =
     outcome === undefined
       ? 'loading'
-      : outcome.status === 'ready'
-        ? 'ready'
-        : isStale
-          ? 'loading'
-          : outcome.status;
+      : outcome.status;
 
   return {
     status,
     data: outcome?.status === 'ready' ? outcome.data : null,
     user: outcome?.status === 'ready' ? outcome.user : null,
-    httpStatus: outcome?.status === 'error' ? outcome.httpStatus : undefined,
-    isRefreshing: isStale && outcome?.status === 'ready',
+    userId:
+      outcome?.status === 'ready'
+        ? outcome.user.userId
+        : null,
+    httpStatus:
+      outcome?.status === 'error'
+        ? outcome.httpStatus
+        : undefined,
+    isRefreshing: isStale,
     retry,
   };
 }

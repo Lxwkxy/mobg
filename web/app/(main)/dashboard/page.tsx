@@ -2,66 +2,66 @@
 'use client';
 
 import Link from 'next/link';
+
 import { dashboardApi } from '@/lib/dashboardApi';
 import { projectApi } from '@/lib/projectApi';
 import { taskApi } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import ProtectedState from '@/components/ProtectedState';
-import type { DashboardResponse, ProjectsResponse, Task } from '@/types';
+
+import type {
+  DashboardResponse,
+  ProjectsResponse,
+  Task,
+} from '@/types';
 
 type DashboardData = {
-  summary: Extract<DashboardResponse, { success: true }>['summary'];
-  projects: Extract<ProjectsResponse, { success: true }>['projects'];
-  tasks: Task[];
+  summary: Extract<
+    DashboardResponse,
+    { success: true }
+  >['summary'];
+
+  projects: Extract<
+    ProjectsResponse,
+    { success: true }
+  >['projects'];
+
+  importantTasks: Task[];
 };
 
 const loadDashboard = async (): Promise<DashboardData> => {
-  const [dashboard, firstPage, myTasks] = await Promise.all([
+  const [dashboard, projectResult, myTasks] = await Promise.all([
     dashboardApi.getDashboard(5),
-    projectApi.getProjects({ page: 1, pageSize: 50 }),
+    projectApi.getProjects({ page: 1, pageSize: 5 }),
     taskApi.getMyTasks(),
   ]);
 
-  // ดึงโปรเจกต์ทุกหน้า
-  const remainingPages = await Promise.all(
-    Array.from(
-      { length: Math.max(0, firstPage.pagination.totalPages - 1) },
-      (_, index) =>
-        projectApi.getProjects({
-          page: index + 2,
-          pageSize: 50,
-        }),
-    ),
-  );
-
-  const projects = [
-    ...firstPage.projects,
-    ...remainingPages.flatMap((page) => page.projects),
-  ];
-
-  // แสดงเฉพาะงานที่ยังไม่ Done
-  // เรียง Priority: High -> Medium -> Low
-  // ถ้า Priority เท่ากัน เรียง Due Date ใกล้ส่งก่อน
-  const tasks = myTasks
+  const importantTasks = myTasks
     .filter((task) => task.status !== 'Done')
     .sort((a, b) => {
+      // Priority: High (1) -> Medium (2) -> Low (3)
       if (a.priority !== b.priority) {
         return a.priority - b.priority;
       }
 
-      const dateCompare = a.dueDate.localeCompare(b.dueDate);
+      // Due date: nearest -> farthest
+      const dateComparison =
+        new Date(a.dueDate).getTime() -
+        new Date(b.dueDate).getTime();
 
-      if (dateCompare !== 0) {
-        return dateCompare;
+      if (dateComparison !== 0) {
+        return dateComparison;
       }
 
+      // Use taskId as a stable tie-breaker
       return a.taskId - b.taskId;
-    });
+    })
+    .slice(0, 5);
 
   return {
     summary: dashboard.summary,
-    projects,
-    tasks,
+    projects: projectResult.projects,
+    importantTasks,
   };
 };
 
@@ -89,7 +89,7 @@ export default function DashboardPage() {
     );
   }
 
-  const { summary, projects, tasks } = data;
+  const { summary, projects, importantTasks } = data;
 
   const stats = [
     {
@@ -148,6 +148,7 @@ export default function DashboardPage() {
               <span className="text-[12px] text-[#666666]">
                 {item.label}
               </span>
+
               <strong className="text-[20px] font-bold text-[#111111] mt-0.5">
                 {item.value}
               </strong>
@@ -179,7 +180,7 @@ export default function DashboardPage() {
             </p>
           ) : (
             <div className="flex flex-col">
-              {projects.slice(0, 5).map((project) => {
+              {projects.map((project) => {
                 const progress = Math.max(
                   0,
                   Math.min(100, project.progressPercent),
@@ -246,13 +247,13 @@ export default function DashboardPage() {
             </Link>
           </div>
 
-          {tasks.length === 0 ? (
+          {importantTasks.length === 0 ? (
             <p className="py-6 text-center text-[12px] text-[#888888]">
-              No assigned tasks to do.
+              No important tasks.
             </p>
           ) : (
             <div className="flex flex-col">
-              {tasks.map((task) => (
+              {importantTasks.map((task) => (
                 <Link
                   key={`${task.projectId}-${task.taskId}`}
                   href={`/projects/${task.projectId}/tasks/${task.taskId}`}
