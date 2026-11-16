@@ -26,7 +26,10 @@ export default function MyTasksPage() {
   const [actionError, setActionError] = useState('');
 
   const { status, data, retry, isRefreshing } =
-    useProtectedLoad(loadMyTasks);
+    useProtectedLoad(loadMyTasks, {
+      revalidateOnFocus: true,
+      hideDataWhileRefreshing: true,
+    });
 
   const handleStatusChange = async (
     task: Task,
