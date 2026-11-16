@@ -10,10 +10,13 @@ import {
 } from 'react';
 
 import { getCurrentUser } from '@/lib/authService';
+
 import {
   useSession,
   type SessionStatus,
 } from '@/lib/SessionProvider';
+
+import type { User } from '@/types';
 
 export type LoadStatus =
   | 'loading'
@@ -26,18 +29,27 @@ type Outcome<T> =
   | { status: 'ready'; data: T }
   | { status: 'error'; httpStatus?: number };
 
+type LoadResult<T> = {
+  token: object;
+  userId: User['userId'];
+  outcome: Outcome<T>;
+};
+
+type LoadSuccess<T> = {
+  token: object;
+  userId: User['userId'];
+  data: T;
+};
+
 export type ProtectedLoadOptions = {
   revalidateOnFocus?: boolean;
   hideDataWhileRefreshing?: boolean;
-
-  /**
-   * Deprecated: ไม่ใช้ pathname เป็นตัวเริ่ม revalidation อีกต่อไป
-   * เก็บไว้ชั่วคราวเพื่อรองรับหน้าที่ส่ง option นี้อยู่
-   */
   revalidateOnRoute?: string;
 };
 
-function toLoadStatus(status: SessionStatus): LoadStatus {
+function toLoadStatus(
+  status: SessionStatus,
+): LoadStatus {
   return status;
 }
 
@@ -59,16 +71,25 @@ export function useProtectedLoad<T>(
   } = useSession();
 
   const [attempt, setAttempt] = useState(0);
-
-  // หน้าเหล่านี้ต้องตรวจ Session ใหม่ก่อนโหลดข้อมูลทุกครั้งที่ Mount
   const [mountValidated, setMountValidated] = useState(false);
 
-  const [result, setResult] = useState<{
-    token: object;
-    outcome: Outcome<T>;
-  } | null>(null);
+  const [result, setResult] =
+    useState<LoadResult<T> | null>(null);
+
+  const [lastSuccess, setLastSuccess] =
+    useState<LoadSuccess<T> | null>(null);
 
   const lastRefreshAt = useRef(0);
+
+  // แยก User ออกมาก่อน เพื่อให้ TypeScript ตรวจสอบ null ได้
+  const currentUser = session.user;
+
+  const sessionReady =
+    session.status === 'ready' &&
+    currentUser !== null;
+
+  const sessionUserId =
+    currentUser?.userId ?? null;
 
   const token = useMemo(
     () => ({
@@ -79,7 +100,7 @@ export function useProtectedLoad<T>(
     [load, attempt, session.revision],
   );
 
-  // ตรวจ Session ก่อนเริ่มโหลดข้อมูลทุกครั้งที่เปิดหน้านี้
+  // ตรวจ Session ก่อนโหลดข้อมูลครั้งแรก
   useEffect(() => {
     if (!revalidateOnFocus) {
       return;
@@ -100,7 +121,7 @@ export function useProtectedLoad<T>(
     };
   }, [revalidateOnFocus, refreshSession]);
 
-  // ตรวจ Session เมื่อกลับมาเปิดหน้าต่างหรือแท็บ
+  // ตรวจ Session เมื่อกลับมาเปิดแท็บหรือหน้าต่าง
   useEffect(() => {
     if (!revalidateOnFocus) {
       return;
@@ -108,12 +129,13 @@ export function useProtectedLoad<T>(
 
     lastRefreshAt.current = Date.now();
 
-    const refresh = () => {
+    const refresh = (force = false) => {
       const now = Date.now();
 
-      // ป้องกัน focus, visibilitychange และ pageshow
-      // ทำให้เกิด Request ซ้ำในช่วงเวลาใกล้กัน
-      if (now - lastRefreshAt.current < 500) {
+      if (
+        !force &&
+        now - lastRefreshAt.current < 500
+      ) {
         return;
       }
 
@@ -121,18 +143,28 @@ export function useProtectedLoad<T>(
       void refreshSession();
     };
 
-    const handleVisibilityChange = () => {
+    function handleFocus() {
+      refresh();
+    }
+
+    function handleVisibilityChange() {
       if (document.visibilityState === 'visible') {
         refresh();
       }
-    };
+    }
 
-    const handlePageShow = () => {
-      refresh();
-    };
+    function handlePageShow(
+      event: PageTransitionEvent,
+    ) {
+      refresh(event.persisted);
+    }
 
-    window.addEventListener('focus', refresh);
-    window.addEventListener('pageshow', handlePageShow);
+    window.addEventListener('focus', handleFocus);
+
+    window.addEventListener(
+      'pageshow',
+      handlePageShow,
+    );
 
     document.addEventListener(
       'visibilitychange',
@@ -140,8 +172,15 @@ export function useProtectedLoad<T>(
     );
 
     return () => {
-      window.removeEventListener('focus', refresh);
-      window.removeEventListener('pageshow', handlePageShow);
+      window.removeEventListener(
+        'focus',
+        handleFocus,
+      );
+
+      window.removeEventListener(
+        'pageshow',
+        handlePageShow,
+      );
 
       document.removeEventListener(
         'visibilitychange',
@@ -150,28 +189,24 @@ export function useProtectedLoad<T>(
     };
   }, [revalidateOnFocus, refreshSession]);
 
-  const sessionUserId = session.user?.userId;
-
-  const sessionReady =
-    session.status === 'ready' && session.user !== null;
-
-  // โหลดข้อมูลเมื่อ Session ผ่านการตรวจสอบแล้วเท่านั้น
+  // โหลดข้อมูลเมื่อ Session พร้อมแล้วเท่านั้น
   useEffect(() => {
-    // ถ้าเปิด revalidateOnFocus ต้องรอการตรวจ Session ตอน Mount ก่อน
-    if (revalidateOnFocus && !mountValidated) {
+    if (
+      revalidateOnFocus &&
+      !mountValidated
+    ) {
       return;
     }
 
-    if (!sessionReady || sessionUserId === undefined) {
+    if (!sessionReady || sessionUserId === null) {
       return;
     }
 
     let cancelled = false;
 
-    // จำ Revision ตอนเริ่ม Request
     const requestRevision = session.revision;
+    const requestUserId = sessionUserId;
 
-    // ตรวจว่า Request ยังทำงานอยู่และ Revision ยังตรงกัน
     const isRequestCurrent = () => {
       return (
         !cancelled &&
@@ -187,9 +222,9 @@ export function useProtectedLoad<T>(
           return { status: 'error' };
         }
 
-        // ตรวจ /api/me รอบสองเฉพาะหน้าที่เปิด revalidateOnFocus
+        // ตรวจ /api/me ซ้ำเฉพาะหน้าที่เปิด revalidateOnFocus
         if (revalidateOnFocus) {
-          let currentUser;
+          let currentUser: User | null;
 
           try {
             currentUser = await getCurrentUser();
@@ -233,9 +268,8 @@ export function useProtectedLoad<T>(
             return { status: 'error' };
           }
 
-          // ถ้าบัญชีเปลี่ยนระหว่างโหลดข้อมูล
-          // ให้เปลี่ยน Session และเริ่มโหลดข้อมูลใหม่
-          if (currentUser.userId !== sessionUserId) {
+          // ตรวจว่าผู้ใช้ยังเป็นบัญชีเดิมหรือไม่
+          if (currentUser.userId !== requestUserId) {
             replaceSession(
               currentUser,
               'ready',
@@ -245,14 +279,16 @@ export function useProtectedLoad<T>(
             return { status: 'error' };
           }
 
-          // อัปเดตชื่อและอีเมลของบัญชีเดิม
-          // โดยไม่เพิ่ม Revision
+          // อัปเดตชื่อและอีเมล โดยไม่เปลี่ยน Revision
           const updated = updateSessionUser(
             currentUser,
             requestRevision,
           );
 
-          if (!updated || !isRequestCurrent()) {
+          if (
+            !updated ||
+            !isRequestCurrent()
+          ) {
             return { status: 'error' };
           }
         }
@@ -266,7 +302,6 @@ export function useProtectedLoad<T>(
           data,
         };
       } catch (error) {
-        // Request เก่าหรือถูกยกเลิกไม่มีสิทธิ์เปลี่ยน Session
         if (!isRequestCurrent()) {
           return { status: 'error' };
         }
@@ -306,10 +341,21 @@ export function useProtectedLoad<T>(
         return;
       }
 
-      setResult({
+      const nextResult: LoadResult<T> = {
         token,
+        userId: requestUserId,
         outcome,
-      });
+      };
+
+      setResult(nextResult);
+
+      if (outcome.status === 'ready') {
+        setLastSuccess({
+          token,
+          userId: requestUserId,
+          data: outcome.data,
+        });
+      }
     });
 
     return () => {
@@ -337,48 +383,86 @@ export function useProtectedLoad<T>(
     setAttempt((value) => value + 1);
   }, [session.status, refreshSession]);
 
-  const isStale =
-    result === null || result.token !== token;
+  const resultOwnedByCurrentUser =
+    result !== null &&
+    sessionUserId !== null &&
+    result.userId === sessionUserId;
 
-  const outcome = result?.outcome;
+  const isStale =
+    result === null ||
+    result.token !== token;
 
   const shouldHideData =
-    hideDataWhileRefreshing &&
+    !sessionReady ||
+    !resultOwnedByCurrentUser ||
     (
-      isStale ||
-      !sessionReady ||
-      (revalidateOnFocus && !mountValidated)
+      hideDataWhileRefreshing &&
+      isStale
     );
 
-  const visibleOutcome = shouldHideData
-    ? undefined
-    : outcome;
+  const visibleOutcome =
+    shouldHideData
+      ? undefined
+      : result?.outcome;
 
-  const status: LoadStatus =
-    session.status !== 'ready'
-      ? toLoadStatus(session.status)
-      : visibleOutcome === undefined
-        ? 'loading'
-        : visibleOutcome.status === 'ready'
-          ? 'ready'
-          : isStale
-            ? 'loading'
-            : 'error';
+  let status: LoadStatus;
+
+  if (session.status !== 'ready') {
+    status = toLoadStatus(session.status);
+  } else if (!resultOwnedByCurrentUser) {
+    status = 'loading';
+  } else if (
+    hideDataWhileRefreshing &&
+    isStale
+  ) {
+    status = 'loading';
+  } else if (
+    isStale &&
+    result?.outcome.status === 'error'
+  ) {
+    status = 'loading';
+  } else if (!visibleOutcome) {
+    status = 'loading';
+  } else {
+    status = visibleOutcome.status;
+  }
+
+  const data =
+    status === 'ready' &&
+    visibleOutcome?.status === 'ready'
+      ? visibleOutcome.data
+      : null;
+
+  // รักษาข้อมูลเดิมไว้สำหรับ Edit Task
+  // ระหว่าง Session กำลังตรวจสอบหรือเชื่อมต่อไม่ได้
+  const retainedAllowed =
+    session.status === 'loading' ||
+    session.status === 'error' ||
+    (
+      session.status === 'ready' &&
+      currentUser !== null &&
+      lastSuccess?.userId === currentUser.userId
+    );
+
+  const retained =
+    retainedAllowed
+      ? lastSuccess?.data ?? null
+      : null;
+
+  const retainedUserId =
+    retained !== null
+      ? lastSuccess?.userId ?? null
+      : null;
 
   return {
     status,
+    data,
 
-    data:
-      status === 'ready' &&
-      visibleOutcome?.status === 'ready'
-        ? visibleOutcome.data
-        : null,
-
-    user: sessionReady ? session.user : null,
-
-    userId: sessionReady
-      ? session.user?.userId ?? null
+    user: sessionReady
+      ? currentUser
       : null,
+
+    userId: sessionUserId,
 
     httpStatus:
       visibleOutcome?.status === 'error'
@@ -386,7 +470,12 @@ export function useProtectedLoad<T>(
         : undefined,
 
     isRefreshing:
-      isStale && outcome?.status === 'ready',
+      resultOwnedByCurrentUser &&
+      isStale &&
+      result?.outcome.status === 'ready',
+
+    retained,
+    retainedUserId,
 
     retry,
   };

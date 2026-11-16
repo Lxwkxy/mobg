@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -21,7 +20,7 @@ export type SessionStatus =
   | 'no-profile'
   | 'error';
 
-type SessionState = {
+export type SessionState = {
   status: SessionStatus;
   user: User | null;
   revision: number;
@@ -29,23 +28,31 @@ type SessionState = {
 
 type SessionContextValue = {
   session: SessionState;
+
   refreshSession: () => Promise<SessionState>;
+
   replaceSession: (
     user: User | null,
     status?: SessionStatus,
     expectedRevision?: number,
   ) => boolean;
+
   updateSessionUser: (
     user: User,
     expectedRevision?: number,
   ) => boolean;
-  isCurrentSessionRevision: (revision: number) => boolean;
+
+  invalidateSession: () => void;
+
   clearSession: () => void;
+
+  isCurrentSessionRevision: (
+    revision: number,
+  ) => boolean;
 };
 
-const SessionContext = createContext<SessionContextValue | null>(
-  null,
-);
+const SessionContext =
+  createContext<SessionContextValue | null>(null);
 
 export function SessionProvider({
   children,
@@ -58,17 +65,23 @@ export function SessionProvider({
     revision: 0,
   });
 
+  // ใช้ Ref เป็นแหล่งข้อมูล Session ปัจจุบัน
+  // เพื่อให้ Request ตรวจสอบค่าได้ทันทีโดยไม่รอ React render
   const sessionRef = useRef(session);
+
   const revisionRef = useRef(0);
-  const requestRef = useRef<Promise<SessionState> | null>(null);
 
-  // อัปเดตทั้ง React state และ ref ให้ตรงกันทันที
-  const commitSession = useCallback((next: SessionState) => {
-    sessionRef.current = next;
-    setSession(next);
-  }, []);
+  const requestRef =
+    useRef<Promise<SessionState> | null>(null);
 
-  // ตรวจว่า Revision ที่ Request เริ่มต้นมายังเป็น Revision ปัจจุบัน
+  const commitSession = useCallback(
+    (nextSession: SessionState) => {
+      sessionRef.current = nextSession;
+      setSession(nextSession);
+    },
+    [],
+  );
+
   const isCurrentSessionRevision = useCallback(
     (revision: number) => {
       return revisionRef.current === revision;
@@ -76,6 +89,7 @@ export function SessionProvider({
     [],
   );
 
+  // เปลี่ยน Session พร้อมยกเลิกสิทธิ์ของ Request เก่า
   const replaceSession = useCallback(
     (
       user: User | null,
@@ -84,7 +98,6 @@ export function SessionProvider({
         : 'login-required',
       expectedRevision?: number,
     ): boolean => {
-      // ป้องกัน Response เก่าเปลี่ยน Session ใหม่
       if (
         expectedRevision !== undefined &&
         revisionRef.current !== expectedRevision
@@ -92,8 +105,9 @@ export function SessionProvider({
         return false;
       }
 
-      // ทำให้ Request ที่กำลังทำงานอยู่หมดสิทธิ์อัปเดต Session
       revisionRef.current += 1;
+
+      // Request เก่าจะไม่มีสิทธิ์แก้ Session อีก
       requestRef.current = null;
 
       commitSession({
@@ -107,6 +121,8 @@ export function SessionProvider({
     [commitSession],
   );
 
+  // ใช้สำหรับอัปเดตชื่อหรืออีเมลของบัญชีเดิม
+  // โดยไม่เปลี่ยน Revision
   const updateSessionUser = useCallback(
     (
       user: User,
@@ -121,119 +137,140 @@ export function SessionProvider({
 
       const current = sessionRef.current;
 
+      if (
+        current.status !== 'ready' ||
+        !current.user ||
+        current.user.userId !== user.userId
+      ) {
+        return false;
+      }
+
       commitSession({
         ...current,
-        status: 'ready',
         user,
       });
 
-      // ไม่เพิ่ม Revision เพราะเป็นการอัปเดตข้อมูลผู้ใช้บัญชีเดิม
       return true;
     },
     [commitSession],
   );
 
+  // ใช้ตอนเริ่ม Logout:
+  // ซ่อนข้อมูลเก่าและยกเลิก Request ที่กำลังตรวจ Session
+  // แต่ยังไม่เปลี่ยนสถานะเป็น login-required
+  const invalidateSession = useCallback(() => {
+    revisionRef.current += 1;
+    requestRef.current = null;
+
+    commitSession({
+      status: 'loading',
+      user: null,
+      revision: revisionRef.current,
+    });
+  }, [commitSession]);
+
   const clearSession = useCallback(() => {
     replaceSession(null, 'login-required');
   }, [replaceSession]);
 
-  const refreshSession = useCallback((): Promise<SessionState> => {
-    // ป้องกัน focus, visibilitychange และ pageshow
-    // เรียก GET /api/me ซ้ำในช่วงที่ Request เดิมยังทำงาน
-    if (requestRef.current) {
-      return requestRef.current;
-    }
-
-    revisionRef.current += 1;
-
-    const requestRevision = revisionRef.current;
-
-    // ซ่อนข้อมูลบัญชีเดิมทันทีที่เริ่มตรวจ Session
-    commitSession({
-      status: 'loading',
-      user: null,
-      revision: requestRevision,
-    });
-
-    // ใช้ Promise.resolve() เพื่อให้ requestRef ถูกกำหนดก่อน
-    // ที่ Request จะเริ่มทำงานจริง
-    const request = Promise.resolve().then(
-      async (): Promise<SessionState> => {
-        try {
-          const user = await getCurrentUser();
-
-          // ตรวจทั้ง Revision และตัว Request ก่อนอัปเดต
-          if (
-            revisionRef.current !== requestRevision ||
-            requestRef.current !== request
-          ) {
-            return sessionRef.current;
-          }
-
-          const nextSession: SessionState = user
-            ? {
-                status: 'ready',
-                user,
-                revision: requestRevision,
-              }
-            : {
-                status: 'login-required',
-                user: null,
-                revision: requestRevision,
-              };
-
-          commitSession(nextSession);
-
-          return nextSession;
-        } catch (error) {
-          const httpStatus = (
-            error as { status?: number }
-          ).status;
-
-          // Error เก่าก็ไม่มีสิทธิ์เปลี่ยน Session เช่นกัน
-          if (
-            revisionRef.current !== requestRevision ||
-            requestRef.current !== request
-          ) {
-            return sessionRef.current;
-          }
-
-          const nextSession: SessionState = {
-            status:
-              httpStatus === 401
-                ? 'login-required'
-                : httpStatus === 403
-                  ? 'no-profile'
-                  : 'error',
-            user: null,
-            revision: requestRevision,
-          };
-
-          commitSession(nextSession);
-
-          return nextSession;
-        }
-      },
-    );
-
-    requestRef.current = request;
-
-    void request.finally(() => {
-      // Request เก่าห้ามล้าง reference ของ Request ใหม่
-      if (requestRef.current === request) {
-        requestRef.current = null;
+  // ตรวจ Session จาก Backend
+  const refreshSession =
+    useCallback((): Promise<SessionState> => {
+      // ถ้ามี Request ของ Revision ปัจจุบันอยู่แล้ว
+      // ใช้ Request เดิม ไม่ยิงซ้ำ
+      if (requestRef.current) {
+        return requestRef.current;
       }
-    });
 
-    return request;
-  }, [commitSession]);
+      revisionRef.current += 1;
+
+      const requestRevision = revisionRef.current;
+
+      // ซ่อนข้อมูลบัญชีเดิมทันที
+      commitSession({
+        status: 'loading',
+        user: null,
+        revision: requestRevision,
+      });
+
+      // ให้ Request เริ่มหลังจากกำหนด requestRef แล้ว
+      const request = Promise.resolve().then(
+        async (): Promise<SessionState> => {
+          try {
+            const user = await getCurrentUser();
+
+            // ป้องกัน Response เก่าทับ Session ใหม่
+            if (
+              revisionRef.current !== requestRevision ||
+              requestRef.current !== request
+            ) {
+              return sessionRef.current;
+            }
+
+            const nextSession: SessionState = user
+              ? {
+                  status: 'ready',
+                  user,
+                  revision: requestRevision,
+                }
+              : {
+                  status: 'login-required',
+                  user: null,
+                  revision: requestRevision,
+                };
+
+            commitSession(nextSession);
+
+            return nextSession;
+          } catch (error) {
+            const httpStatus = (
+              error as { status?: number }
+            ).status;
+
+            // Error จาก Request เก่าก็ไม่มีสิทธิ์แก้ Session
+            if (
+              revisionRef.current !== requestRevision ||
+              requestRef.current !== request
+            ) {
+              return sessionRef.current;
+            }
+
+            const nextSession: SessionState = {
+              status:
+                httpStatus === 401
+                  ? 'login-required'
+                  : httpStatus === 403
+                    ? 'no-profile'
+                    : 'error',
+              user: null,
+              revision: requestRevision,
+            };
+
+            commitSession(nextSession);
+
+            return nextSession;
+          }
+        },
+      );
+
+      requestRef.current = request;
+
+      void request.finally(() => {
+        // Request เก่าห้ามล้าง Reference ของ Request ใหม่
+        if (requestRef.current === request) {
+          requestRef.current = null;
+        }
+      });
+
+      return request;
+    }, [commitSession]);
 
   useEffect(() => {
     void refreshSession();
 
     return () => {
-      // เมื่อ Provider ถูก unmount หรือ Effect ถูกยกเลิก
-      // Response ที่ค้างอยู่จะไม่มีสิทธิ์อัปเดต Session
+      // เมื่อ Provider ถูกถอดออกจากหน้าจอ
+      // Request ที่ยังค้างอยู่จะหมดสิทธิ์อัปเดต Session
       revisionRef.current += 1;
       requestRef.current = null;
     };
@@ -245,16 +282,18 @@ export function SessionProvider({
       refreshSession,
       replaceSession,
       updateSessionUser,
-      isCurrentSessionRevision,
+      invalidateSession,
       clearSession,
+      isCurrentSessionRevision,
     }),
     [
       session,
       refreshSession,
       replaceSession,
       updateSessionUser,
-      isCurrentSessionRevision,
+      invalidateSession,
       clearSession,
+      isCurrentSessionRevision,
     ],
   );
 
