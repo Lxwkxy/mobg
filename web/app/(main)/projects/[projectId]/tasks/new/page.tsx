@@ -15,6 +15,8 @@ import { useParams, useRouter } from 'next/navigation';
 import ProtectedState from '@/components/ProtectedState';
 import AssigneeSelector from '@/components/tasks/AssigneeSelector';
 
+import { getCurrentUser } from '@/lib/authService';
+import { useSession } from '@/lib/SessionProvider';
 import { ApiRequestError, projectApi } from '@/lib/projectApi';
 import { parseRouteId, taskApi } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
@@ -44,7 +46,24 @@ type TaskDraft = {
   assigneeIds: number[];
 };
 
+type SubmissionLock = {
+  token: string;
+};
+
+type LockQueryResult = {
+  held?: Array<{ name: string }>;
+  pending?: Array<{ name: string }>;
+};
+
+type SubmissionAccountStatus =
+  | 'same-user'
+  | 'different-user'
+  | 'logged-out'
+  | 'unavailable';
+
 const DRAFT_STORAGE_PREFIX = 'mobg:create-task-draft:';
+const SUBMISSION_STORAGE_PREFIX = 'mobg:create-task-submission:';
+const SUBMISSION_LOCK_PREFIX = 'mobg:create-task-lock:';
 
 function getDraftStorageKey(
   userId: number,
@@ -52,6 +71,28 @@ function getDraftStorageKey(
 ): string {
   return (
     `${DRAFT_STORAGE_PREFIX}` +
+    `${encodeURIComponent(String(userId))}:` +
+    `${encodeURIComponent(projectId)}`
+  );
+}
+
+function getSubmissionStorageKey(
+  userId: number,
+  projectId: string,
+): string {
+  return (
+    `${SUBMISSION_STORAGE_PREFIX}` +
+    `${encodeURIComponent(String(userId))}:` +
+    `${encodeURIComponent(projectId)}`
+  );
+}
+
+function getSubmissionLockName(
+  userId: number,
+  projectId: string,
+): string {
+  return (
+    `${SUBMISSION_LOCK_PREFIX}` +
     `${encodeURIComponent(String(userId))}:` +
     `${encodeURIComponent(projectId)}`
   );
@@ -80,6 +121,85 @@ function clearUserDrafts(userId: number) {
   }
 }
 
+function createSubmissionToken(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/**
+ * ตรวจสอบสถานะ Submission จาก Web Locks และ localStorage
+ *
+ * Web Locks เป็นตัวตัดสินว่ามี Submission ทำงานอยู่จริงหรือไม่
+ * Marker มีไว้แจ้งสถานะให้แท็บอื่นทราบเท่านั้น
+ *
+ * ตรวจ Web Lock ก่อนเสมอ เพื่อป้องกันช่วงเวลาที่ Lock ถูกถือแล้ว
+ * แต่ Marker ยังเขียนลง localStorage ไม่เสร็จ
+ *
+ * หากพบ Marker แต่ไม่มี Lock แล้ว จะลบ Marker ที่ค้างอยู่
+ * เช่น กรณีแท็บเดิมถูกปิดระหว่าง Submit
+ */
+async function hasActiveSubmission(
+  storageKey: string,
+  lockName: string,
+): Promise<boolean> {
+  try {
+    const lockManager = navigator.locks as LockManager & {
+      query?: () => Promise<LockQueryResult>;
+    };
+
+    // ถ้าตรวจสอบ Lock ไม่ได้ ให้ถือว่ายัง Busy ไว้ก่อน
+    if (!lockManager.query) {
+      return true;
+    }
+
+    const lockState = await lockManager.query();
+
+    const isLocked = [
+      ...(lockState.held ?? []),
+      ...(lockState.pending ?? []),
+    ].some((lock) => lock.name === lockName);
+
+    // มี Lock อยู่จริง ไม่ว่าจะมี Marker แล้วหรือไม่
+    if (isLocked) {
+      return true;
+    }
+
+    // ไม่มี Lock แล้ว จึงค่อยตรวจ Marker ที่อาจค้างอยู่
+    const raw = localStorage.getItem(storageKey);
+
+    if (!raw) {
+      return false;
+    }
+
+    const marker = JSON.parse(raw) as Partial<SubmissionLock>;
+
+    if (typeof marker.token !== 'string') {
+      localStorage.removeItem(storageKey);
+      return false;
+    }
+
+    // ตรวจ Token อีกครั้งก่อนลบ ป้องกันลบ Marker ใหม่
+    const latestRaw = localStorage.getItem(storageKey);
+
+    if (latestRaw === raw) {
+      localStorage.removeItem(storageKey);
+    }
+
+    return false;
+  } catch (error) {
+    console.error(
+      'Failed to check task submission state:',
+      error,
+    );
+
+    // Fail closed: หากตรวจสถานะไม่ได้ ไม่อนุญาตให้ Submit
+    return true;
+  }
+}
+
 function getPriorityLabel(priority: TaskPriority): string {
   switch (priority) {
     case 1:
@@ -96,21 +216,29 @@ function CreateTaskForm({
   userId,
   data,
   isRefreshing,
-  isSaving,
-  setIsSaving,
   onRetry,
 }: {
   projectId: string;
   userId: number;
   data: FormData;
   isRefreshing: boolean;
-  isSaving: boolean;
-  setIsSaving: (value: boolean) => void;
   onRetry: () => void;
 }) {
   const router = useRouter();
 
+  const { replaceSession } = useSession();
+
   const draftKey = getDraftStorageKey(userId, projectId);
+
+  const submissionStorageKey = getSubmissionStorageKey(
+    userId,
+    projectId,
+  );
+
+  const submissionLockName = getSubmissionLockName(
+    userId,
+    projectId,
+  );
 
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
@@ -119,9 +247,15 @@ function CreateTaskForm({
   const [assigneeIds, setAssigneeIds] = useState<number[]>([]);
 
   const [isDraftReady, setIsDraftReady] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isOtherTabSaving, setIsOtherTabSaving] = useState(false);
   const [errors, setErrors] = useState<TaskFormErrors>({});
 
-  // Only allow members who currently belong to this project.
+  const isMountedRef = useRef(false);
+  const submittingRef = useRef(false);
+
+  const isBusy = isSaving || isOtherTabSaving;
+
   const currentMemberIds = useMemo(
     () => new Set(data.members.map((member) => member.userId)),
     [data.members],
@@ -132,8 +266,92 @@ function CreateTaskForm({
     [assigneeIds, currentMemberIds],
   );
 
-  // Load Draft belonging to this exact user and project.
-  // Also remove assignees who are no longer project members.
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  /**
+   * ตรวจสอบว่าบัญชีที่กำลังใช้งานยังเป็นบัญชีเจ้าของ Form หรือไม่
+   *
+   * ไม่ใช้แค่ Session ใน React เพราะ Session ของแต่ละแท็บ
+   * ไม่ได้เปลี่ยนพร้อมกันทันทีเมื่อ Login/Logout อีกแท็บ
+   *
+   * จึงตรวจ /api/me จาก Backend โดยตรง
+   */
+  const verifySubmissionAccount =
+    useCallback(async (): Promise<SubmissionAccountStatus> => {
+      let currentUser;
+
+      try {
+        currentUser = await getCurrentUser();
+      } catch (error) {
+        console.error(
+          'Failed to verify account during task submission:',
+          error,
+        );
+
+        return 'unavailable';
+      }
+
+      if (currentUser?.userId === userId) {
+        return 'same-user';
+      }
+
+      // พบว่าเป็นบัญชีอื่น หรือไม่มี Session แล้ว
+      // อัปเดต Session ปัจจุบันเพื่อให้หน้าเปลี่ยนตามบัญชีจริง
+      const updated = replaceSession(
+        currentUser,
+        currentUser ? 'ready' : 'login-required',
+      );
+
+      if (!updated) {
+        return 'unavailable';
+      }
+
+      return currentUser
+        ? 'different-user'
+        : 'logged-out';
+    }, [replaceSession, userId]);
+
+  // ตรวจสอบสถานะ Submission จากแท็บอื่น
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refreshSubmissionState() {
+      const active = await hasActiveSubmission(
+        submissionStorageKey,
+        submissionLockName,
+      );
+
+      if (!cancelled && isMountedRef.current) {
+        setIsOtherTabSaving(active);
+      }
+    }
+
+    void refreshSubmissionState();
+
+    function handleStorage(event: StorageEvent) {
+      if (
+        event.key === submissionStorageKey ||
+        event.key === null
+      ) {
+        void refreshSubmissionState();
+      }
+    }
+
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [submissionStorageKey, submissionLockName]);
+
+  // โหลด Draft ของบัญชีและโปรเจกต์นี้เท่านั้น
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
       try {
@@ -191,7 +409,9 @@ function CreateTaskForm({
           );
         }
       } finally {
-        setIsDraftReady(true);
+        if (isMountedRef.current) {
+          setIsDraftReady(true);
+        }
       }
     });
 
@@ -200,8 +420,7 @@ function CreateTaskForm({
     };
   }, [draftKey, currentMemberIds]);
 
-  // Persist Draft after it has been restored.
-  // Always save only currently valid project members.
+  // บันทึก Draft หลังจากโหลด Draft เดิมเสร็จแล้ว
   useEffect(() => {
     if (!isDraftReady) return;
 
@@ -231,8 +450,10 @@ function CreateTaskForm({
   function clearError(field: keyof TaskFormErrors) {
     setErrors((current) => {
       const next = { ...current };
+
       delete next[field];
       delete next.general;
+
       return next;
     });
   }
@@ -249,11 +470,21 @@ function CreateTaskForm({
     clearError('assigneeIds');
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
 
-    // Prevent duplicate POST requests while the first request is pending.
-    if (isSaving || isRefreshing || !isDraftReady) return;
+    // ป้องกันการกดซ้ำในแท็บเดียวกัน
+    if (
+      submittingRef.current ||
+      isSaving ||
+      isOtherTabSaving ||
+      isRefreshing ||
+      !isDraftReady
+    ) {
+      return;
+    }
 
     const trimmedTitle = taskTitle.trim();
 
@@ -268,65 +499,260 @@ function CreateTaskForm({
       return;
     }
 
+    if (!navigator.locks) {
+      setErrors({
+        general:
+          'Your browser does not support safe task submission across tabs. Please use an updated browser.',
+      });
+      return;
+    }
+
+    submittingRef.current = true;
+
+    const token = createSubmissionToken();
+
     setErrors({});
     setIsSaving(true);
+
+    const input: CreateTaskRequest = {
+      taskTitle: trimmedTitle,
+      taskDescription: taskDescription.trim() || null,
+      priority,
+      dueDate,
+      assigneeIds: validAssigneeIds,
+    };
 
     try {
       const id = parseRouteId(projectId, 'project ID');
 
-      const input: CreateTaskRequest = {
-        taskTitle: trimmedTitle,
-        taskDescription: taskDescription.trim() || null,
-        priority,
-        dueDate,
-        assigneeIds: validAssigneeIds,
-      };
+      await navigator.locks.request(
+        submissionLockName,
+        {
+          mode: 'exclusive',
+          ifAvailable: true,
+        },
+        async (lock) => {
+          if (!lock) {
+            if (isMountedRef.current) {
+              setErrors({
+                general:
+                  'A task submission is already in progress in another tab. Please wait until it finishes.',
+              });
+            }
 
-      const createdTask = await taskApi.createTask(id, input);
+            return;
+          }
 
-      // Draft cleanup must not prevent navigation after successful creation.
-      try {
-        localStorage.removeItem(draftKey);
-      } catch (storageError) {
-        console.error(
-          'Task created successfully, but failed to remove its Draft:',
-          storageError,
-        );
-      }
+          // ตรวจบัญชีก่อนส่ง POST ป้องกัน Form เก่าที่ค้างอยู่
+          // ส่ง Request ในนามบัญชีเดิมหลังเปลี่ยนบัญชีแล้ว
+          const accountBeforeSubmit =
+            await verifySubmissionAccount();
 
-      router.push(
-        `/projects/${id}/tasks/${createdTask.taskId}`,
+          if (accountBeforeSubmit !== 'same-user') {
+            if (
+              accountBeforeSubmit === 'logged-out' &&
+              isMountedRef.current
+            ) {
+              router.replace('/login');
+            } else if (
+              accountBeforeSubmit === 'unavailable' &&
+              isMountedRef.current
+            ) {
+              setErrors({
+                general:
+                  'Unable to verify your account. Please try again.',
+              });
+            }
+
+            return;
+          }
+
+          // ประกาศสถานะให้แท็บอื่นทราบ หลังจากได้ Web Lock แล้ว
+          const marker: SubmissionLock = {
+            token,
+          };
+
+          try {
+            localStorage.setItem(
+              submissionStorageKey,
+              JSON.stringify(marker),
+            );
+
+            if (isMountedRef.current) {
+              setIsOtherTabSaving(true);
+            }
+          } catch (storageError) {
+            console.error(
+              'Failed to publish submission state:',
+              storageError,
+            );
+
+            if (isMountedRef.current) {
+              setErrors({
+                general:
+                  'Unable to coordinate task submission across tabs. Please check browser storage settings.',
+              });
+            }
+
+            return;
+          }
+
+          try {
+            const createdTask = await taskApi.createTask(id, input);
+
+            if (!isMountedRef.current) {
+              return;
+            }
+
+            // ตรวจบัญชีอีกครั้งก่อนทำ Side Effect จาก POST
+            // เช่น ลบ Draft หรือเปลี่ยนหน้า
+            const accountAfterSubmit =
+              await verifySubmissionAccount();
+
+            if (accountAfterSubmit === 'different-user') {
+              return;
+            }
+
+            if (accountAfterSubmit === 'logged-out') {
+              if (isMountedRef.current) {
+                router.replace('/login');
+              }
+
+              return;
+            }
+
+            if (accountAfterSubmit === 'unavailable') {
+              if (isMountedRef.current) {
+                setErrors({
+                  general:
+                    'The task may have been created, but your account could not be verified. Please refresh the page before trying again.',
+                });
+              }
+
+              return;
+            }
+
+            // ลบ Draft เฉพาะเมื่อยืนยันแล้วว่ายังเป็นบัญชีเดิม
+            try {
+              localStorage.removeItem(draftKey);
+            } catch (storageError) {
+              console.error(
+                'Task created successfully, but failed to remove its Draft:',
+                storageError,
+              );
+            }
+
+            router.push(
+              `/projects/${id}/tasks/${createdTask.taskId}`,
+            );
+          } catch (error) {
+            console.error('Failed to create task:', error);
+
+            if (!isMountedRef.current) {
+              return;
+            }
+
+            // แม้ POST จะตอบ 401 ก็ต้องตรวจบัญชีปัจจุบันก่อน
+            // ห้าม Redirect จาก Response ของบัญชีเก่าโดยตรง
+            const accountAfterFailure =
+              await verifySubmissionAccount();
+
+            if (accountAfterFailure === 'different-user') {
+              return;
+            }
+
+            if (accountAfterFailure === 'logged-out') {
+              if (isMountedRef.current) {
+                router.replace('/login');
+              }
+
+              return;
+            }
+
+            if (accountAfterFailure === 'unavailable') {
+              if (isMountedRef.current) {
+                setErrors({
+                  general:
+                    'Unable to verify your account after the request failed. Please refresh the page before trying again.',
+                });
+              }
+
+              return;
+            }
+
+            // ยืนยันแล้วว่ายังเป็นบัญชีเดิม จึงแสดง Error ได้
+            if (error instanceof ApiRequestError) {
+              const serverErrors = mapTaskServerErrors(error.details);
+
+              if (error.status === 401) {
+                serverErrors.general =
+                  'Your request could not be authenticated. Please try again.';
+              } else if (error.status === 403) {
+                serverErrors.general =
+                  'You do not have permission to create a task in this project.';
+              } else if (Object.keys(serverErrors).length > 0) {
+                serverErrors.general =
+                  error.message ||
+                  'Please check the highlighted fields.';
+              } else {
+                serverErrors.general =
+                  error.message ||
+                  'Unable to create task. Please try again.';
+              }
+
+              setErrors(serverErrors);
+            } else {
+              setErrors({
+                general:
+                  'An unexpected error occurred. Please try again.',
+              });
+            }
+          } finally {
+            // ลบเฉพาะ Marker ของ Submission นี้
+            try {
+              const raw = localStorage.getItem(
+                submissionStorageKey,
+              );
+
+              if (raw) {
+                const currentMarker =
+                  JSON.parse(raw) as Partial<SubmissionLock>;
+
+                if (currentMarker.token === token) {
+                  localStorage.removeItem(submissionStorageKey);
+                }
+              }
+            } catch (storageError) {
+              console.error(
+                'Failed to clear submission marker:',
+                storageError,
+              );
+            }
+
+            if (isMountedRef.current) {
+              setIsOtherTabSaving(false);
+            }
+          }
+        },
       );
     } catch (error) {
-      console.error('Failed to create task:', error);
+      console.error(
+        'Failed to acquire task submission lock:',
+        error,
+      );
 
-      if (error instanceof ApiRequestError) {
-        if (error.status === 401) {
-          router.replace('/login');
-          return;
-        }
-
-        const serverErrors = mapTaskServerErrors(error.details);
-
-        if (error.status === 403) {
-          serverErrors.general =
-            'You do not have permission to create a task in this project.';
-        } else if (Object.keys(serverErrors).length > 0) {
-          serverErrors.general =
-            error.message || 'Please check the highlighted fields.';
-        } else {
-          serverErrors.general =
-            error.message || 'Unable to create task. Please try again.';
-        }
-
-        setErrors(serverErrors);
-      } else {
+      if (isMountedRef.current) {
         setErrors({
-          general: 'An unexpected error occurred. Please try again.',
+          general:
+            'Unable to submit the task safely. Please try again.',
         });
       }
     } finally {
-      setIsSaving(false);
+      submittingRef.current = false;
+
+      if (isMountedRef.current) {
+        setIsSaving(false);
+      }
     }
   }
 
@@ -396,7 +822,9 @@ function CreateTaskForm({
             }}
             placeholder="e.g. Design login page"
             className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] ${
-              errors.taskTitle ? 'border-red-500' : 'border-[#dcdcdc]'
+              errors.taskTitle
+                ? 'border-red-500'
+                : 'border-[#dcdcdc]'
             }`}
             aria-invalid={Boolean(errors.taskTitle)}
           />
@@ -448,7 +876,9 @@ function CreateTaskForm({
               id="priority"
               value={priority}
               onChange={(event) => {
-                setPriority(Number(event.target.value) as TaskPriority);
+                setPriority(
+                  Number(event.target.value) as TaskPriority,
+                );
                 clearError('priority');
               }}
               className="w-full rounded-xl border border-[#dcdcdc] bg-white px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
@@ -482,7 +912,9 @@ function CreateTaskForm({
                 clearError('dueDate');
               }}
               className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] ${
-                errors.dueDate ? 'border-red-500' : 'border-[#dcdcdc]'
+                errors.dueDate
+                  ? 'border-red-500'
+                  : 'border-[#dcdcdc]'
               }`}
               aria-invalid={Boolean(errors.dueDate)}
             />
@@ -500,7 +932,7 @@ function CreateTaskForm({
           members={data.members}
           selectedIds={validAssigneeIds}
           error={errors.assigneeIds}
-          disabled={isSaving || isRefreshing}
+          disabled={isBusy || isRefreshing}
           onToggle={toggleAssignee}
         />
 
@@ -508,19 +940,27 @@ function CreateTaskForm({
         <div className="flex flex-wrap justify-end gap-3 border-t border-[#eeeeee] pt-5">
           <button
             type="button"
-            disabled={isSaving}
+            disabled={isBusy || isRefreshing}
             onClick={() => router.push(`/projects/${projectId}/tasks`)}
-            className="min-h-11 rounded-xl border border-[#dddddd] px-5 text-[13px] font-medium text-[#444444] hover:bg-[#f7f7f7] disabled:opacity-50"
+            className="min-h-11 rounded-xl border border-[#dddddd] px-5 text-[13px] font-medium text-[#444444] hover:bg-[#f7f7f7] disabled:cursor-not-allowed disabled:opacity-50"
           >
             Cancel
           </button>
 
           <button
             type="submit"
-            disabled={isSaving || isRefreshing || !isDraftReady}
+            disabled={
+              isBusy ||
+              isRefreshing ||
+              !isDraftReady
+            }
             className="min-h-11 rounded-xl bg-[#222222] px-6 py-3 text-[13px] font-semibold text-white hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isSaving ? 'Creating...' : 'Create Task'}
+            {isSaving
+              ? 'Creating...'
+              : isOtherTabSaving
+                ? 'Creating in another tab...'
+                : 'Create Task'}
           </button>
         </div>
       </form>
@@ -534,9 +974,6 @@ function CreateTaskContent({
   projectId: string;
 }) {
   const router = useRouter();
-
-  // Keep the submission state here so it survives CreateTaskForm remounts.
-  const [isSaving, setIsSaving] = useState(false);
 
   const load = useCallback(async (): Promise<FormData> => {
     const id = parseRouteId(projectId, 'project ID');
@@ -555,13 +992,16 @@ function CreateTaskContent({
     userId,
     httpStatus,
     isRefreshing,
+    retained,
+    retainedUserId,
     retry,
   } = useProtectedLoad(load, {
     revalidateOnFocus: true,
-    hideDataWhileRefreshing: true,
+
+    // เก็บ Form เดิมไว้ระหว่างตรวจ Session
+    hideDataWhileRefreshing: false,
   });
 
-  // userId in MobG is a number.
   const lastAuthenticatedUserId = useRef<number | null>(null);
 
   useEffect(() => {
@@ -582,7 +1022,10 @@ function CreateTaskContent({
   if (status === 'error') {
     return (
       <div className="mx-auto max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-5">
-        <p role="alert" className="mb-4 text-[13px] text-red-600">
+        <p
+          role="alert"
+          className="mb-4 text-[13px] text-red-600"
+        >
           {httpStatus === 400
             ? 'Invalid project ID.'
             : httpStatus === 404
@@ -613,6 +1056,26 @@ function CreateTaskContent({
     );
   }
 
+  // ระหว่าง Session กำลัง Refresh:
+  // คง Form เดิมไว้ด้วย retained เพื่อไม่ให้ Form ถูก Unmount
+  // และทำให้ Error จาก POST ที่ยังทำงานอยู่หายไป
+  if (
+    status === 'loading' &&
+    retained &&
+    retainedUserId !== null
+  ) {
+    return (
+      <CreateTaskForm
+        key={`${retainedUserId}:${projectId}`}
+        projectId={projectId}
+        userId={retainedUserId}
+        data={retained}
+        isRefreshing={true}
+        onRetry={retry}
+      />
+    );
+  }
+
   if (
     status !== 'ready' ||
     !data ||
@@ -634,8 +1097,6 @@ function CreateTaskContent({
       userId={userId}
       data={data}
       isRefreshing={isRefreshing}
-      isSaving={isSaving}
-      setIsSaving={setIsSaving}
       onRetry={retry}
     />
   );
