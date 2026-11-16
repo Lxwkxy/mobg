@@ -8,10 +8,12 @@ import {
   useRef,
   useState,
 } from 'react';
-import { usePathname } from 'next/navigation';
 
 import { getCurrentUser } from '@/lib/authService';
-import type { User } from '@/types';
+import {
+  useSession,
+  type SessionStatus,
+} from '@/lib/SessionProvider';
 
 export type LoadStatus =
   | 'loading'
@@ -21,28 +23,23 @@ export type LoadStatus =
   | 'error';
 
 type Outcome<T> =
-  | { status: 'ready'; data: T; user: User }
-  | { status: 'login-required' }
-  | { status: 'no-profile' }
-  | { status: 'session-changed' }
+  | { status: 'ready'; data: T }
   | { status: 'error'; httpStatus?: number };
 
 export type ProtectedLoadOptions = {
-  /**
-   * ตรวจ Session และโหลดข้อมูลใหม่เมื่อกลับมาเปิดหน้าต่างหรือแท็บ
-   */
   revalidateOnFocus?: boolean;
-
-  /**
-   * ซ่อนข้อมูลเดิมระหว่างตรวจ Session และโหลดข้อมูลใหม่
-   */
   hideDataWhileRefreshing?: boolean;
 
   /**
-   * ตรวจ Session และโหลดข้อมูลใหม่เมื่อกลับเข้าหน้าที่กำหนด
+   * Deprecated: ไม่ใช้ pathname เป็นตัวเริ่ม revalidation อีกต่อไป
+   * เก็บไว้ชั่วคราวเพื่อรองรับหน้าที่ส่ง option นี้อยู่
    */
   revalidateOnRoute?: string;
 };
+
+function toLoadStatus(status: SessionStatus): LoadStatus {
+  return status;
+}
 
 export function useProtectedLoad<T>(
   load: () => Promise<T>,
@@ -51,13 +48,14 @@ export function useProtectedLoad<T>(
   const {
     revalidateOnFocus = false,
     hideDataWhileRefreshing = false,
-    revalidateOnRoute,
   } = options;
 
-  const pathname = usePathname();
-
-  const routeActive =
-    !revalidateOnRoute || pathname === revalidateOnRoute;
+  const {
+    session,
+    refreshSession,
+    replaceSession,
+    updateSessionUser,
+  } = useSession();
 
   const [attempt, setAttempt] = useState(0);
 
@@ -66,29 +64,36 @@ export function useProtectedLoad<T>(
     outcome: Outcome<T>;
   } | null>(null);
 
-  const lastFocusRefreshAt = useRef(0);
+  const lastRefreshAt = useRef(0);
 
   const token = useMemo(
-    () => ({ load, attempt, routeActive }),
-    [load, attempt, routeActive],
+    () => ({
+      load,
+      attempt,
+      revision: session.revision,
+    }),
+    [load, attempt, session.revision],
   );
 
-  // ตรวจ Session และโหลดข้อมูลใหม่เมื่อกลับมาเปิดหน้าต่างหรือแท็บ
+  // ตรวจ Session เมื่อกลับมาเปิดหน้าต่างหรือแท็บ
   useEffect(() => {
     if (!revalidateOnFocus) {
       return;
     }
 
+    lastRefreshAt.current = Date.now();
+
     const refresh = () => {
       const now = Date.now();
 
-      // ป้องกันการโหลดซ้ำจาก focus และ visibilitychange
-      if (now - lastFocusRefreshAt.current < 500) {
+      // ป้องกัน focus, visibilitychange และ pageshow
+      // ทำให้เกิด request ซ้ำในช่วงเวลาใกล้กัน
+      if (now - lastRefreshAt.current < 500) {
         return;
       }
 
-      lastFocusRefreshAt.current = now;
-      setAttempt((value) => value + 1);
+      lastRefreshAt.current = now;
+      void refreshSession();
     };
 
     const handleVisibilityChange = () => {
@@ -97,7 +102,12 @@ export function useProtectedLoad<T>(
       }
     };
 
+    const handlePageShow = () => {
+      refresh();
+    };
+
     window.addEventListener('focus', refresh);
+    window.addEventListener('pageshow', handlePageShow);
 
     document.addEventListener(
       'visibilitychange',
@@ -106,17 +116,22 @@ export function useProtectedLoad<T>(
 
     return () => {
       window.removeEventListener('focus', refresh);
+      window.removeEventListener('pageshow', handlePageShow);
 
       document.removeEventListener(
         'visibilitychange',
         handleVisibilityChange,
       );
     };
-  }, [revalidateOnFocus]);
+  }, [revalidateOnFocus, refreshSession]);
 
-  // ตรวจ Session ก่อนโหลดข้อมูลทุกครั้ง
+  const sessionUserId = session.user?.userId;
+  const sessionReady =
+    session.status === 'ready' && session.user !== null;
+
+  // โหลดข้อมูลเมื่อ Session ผ่านการตรวจสอบแล้วเท่านั้น
   useEffect(() => {
-    if (!routeActive) {
+    if (!sessionReady || sessionUserId === undefined) {
       return;
     }
 
@@ -124,48 +139,51 @@ export function useProtectedLoad<T>(
 
     async function run(): Promise<Outcome<T>> {
       try {
-        // ตรวจสอบบัญชีก่อนโหลดข้อมูล
-        const initialUser = await getCurrentUser();
-
-        if (!initialUser) {
-          return { status: 'login-required' };
-        }
-
         const data = await load();
 
-        // ตรวจสอบบัญชีอีกครั้งหลังโหลดข้อมูลเสร็จ
-        const currentUser = await getCurrentUser();
+        // ตรวจ /api/me รอบสองเฉพาะหน้าที่เปิด revalidateOnFocus
+        if (revalidateOnFocus) {
+          const currentUser = await getCurrentUser();
 
-        if (!currentUser) {
-          return { status: 'login-required' };
-        }
+          if (!currentUser) {
+            replaceSession(null, 'login-required');
+            return {
+              status: 'error',
+            };
+          }
 
-        // หากบัญชีเปลี่ยนระหว่างโหลด ให้โหลดข้อมูลใหม่
-        // โดยไม่แสดงข้อมูลจากบัญชีเดิม
-        if (currentUser.userId !== initialUser.userId) {
-          return { status: 'session-changed' };
+          // ถ้าบัญชีเปลี่ยนระหว่างโหลดข้อมูล
+          // ให้เปลี่ยน Session กลางและเริ่มโหลดใหม่
+          if (currentUser.userId !== sessionUserId) {
+            replaceSession(currentUser);
+            return {
+              status: 'error',
+            };
+          }
+
+          // อัปเดตชื่อและอีเมลล่าสุด แม้ userId จะเหมือนเดิม
+          updateSessionUser(currentUser);
         }
 
         return {
           status: 'ready',
           data,
-          user: currentUser,
         };
       } catch (error) {
-        const httpStatus = (error as { status?: number }).status;
+        const httpStatus = (
+          error as { status?: number }
+        ).status;
 
         if (httpStatus === 401) {
-          return { status: 'login-required' };
+          replaceSession(null, 'login-required');
+        } else if (httpStatus === 403) {
+          replaceSession(null, 'no-profile');
+        } else {
+          console.error(
+            'Failed to load protected data:',
+            error,
+          );
         }
-
-        if (httpStatus === 403) {
-          return { status: 'no-profile' };
-        }
-
-        console.error(
-          'Failed to verify session or load data:',
-          error,
-        );
 
         return {
           status: 'error',
@@ -179,63 +197,72 @@ export function useProtectedLoad<T>(
         return;
       }
 
-      if (outcome.status === 'session-changed') {
-        setAttempt((value) => value + 1);
-        return;
-      }
-
-      setResult({ token, outcome });
+      setResult({
+        token,
+        outcome,
+      });
     });
 
     return () => {
       cancelled = true;
     };
-  }, [token, load, routeActive]);
+  }, [
+    token,
+    load,
+    sessionReady,
+    sessionUserId,
+    revalidateOnFocus,
+    replaceSession,
+    updateSessionUser,
+  ]);
 
   const retry = useCallback(() => {
+    if (session.status !== 'ready') {
+      void refreshSession();
+      return;
+    }
+
     setAttempt((value) => value + 1);
-  }, []);
+  }, [session.status, refreshSession]);
 
   const isStale =
     result === null || result.token !== token;
 
   const outcome = result?.outcome;
 
-  // ซ่อนข้อมูลเดิมระหว่างตรวจสอบ Session และโหลดข้อมูลใหม่
-  const visibleOutcome =
-    hideDataWhileRefreshing && isStale
-      ? undefined
-      : outcome;
+  const shouldHideData =
+    hideDataWhileRefreshing &&
+    (isStale || !sessionReady);
 
-  // แปลง session-changed เป็น loading
-  // เพื่อไม่ให้หลุดเข้าไปใน LoadStatus
+  const visibleOutcome = shouldHideData
+    ? undefined
+    : outcome;
+
   const status: LoadStatus =
-    visibleOutcome === undefined ||
-    visibleOutcome.status === 'session-changed'
-      ? 'loading'
-      : visibleOutcome.status === 'ready'
-        ? 'ready'
-        : isStale
-          ? 'loading'
-          : visibleOutcome.status;
+    session.status !== 'ready'
+      ? toLoadStatus(session.status)
+      : visibleOutcome === undefined
+        ? 'loading'
+        : visibleOutcome.status === 'ready'
+          ? 'ready'
+          : isStale
+            ? 'loading'
+            : 'error';
 
   return {
     status,
 
     data:
+      status === 'ready' &&
       visibleOutcome?.status === 'ready'
         ? visibleOutcome.data
         : null,
 
-    user:
-      visibleOutcome?.status === 'ready'
-        ? visibleOutcome.user
-        : null,
+    user: sessionReady ? session.user : null,
 
-    userId:
-      visibleOutcome?.status === 'ready'
-        ? visibleOutcome.user.userId
-        : null,
+    userId: sessionReady
+      ? session.user?.userId ?? null
+      : null,
 
     httpStatus:
       visibleOutcome?.status === 'error'
