@@ -1,7 +1,13 @@
 
 'use client';
 
-import { useCallback, useState, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 
@@ -29,6 +35,50 @@ type FormData = {
   members: ProjectMember[];
 };
 
+type TaskDraft = {
+  taskTitle: string;
+  taskDescription: string;
+  priority: TaskPriority;
+  dueDate: string;
+  assigneeIds: number[];
+};
+
+const DRAFT_STORAGE_PREFIX = 'mobg:create-task-draft:';
+
+function getDraftStorageKey(
+  userId: number,
+  projectId: string,
+): string {
+  return (
+    `${DRAFT_STORAGE_PREFIX}` +
+    `${encodeURIComponent(String(userId))}:` +
+    `${encodeURIComponent(projectId)}`
+  );
+}
+
+function clearUserDrafts(userId: number) {
+  try {
+    const userPrefix =
+      `${DRAFT_STORAGE_PREFIX}${encodeURIComponent(String(userId))}:`;
+
+    const keysToRemove: string[] = [];
+
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+
+      if (key?.startsWith(userPrefix)) {
+        keysToRemove.push(key);
+      }
+    }
+
+    keysToRemove.forEach((key) => {
+      localStorage.removeItem(key);
+    });
+  } catch (error) {
+    console.error('Failed to clear previous user drafts:', error);
+  }
+}
+
 function getPriorityLabel(priority: TaskPriority): string {
   switch (priority) {
     case 1:
@@ -40,30 +90,22 @@ function getPriorityLabel(priority: TaskPriority): string {
   }
 }
 
-function CreateTaskContent({
+function CreateTaskForm({
   projectId,
+  userId,
+  data,
+  isRefreshing,
+  onRetry,
 }: {
   projectId: string;
+  userId: number;
+  data: FormData;
+  isRefreshing: boolean;
+  onRetry: () => void;
 }) {
   const router = useRouter();
 
-  const load = useCallback(async (): Promise<FormData> => {
-    const id = parseRouteId(projectId, 'project ID');
-
-    const [project, members] = await Promise.all([
-      projectApi.getProjectById(id),
-      taskApi.getProjectMembers(id),
-    ]);
-
-    return { project, members };
-  }, [projectId]);
-
-  const {
-    status,
-    data,
-    httpStatus,
-    retry,
-  } = useProtectedLoad(load);
+  const draftKey = getDraftStorageKey(userId, projectId);
 
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
@@ -71,8 +113,102 @@ function CreateTaskContent({
   const [dueDate, setDueDate] = useState('');
   const [assigneeIds, setAssigneeIds] = useState<number[]>([]);
 
+  const [isDraftReady, setIsDraftReady] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errors, setErrors] = useState<TaskFormErrors>({});
+
+  // Load Draft belonging to this exact user and project.
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      try {
+        const savedDraft = localStorage.getItem(draftKey);
+
+        if (savedDraft) {
+          const draft = JSON.parse(savedDraft) as Partial<TaskDraft>;
+
+          setTaskTitle(
+            typeof draft.taskTitle === 'string'
+              ? draft.taskTitle
+              : '',
+          );
+
+          setTaskDescription(
+            typeof draft.taskDescription === 'string'
+              ? draft.taskDescription
+              : '',
+          );
+
+          setPriority(
+            draft.priority === 1 ||
+            draft.priority === 2 ||
+            draft.priority === 3
+              ? draft.priority
+              : 2,
+          );
+
+          setDueDate(
+            typeof draft.dueDate === 'string'
+              ? draft.dueDate
+              : '',
+          );
+
+          setAssigneeIds(
+            Array.isArray(draft.assigneeIds)
+              ? draft.assigneeIds.filter(
+                  (id): id is number =>
+                    typeof id === 'number' &&
+                    Number.isFinite(id),
+                )
+              : [],
+          );
+        }
+      } catch (error) {
+        console.error('Failed to restore task draft:', error);
+
+        try {
+          localStorage.removeItem(draftKey);
+        } catch (storageError) {
+          console.error(
+            'Failed to remove invalid task draft:',
+            storageError,
+          );
+        }
+      } finally {
+        setIsDraftReady(true);
+      }
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [draftKey]);
+
+  // Persist Draft after it has been restored.
+  useEffect(() => {
+    if (!isDraftReady) return;
+
+    const draft: TaskDraft = {
+      taskTitle,
+      taskDescription,
+      priority,
+      dueDate,
+      assigneeIds,
+    };
+
+    try {
+      localStorage.setItem(draftKey, JSON.stringify(draft));
+    } catch (error) {
+      console.error('Failed to save task draft:', error);
+    }
+  }, [
+    draftKey,
+    isDraftReady,
+    taskTitle,
+    taskDescription,
+    priority,
+    dueDate,
+    assigneeIds,
+  ]);
 
   function clearError(field: keyof TaskFormErrors) {
     setErrors((current) => {
@@ -83,11 +219,11 @@ function CreateTaskContent({
     });
   }
 
-  function toggleAssignee(userId: number) {
+  function toggleAssignee(assigneeUserId: number) {
     setAssigneeIds((current) =>
-      current.includes(userId)
-        ? current.filter((id) => id !== userId)
-        : [...current, userId],
+      current.includes(assigneeUserId)
+        ? current.filter((id) => id !== assigneeUserId)
+        : [...current, assigneeUserId],
     );
 
     clearError('assigneeIds');
@@ -96,7 +232,7 @@ function CreateTaskContent({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (isSaving) return;
+    if (isSaving || isRefreshing || !isDraftReady) return;
 
     const trimmedTitle = taskTitle.trim();
 
@@ -126,6 +262,9 @@ function CreateTaskContent({
       };
 
       const createdTask = await taskApi.createTask(id, input);
+
+      // Remove the Draft after successful creation.
+      localStorage.removeItem(draftKey);
 
       router.push(
         `/projects/${id}/tasks/${createdTask.taskId}`,
@@ -163,45 +302,11 @@ function CreateTaskContent({
     }
   }
 
-  if (status === 'error') {
-    return (
-      <div className="mx-auto max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-5">
-        <p role="alert" className="mb-4 text-[13px] text-red-600">
-          {httpStatus === 400
-            ? 'Invalid project ID.'
-            : httpStatus === 404
-              ? 'Project not found or you are not a member.'
-              : 'Unable to load the task form. Please try again.'}
-        </p>
-
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => router.push('/projects')}
-            className="min-h-11 rounded-lg border border-[#dddddd] px-4 text-[13px]"
-          >
-            Back to Projects
-          </button>
-
-          {httpStatus !== 400 && httpStatus !== 404 && (
-            <button
-              type="button"
-              onClick={retry}
-              className="min-h-11 rounded-lg bg-[#222222] px-4 text-[13px] text-white"
-            >
-              Try again
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (status !== 'ready' || !data) {
+  if (!isDraftReady) {
     return (
       <ProtectedState
-        status={status === 'ready' ? 'loading' : status}
-        onRetry={retry}
+        status="loading"
+        onRetry={onRetry}
       />
     );
   }
@@ -367,7 +472,7 @@ function CreateTaskContent({
           members={data.members}
           selectedIds={assigneeIds}
           error={errors.assigneeIds}
-          disabled={isSaving}
+          disabled={isSaving || isRefreshing}
           onToggle={toggleAssignee}
         />
 
@@ -384,14 +489,122 @@ function CreateTaskContent({
 
           <button
             type="submit"
-            disabled={isSaving}
-            className="min-h-11 rounded-xl bg-[#222222] px-6 text-[13px] font-semibold text-white hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isSaving || isRefreshing || !isDraftReady}
+            className="min-h-11 rounded-xl bg-[#222222] px-6 py-3 text-[13px] font-semibold text-white hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSaving ? 'Creating...' : 'Create Task'}
           </button>
         </div>
       </form>
     </div>
+  );
+}
+
+function CreateTaskContent({
+  projectId,
+}: {
+  projectId: string;
+}) {
+  const router = useRouter();
+
+  const load = useCallback(async (): Promise<FormData> => {
+    const id = parseRouteId(projectId, 'project ID');
+
+    const [project, members] = await Promise.all([
+      projectApi.getProjectById(id),
+      taskApi.getProjectMembers(id),
+    ]);
+
+    return { project, members };
+  }, [projectId]);
+
+  const {
+    status,
+    data,
+    userId,
+    httpStatus,
+    isRefreshing,
+    retry,
+  } = useProtectedLoad(load, {
+    revalidateOnFocus: true,
+    hideDataWhileRefreshing: true,
+  });
+
+  // userId in MobG is a number.
+  const lastAuthenticatedUserId = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (userId === null || userId === undefined) return;
+
+    const previousUserId = lastAuthenticatedUserId.current;
+
+    if (
+      previousUserId !== null &&
+      previousUserId !== userId
+    ) {
+      clearUserDrafts(previousUserId);
+    }
+
+    lastAuthenticatedUserId.current = userId;
+  }, [userId]);
+
+  if (status === 'error') {
+    return (
+      <div className="mx-auto max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-5">
+        <p role="alert" className="mb-4 text-[13px] text-red-600">
+          {httpStatus === 400
+            ? 'Invalid project ID.'
+            : httpStatus === 404
+              ? 'Project not found or you are not a member.'
+              : 'Unable to load the task form. Please try again.'}
+        </p>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => router.push('/projects')}
+            className="min-h-11 rounded-lg border border-[#dddddd] px-4 text-[13px]"
+          >
+            Back to Projects
+          </button>
+
+          {httpStatus !== 400 && httpStatus !== 404 && (
+            <button
+              type="button"
+              onClick={retry}
+              className="min-h-11 rounded-lg bg-[#222222] px-4 text-[13px] text-white"
+            >
+              Try again
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (
+    status !== 'ready' ||
+    !data ||
+    userId === null ||
+    userId === undefined
+  ) {
+    return (
+      <ProtectedState
+        status={status === 'ready' ? 'loading' : status}
+        onRetry={retry}
+      />
+    );
+  }
+
+  return (
+    <CreateTaskForm
+      key={`${userId}:${projectId}`}
+      projectId={projectId}
+      userId={userId}
+      data={data}
+      isRefreshing={isRefreshing}
+      onRetry={retry}
+    />
   );
 }
 
