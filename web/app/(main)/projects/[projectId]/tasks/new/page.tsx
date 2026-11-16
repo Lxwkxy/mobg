@@ -4,6 +4,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -95,12 +96,16 @@ function CreateTaskForm({
   userId,
   data,
   isRefreshing,
+  isSaving,
+  setIsSaving,
   onRetry,
 }: {
   projectId: string;
   userId: number;
   data: FormData;
   isRefreshing: boolean;
+  isSaving: boolean;
+  setIsSaving: (value: boolean) => void;
   onRetry: () => void;
 }) {
   const router = useRouter();
@@ -114,10 +119,21 @@ function CreateTaskForm({
   const [assigneeIds, setAssigneeIds] = useState<number[]>([]);
 
   const [isDraftReady, setIsDraftReady] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [errors, setErrors] = useState<TaskFormErrors>({});
 
+  // Only allow members who currently belong to this project.
+  const currentMemberIds = useMemo(
+    () => new Set(data.members.map((member) => member.userId)),
+    [data.members],
+  );
+
+  const validAssigneeIds = useMemo(
+    () => assigneeIds.filter((id) => currentMemberIds.has(id)),
+    [assigneeIds, currentMemberIds],
+  );
+
   // Load Draft belonging to this exact user and project.
+  // Also remove assignees who are no longer project members.
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
       try {
@@ -157,7 +173,8 @@ function CreateTaskForm({
               ? draft.assigneeIds.filter(
                   (id): id is number =>
                     typeof id === 'number' &&
-                    Number.isFinite(id),
+                    Number.isFinite(id) &&
+                    currentMemberIds.has(id),
                 )
               : [],
           );
@@ -181,9 +198,10 @@ function CreateTaskForm({
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [draftKey]);
+  }, [draftKey, currentMemberIds]);
 
   // Persist Draft after it has been restored.
+  // Always save only currently valid project members.
   useEffect(() => {
     if (!isDraftReady) return;
 
@@ -192,7 +210,7 @@ function CreateTaskForm({
       taskDescription,
       priority,
       dueDate,
-      assigneeIds,
+      assigneeIds: validAssigneeIds,
     };
 
     try {
@@ -207,7 +225,7 @@ function CreateTaskForm({
     taskDescription,
     priority,
     dueDate,
-    assigneeIds,
+    validAssigneeIds,
   ]);
 
   function clearError(field: keyof TaskFormErrors) {
@@ -220,6 +238,8 @@ function CreateTaskForm({
   }
 
   function toggleAssignee(assigneeUserId: number) {
+    if (!currentMemberIds.has(assigneeUserId)) return;
+
     setAssigneeIds((current) =>
       current.includes(assigneeUserId)
         ? current.filter((id) => id !== assigneeUserId)
@@ -232,6 +252,7 @@ function CreateTaskForm({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    // Prevent duplicate POST requests while the first request is pending.
     if (isSaving || isRefreshing || !isDraftReady) return;
 
     const trimmedTitle = taskTitle.trim();
@@ -239,7 +260,7 @@ function CreateTaskForm({
     const validationErrors = validateTaskForm({
       taskTitle,
       dueDate,
-      assigneeIds,
+      assigneeIds: validAssigneeIds,
     });
 
     if (Object.keys(validationErrors).length > 0) {
@@ -258,13 +279,20 @@ function CreateTaskForm({
         taskDescription: taskDescription.trim() || null,
         priority,
         dueDate,
-        assigneeIds,
+        assigneeIds: validAssigneeIds,
       };
 
       const createdTask = await taskApi.createTask(id, input);
 
-      // Remove the Draft after successful creation.
-      localStorage.removeItem(draftKey);
+      // Draft cleanup must not prevent navigation after successful creation.
+      try {
+        localStorage.removeItem(draftKey);
+      } catch (storageError) {
+        console.error(
+          'Task created successfully, but failed to remove its Draft:',
+          storageError,
+        );
+      }
 
       router.push(
         `/projects/${id}/tasks/${createdTask.taskId}`,
@@ -470,7 +498,7 @@ function CreateTaskForm({
         {/* Assignees */}
         <AssigneeSelector
           members={data.members}
-          selectedIds={assigneeIds}
+          selectedIds={validAssigneeIds}
           error={errors.assigneeIds}
           disabled={isSaving || isRefreshing}
           onToggle={toggleAssignee}
@@ -506,6 +534,9 @@ function CreateTaskContent({
   projectId: string;
 }) {
   const router = useRouter();
+
+  // Keep the submission state here so it survives CreateTaskForm remounts.
+  const [isSaving, setIsSaving] = useState(false);
 
   const load = useCallback(async (): Promise<FormData> => {
     const id = parseRouteId(projectId, 'project ID');
@@ -603,6 +634,8 @@ function CreateTaskContent({
       userId={userId}
       data={data}
       isRefreshing={isRefreshing}
+      isSaving={isSaving}
+      setIsSaving={setIsSaving}
       onRetry={retry}
     />
   );
