@@ -1,16 +1,11 @@
 # W5-Pai-01 — database preparation and verification
 
-Date: 2026-11-09 (Asia/Bangkok). Branch: `feat/db-demo-verification`.
+Initial verification: 2026-11-09 (Asia/Bangkok), branch `feat/db-demo-verification`.
 Fixed point: `5f9e9e86f07f59d73fb26928056abd1d4462a48b` (main/origin/main after fetch).
-Spec: [W5-Pai-01](specs/MobG_Trello_Tasks_Detailed.md), with the user's instructions
-to implement only the available Database/Docker work and preserve Book/Bar ownership.
-Used the repository `implement` skill and its final two-axis `code-review` workflow.
-
-**The complete card remains open.** DB tooling and isolated verification are ready;
-joint browser flows, actual existing-account Login and teammate guide rehearsal
-are not claimed. `gh` was unavailable in PATH/standard installation, so GitHub Issue
-comments were not read. The supplied local spec was used. No team messages or card
-status changes were made. No push, PR or merge was performed.
+Spec: [W5-Pai-01](specs/MobG_Trello_Tasks_Detailed.md).
+Follow-up verification: 2026-11-16 (Asia/Bangkok), `main` at `3f7c963` after PR #26.
+The database work is verified. Card closure still needs the team walkthrough,
+teammate setup and handoff listed below.
 
 ## Delivered work
 
@@ -90,17 +85,20 @@ The outsider has no membership. Owner/Member are project roles, not global accou
 privileges. The Member account owning Empty demonstrates this distinction.
 All referenced people are linked Better Auth users, not invented unlinked assignees.
 
-Proposed demo sequence (not yet agreed/rehearsed jointly with the team):
+Proposed demo sequence for the team:
 
 1. Login as Owner; inspect Shared/Private and the W5 projects. Contrast Member's
    access and the Outsider's empty list. The fixture's accounts have native auth evidence.
 2. Compare Main Demo's five tasks to progress 20%; inspect Completed 100% and Empty 0%.
 3. Show the shared overdue task counts only once despite two assignees, the task due
    today is not overdue, and High Done is excluded from important tasks.
-4. Compare My Tasks to all-project Dashboard scope. Member sees some tasks assigned
-   only to Owner in Dashboard, while My Tasks includes only their assignments.
-5. After Book's W4 API and Bar's task screens are connected, change a sandbox task's
-   status and compare UI values with `db:verify`; do not use mock counts as evidence.
+4. Compare My Tasks to all-project Dashboard scope using the W4 API. Member sees
+   some tasks assigned only to Owner in Dashboard, while My Tasks includes only
+   their assignments. Both corresponding web pages still use mock data.
+5. Use a fresh demo database and sign in as Member. In Main Demo, change
+   **Future Medium** from **To do** to **Done**. Reopen the project and check that
+   completed tasks increase from 1/5 to 2/5 and progress from 20% to 40%. Compare
+   the task status and completed count with PostgreSQL, then run `db:verify`.
 6. Use **only** `MobG W5 DELETE Sandbox` / `DELETE ME - sandbox task` for deletion.
    Cancel first (manual browser check still pending), then delete; verify its comment/
    assignees cascade and Main Demo remains intact. Delete the sandbox project last.
@@ -125,7 +123,7 @@ overdue; a rerun preserves the reference date and does not rewrite dates. Use th
 independent auditor for the current totals. Tests of W5 alone expect fewer projects
 because the existing SQL/W2 fixtures are outside that module's scope.
 
-## Executed checks
+## Initial verification results — 2026-11-09
 
 | Layer | Execution and observed result |
 |---|---|
@@ -158,21 +156,31 @@ Restored row counts: users 3; auth_users 3; auth_accounts 3; projects 7;
 project_members 10; tasks 9; task_assignees 12; comments 2; task_statuses 3;
 demo_seed_runs 1; sessions/auth_sessions/auth_verifications 0. Total public tables: 13.
 
+## Follow-up on main — 2026-11-16
+
+The rerun used PostgreSQL, `pg_dump`, and `pg_restore` 17.11 in the `postgres:17`
+image, Docker Engine 29.7.2, Compose 5.4.0, Node.js 24.21.0, and npm 11.19.0.
+It used a separate Compose project and volume with disposable account passwords.
+
+| Check | Observed result |
+|---|---|
+| `npm run test:demo-rehearsal` | PASS. Migration 007 applied on top of 001–006, the second migration run found everything complete, and the second seed reused all recorded IDs. Owner, Member and Outsider logged in and out, with 6, 4 and 0 visible projects respectively. |
+| Database relationships and totals | PASS. Checked 14 foreign keys, three linked credential accounts, seven projects, and nine tasks. The independent calculations reported zero issues and zero mismatches. |
+| Backup and restore | PASS. `pg_dump` and `pg_restore` used separate source and restore databases. Rows, schema, indexes and sequences matched, and the restored database passed the relationship checks. The disposable databases and Compose volume were removed after testing. |
+| `npm run test:api-audit` | 170/170 PASS on PostgreSQL 17.11 using the same W5 seed. Dashboard responses matched the initial totals above, and the disposable sandbox deletion preserved Main Demo. See the [Book report](w5-backend-report.md#4-dashboard-vs-pais-database-numbers). |
+| Fresh database setup | PASS in a second Compose project. Followed the database steps for `createdb`, schema inspection, migrations 001–007, SQL import, and Better Auth seed. Verified native Login/Logout for all three accounts and started the host API and web app on the new database. |
+| Browser-to-database rehearsal | PASS. Signed in as Member and changed **Future Medium** from **To do** to **Done** in the web app. Main Demo showed 1/5 → 2/5 completed tasks and 20% → 40% progress. A SQL query against the same PostgreSQL database returned `To Do\|20` before and `Done\|40` after. `db:verify` returned zero mismatches after saving. |
+
 ## Remaining dependencies and card closure
 
 | Checklist area | Status / remaining action |
 |---|---|
 | DB consistency / Dashboard / seed / backup | Implemented and verified independently in isolated databases |
-| Actual development-account Login | Mapping is valid; user must enter original passwords locally to check Login. No reset was done |
-| Book W4 | My Tasks, Dashboard/important tasks and member add/remove HTTP integration still missing in inspected code; services already exist |
-| Bar W3/W4 | Task screens/details/forms/delete dialogs and Dashboard/My Tasks real-data integration still pending; existing mockData cannot validate DB results |
-| Joint demonstration | Compare UI with DB after real mutations once API/UI are ready; select/agreed flow with team |
-| Teammate guide validation | A teammate must follow the guide in a separate environment and report any ambiguous steps |
-| Handoff | Prepared in this report; not sent to teammates and no card status changed |
-
-Therefore W5-Pai-01 cannot yet be closed as a whole. The remaining work is integration,
-real-account verification and human rehearsal; no Book/Bar feature was implemented
-to make the checklist look complete.
+| Demo-account Login | Verified for Owner, Member and Outsider on the isolated demo database. Existing development-account passwords are separate from these disposable fixtures. |
+| Web data | Project and task screens use the API. Book's My Tasks, Dashboard/important tasks and member add/remove endpoints are available. Dashboard and My Tasks web pages still use mocks, so use the endpoints for the DB comparison. |
+| Joint demonstration | The solo browser-to-DB rehearsal passed. Walk the sequence with the team on its demo database. |
+| Teammate guide validation | Have a teammate follow the guide in a separate environment and report any ambiguous steps. |
+| Handoff | Share the [database guide](../database/README.md), this report, and the project/task IDs printed by the seed in the team's actual demo database. |
 
 ## Review
 

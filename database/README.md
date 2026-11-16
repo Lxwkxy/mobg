@@ -67,10 +67,10 @@ npm run db:verify -- --database mobg_db
 npm run dev
 ```
 
-Review the target and status first. W5 execution in this chat did **not** migrate or
-seed `mobg_db`; all writes were confined to temporary databases. `check-db` reads
-projects through the same Node `pg` pool as Express. `/api/health` alone does not
-prove DB connectivity. A new empty database legitimately returns no projects.
+Review the target and status first. For the W5 rehearsal, use the isolated
+database steps below. `check-db` reads projects through the same Node `pg` pool as
+Express. Use it to confirm the host-to-container connection. A newly migrated,
+empty database returns no projects.
 
 | Migration | Result |
 |---|---|
@@ -111,9 +111,11 @@ if ($LASTEXITCODE -ne 0) { throw 'Database creation failed; stop here.' }
 $env:POSTGRES_DB = $demoDb
 cd backend
 npm run db:status -- --database $demoDb
+if ($LASTEXITCODE -ne 0) { throw 'Database inspection failed; stop here.' }
 npm run db:migrate -- --database $demoDb
 if ($LASTEXITCODE -ne 0) { throw 'Migration failed; stop here.' }
 docker compose cp ../database/seeds/demo.sql db:/tmp/mobg-initial-demo.sql
+if ($LASTEXITCODE -ne 0) { throw 'Initial seed copy failed; stop here.' }
 docker compose exec -T db psql -X -U postgres -d $demoDb -v ON_ERROR_STOP=1 -f /tmp/mobg-initial-demo.sql
 if ($LASTEXITCODE -ne 0) { throw 'Initial seed failed; stop here.' }
 docker compose exec -T db psql -X -U postgres -d $demoDb -c 'SELECT user_id,user_name,email FROM users ORDER BY user_id;'
@@ -121,7 +123,9 @@ docker compose exec -T db psql -X -U postgres -d $demoDb -c 'SELECT user_id,user
 npm run seed:demo -- --database $demoDb --w5
 if ($LASTEXITCODE -ne 0) { throw 'Provisioning failed; stop and inspect.' }
 npm run check:demo -- --database $demoDb
+if ($LASTEXITCODE -ne 0) { throw 'Demo Login check failed; stop here.' }
 npm run db:verify -- --database $demoDb
+if ($LASTEXITCODE -ne 0) { throw 'Database verification failed; stop here.' }
 ```
 
 Select the displayed Owner ID (1 on this fresh DB). Enter passwords through the
@@ -160,6 +164,13 @@ auth + DB mapping, not HTTP or browser behavior. `db:verify` is read-only and co
 raw-task calculations to Dashboard, My Tasks, High-priority and project functions.
 Run on an idle DB; service calls use separate queries, so concurrent edits can cause
 a mismatch. Unlinked legacy users are reported separately, not silently provisioned.
+
+To compare the browser with this demo database, follow the
+[Backend Quick start](../backend/README.md#quick-start-one-flow) from the step that
+starts the API. Open **MobG W5 Main Demo** as Member, change **Future Medium** from
+**To do** to **Done**, and reopen the project to check that progress goes from 20%
+to 40%. Rerun `db:verify` against the same demo database after saving. Use a fresh
+demo database for each run from the original 20% state.
 
 ```powershell
 Remove-Item Env:SEED_OWNER_PASSWORD,Env:SEED_MEMBER_PASSWORD,Env:SEED_OUTSIDER_PASSWORD -ErrorAction SilentlyContinue
