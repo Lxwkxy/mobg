@@ -1,3 +1,4 @@
+
 import { Suspense } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Topbar from '@/components/Topbar';
@@ -18,7 +19,13 @@ export default function MainLayout({
       </Suspense>
 
       <div className="min-w-0 lg:ml-[240px] flex-1 flex flex-col min-h-screen">
-        <Topbar />
+        <Suspense
+          fallback={
+            <header className="h-16 bg-white border-b border-[#e0e0e0]" />
+          }
+        >
+          <Topbar />
+        </Suspense>
 
         <main className="min-w-0 p-4 sm:p-6 lg:p-[32px_36px] flex-1">
           <Suspense
