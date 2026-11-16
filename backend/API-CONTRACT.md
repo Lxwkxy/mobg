@@ -8,6 +8,7 @@ authentication. This update records Pai's requested implementation direction; it
 does not claim renewed confirmation from Bar and Book. Existing confirmed business
 rules in sections 5-11 are retained. Dashboard scope and priority rules were resolved for W4 on 2026-11-08 (see section 10.9).
 As of W2-Book-01/02: /api/me, /api/users, project CRUD and the project member list are database-backed behind session guards. As of W3-Book-01/02: the project task endpoints (section 10.6, except `GET /api/tasks/mine`) are implemented behind the same guards and covered by automated HTTP tests; they have not been checked from the web UI yet. As of W4-Book: `GET /api/tasks/mine`, member add/remove and `GET /api/dashboard` are implemented over Pai's W4 DB functions and covered by automated HTTP tests; they have not been checked from the web UI yet. Comments and activity remain contract-only. See docs/w2-verification.md, docs/w3-verification.md, docs/w4-pai-verification.md and docs/w4-verification.md.
+As of W5-Book-01 (2026-11-16): every W1–W4 endpoint was audited against Pai's W5 seed with `npm run test:api-audit` (169/169 checks: success, invalid input, unknown ID, empty result, no permission, logout, expired session) and this document was checked against the code. Projects/tasks/members/search/`/api/me` were also walked from the web UI; Dashboard and My Tasks pages still use mock data. Results: docs/w5-backend-report.md and docs/w5-api-audit-results.md.
 
 ## 0. Running the Backend
 
@@ -38,6 +39,22 @@ the business envelope in section 9 does not apply to these routes.
 | POST /api/auth/request-password-reset | authClient.requestPasswordReset({ email, redirectTo }) | Generic response whether or not the email exists |
 | POST /api/auth/reset-password | authClient.resetPassword({ token, newPassword }) | Spends token, replaces password and revokes sessions |
 | GET /api/me | Business API (mounted in W2) | { success: true, user: { userId, userName, email } } |
+
+Example flow with curl (PowerShell: use `curl.exe`; type the password yourself, never save it in a script).
+Better Auth checks `Origin` on POST, so send the web origin:
+
+```powershell
+$o = 'http://localhost:3000'; $api = 'http://localhost:5000'
+curl.exe -s -c cookies.txt -H "Origin: $o" -H 'Content-Type: application/json' `
+  -d '{\"email\":\"mobg-member@example.test\",\"password\":\"<your password>\"}' "$api/api/auth/sign-in/email"
+curl.exe -s -b cookies.txt "$api/api/me"                    # 200 { success, user: { userId, userName, email } }
+curl.exe -s -b cookies.txt "$api/api/projects?status=In%20progress"
+curl.exe -s -b cookies.txt -X PATCH -H 'Content-Type: application/json' -d '{\"status\":\"Done\"}' `
+  "$api/api/projects/<projectId>/tasks/<taskId>"            # 200 { success, task }
+curl.exe -s -b cookies.txt -X POST -H "Origin: $o" -H 'Content-Type: application/json' -d '{}' "$api/api/auth/sign-out"
+curl.exe -s -b cookies.txt "$api/api/me"                    # 401 UNAUTHENTICATED
+Remove-Item cookies.txt
+```
 
 The old /api/auth/login, /me and /logout routes are retired.
 Auth users have string IDs. Business userId is a numeric MobG ID obtained through
@@ -71,13 +88,49 @@ Session user.id refers to auth_users.id; resolve the MobG profile before checkin
 Migration 005 creates auth_sessions. Its token has Better Auth semantics, not the
 SHA-256 token_hash contract of legacy sessions. Do not copy or convert legacy sessions.
 Keep migration 004 and its table as history; the new handler never uses it.
-Refresh, missing/expired session redirects and logout flows are W2 integration work.
 Better Auth proves identity; Book must still enforce Owner/Member permissions.
+
+Actual behavior (verified in W5 by `npm run test:api-audit` and the web flow):
+
+| Situation | Business API (`/api/me`, `/api/projects`, ...) | Web app |
+|---|---|---|
+| No cookie, forged cookie | `401 UNAUTHENTICATED` | Protected pages go to `/login` |
+| Session past `expires_at` (7 days; Better Auth extends it on use after one day, its `updateAge` default) | `401 UNAUTHENTICATED`; a write with an expired session changes nothing | Same as no cookie |
+| After `POST /api/auth/sign-out` | The old cookie gets `401` on every business route | Logout button signs out, then `/api/me` 401 → `/login` |
+| Valid session, auth user not linked to `users.auth_user_id` | `403 FORBIDDEN` "No MobG profile is linked to this account" | Error state |
+
+Server pieces: `src/auth.ts` (Better Auth config: `basePath /api/auth`, `trustedOrigins [CORS_ORIGIN]`,
+DB session tables from migration 005, rate limits, email verification/reset hooks),
+`src/middleware/auth.ts` (`requireAuth`, `requireProjectRole`), `src/guards.ts` (wires them to the DB).
+Client: `web/lib/auth-client.ts` (`createAuthClient({ baseURL: NEXT_PUBLIC_AUTH_URL, basePath: '/api/auth', fetchOptions: { credentials: 'include' } })`);
+business fetches also send `credentials: 'include'`.
+
+Better Auth errors use its native shape `{ "code": "...", "message": "..." }`, not the section 9 envelope:
+
+| Request | Status / `code` |
+|---|---|
+| Sign-in, wrong password or unknown email (same answer) | `401 INVALID_EMAIL_OR_PASSWORD` |
+| Sign-in, public account not verified | `403 EMAIL_NOT_VERIFIED` |
+| `callbackURL` / `redirectTo` outside `CORS_ORIGIN` | `403 INVALID_CALLBACK_URL` |
+| Sign-up name/email invalid | `400 INVALID_REGISTRATION` |
+| Sign-up, reset or resend while SMTP is not configured | `503 ACCOUNT_EMAIL_UNAVAILABLE` |
+| Too many requests (sign-in 30/min, sign-up 15/min, resend/reset 5/min per IP) | `429` |
 
 ## 3. Passwords and Account Provisioning
 
 Concrete server API, separate seed config, inputs and linking/reconciliation steps:
 [W2 account provisioning procedure](../docs/w2-account-provisioning.md).
+
+Short version: accounts that can log in are made only through Better Auth's server API, never by SQL.
+`src/provisioning/accounts.ts` builds `seedAuth` (the same config with `registrationKind: "provisioned"`,
+no verification mail) and `provisionAccount()` calls `seedAuth.api.signUpEmail` and links the new auth
+user to an existing or new `users` row in one step. Ways to run it:
+
+| Need | Command (from `backend/`, passwords set privately in the terminal, never on the command line) |
+|---|---|
+| Link one existing MobG user or create one new profile | `npm run seed:accounts` with `SEED_DOMAIN_USER_ID` or `SEED_NAME`/`SEED_EMAIL`, plus `SEED_PASSWORD` |
+| Owner + Member + Outsider and the W5 demo projects | `. ./scripts/set-seed-env.ps1`, then `npm run seed:demo -- --database <mobg_w5_demo_*> --w5` |
+| Disposable accounts for an automated check | `npm run test:api-audit` / `npm run test:demo-rehearsal` (passwords live only in memory) |
 
 Use Better Auth's default password implementation. Credentials live in
 auth_accounts.password with provider_id = credential, not users.password_hash.
@@ -165,15 +218,15 @@ The database preserves existing names; the API maps them to UI display labels:
 The database stores `SMALLINT` (`1` = High, `2` = Medium, `3` = Low) with a `CHECK` constraint.  
 API sends and receives priority as numeric values (`1 | 2 | 3`). The frontend handles localization/labeling.
 
-### Runtime validation seam (W1)
+### Runtime validation (src/validation.ts)
 
-src/validation.ts exports ID/date/status/priority, body and query schemas plus parseRequest.
-Mounted W1 mock routes validate project list queries and project IDs at runtime.
-Bad values return 400 VALIDATION_ERROR with field details. Unknown query/body fields
-are rejected; pagination defaults to page 1/pageSize 10 and caps pageSize at 50.
-Body schemas are prepared for W2/W3; the mock server has no write endpoints.
-Membership/Owner checks, parameterized SQL, and merged stored date validation remain
-business service work. TypeScript DTOs do not replace these runtime checks.
+Every business route validates URL IDs, query and body with the zod schemas in `src/validation.ts`
+through `parseRequest`. Bad values return 400 VALIDATION_ERROR with `details[{ field, message }]`.
+Unknown query/body fields and repeated query keys are rejected (strict objects), so a client cannot
+add `userId`, `createdBy`, `role` or `status` on create to act as someone else. Strings are trimmed
+for names/titles; passwords are never touched. Pagination defaults to page 1/pageSize 10 and caps
+pageSize at 50. Membership/Owner checks and the stored-date merge for PATCH are done in the routes
+and Pai's DB functions after shape validation. TypeScript DTOs do not replace these runtime checks.
 
 ### Required Fields & Constraints [Confirmed]
 
@@ -225,8 +278,8 @@ Evaluated sequentially using the following precedence rules:
 
 ## 8. Cascading and Deletion Policies
 
-- **Deleting a Task**: Associated comments are automatically deleted via `ON DELETE CASCADE` on `comments.task_id` [Confirmed]. Assignee associations in `task_assignees` are removed (Pai to verify FK behavior).
-- **Deleting a Project** (`Owner` only) **[Confirmed by team]**: Tasks, assignees, comments, and project membership rows are deleted within a single database transaction. The frontend must prompt for explicit confirmation before invocation. *(Pai must verify whether foreign keys for `tasks`, `project_members`, and `task_assignees` have `CASCADE` configured or require manual ordered deletion).*
+- **Deleting a Task** (`Owner` only): comments and `task_assignees` rows are removed by `ON DELETE CASCADE` (migration 001). Verified in W5 on Pai's sandbox task: 0 comments and 0 assignees remain; other projects are untouched. A deleted task then answers `404`.
+- **Deleting a Project** (`Owner` only) **[Confirmed by team]**: Tasks, assignees, comments, and project membership rows are deleted within a single database transaction (`deleteProject`; the FKs `tasks.project_id`, `project_members.project_id`, `task_assignees.task_id` and `comments.task_id` all cascade). A second `DELETE` answers `404`. The frontend must prompt for explicit confirmation before invocation. There is no soft delete or undo.
 - **Removing a Member from a Project** (`Owner` only) **[Confirmed by team]**:
   - If the member is the **sole assignee of any task in the project, regardless of the task's status (including `Done`)** → Reject with `409 CONFLICT` (`reason: SOLE_ASSIGNEE`). Every task must keep at least one assignee, so completed tasks are covered too. The response lists the affected tasks.
   - If every task the member is assigned to has at least one other assignee → Remove the member from those tasks and from the project within the same transaction.
@@ -245,10 +298,12 @@ For validation errors the top-level message may be generic ("Request validation 
 
 | HTTP Status | Error Code | Trigger Condition |
 |---|---|---|
-| `400` | `VALIDATION_ERROR` | Missing or invalid fields, malformed JSON, invalid ID, invalid query parameter, date ordering violation |
+| `400` | `VALIDATION_ERROR` | Missing or invalid fields, malformed JSON, invalid ID, invalid query parameter, unknown or repeated query key, date ordering violation |
+| `413` | `VALIDATION_ERROR` | JSON body larger than 100 kB (`express.json()` limit). Fixed in W5; was `500` before |
+| `415` | `VALIDATION_ERROR` | Body charset or `Content-Encoding` the server cannot read |
 | `401` | `UNAUTHENTICATED` | Missing or expired session cookie on a protected endpoint (business endpoints only) |
 | `403` | `FORBIDDEN` | Insufficient permissions for the requested action |
-| `404` | `NOT_FOUND` | Route not found, project or task not found, or user is not a project member |
+| `404` | `NOT_FOUND` | Route not found, project or task not found, or user is not a project member. An unknown path under a protected prefix (e.g. `/api/tasks/123`) answers `401` first when there is no session |
 | `409` | `CONFLICT` | Action violates business rules (removing a sole assignee of any task including `Done`, removing the last Owner, adding someone who is already a member) |
 | `500` | `INTERNAL_ERROR` | Internal server or unhandled database exception (no stack trace leaked) |
 
@@ -724,7 +779,8 @@ Member add/remove implementations live in `projectDb.ts`; rejection task lists a
    | `GET /api/health` | Fully functional |
    | `/api/auth/*` | Better Auth; public registration, verification and reset covered by real HTTP/SMTP tests; provisioned-account login retained |
    | `GET /api/me`, `GET /api/users` | Implemented, session-guarded |
-   | `GET /api/projects`, `POST /api/projects`, `GET/PATCH/DELETE /api/projects/:projectId`, `GET /api/projects/:projectId/members` | Implemented, database-backed, Owner/Member guards; manual curl checks only |
-   | Project task endpoints in section 10.6 (`GET` list/detail, `POST`, `PATCH`, `DELETE` under `/api/projects/:projectId/tasks`) | Implemented, database-backed, Owner/Member guards; covered by automated HTTP tests (docs/w3-verification.md). Web UI flow not verified yet |
-   | `GET /api/tasks/mine`, `POST/DELETE /api/projects/:projectId/members`, `GET /api/dashboard` | Implemented (W4), database-backed, session guards; covered by automated HTTP tests (docs/w4-verification.md). Web UI flow not verified yet |
+   | `GET /api/search` | Implemented; W5 audit PASS; used by the web Topbar |
+   | `GET /api/projects`, `POST /api/projects`, `GET/PATCH/DELETE /api/projects/:projectId`, `GET /api/projects/:projectId/members` | Implemented, database-backed, Owner/Member guards; W5 audit PASS; list/detail walked from the web UI |
+   | Project task endpoints in section 10.6 (`GET` list/detail, `POST`, `PATCH`, `DELETE` under `/api/projects/:projectId/tasks`) | Implemented, database-backed, Owner/Member guards; automated HTTP tests (docs/w3-verification.md) and W5 audit PASS; list/detail/edit walked from the web UI |
+   | `GET /api/tasks/mine`, `POST/DELETE /api/projects/:projectId/members`, `GET /api/dashboard` | Implemented (W4), database-backed, session guards; automated HTTP tests (docs/w4-verification.md) and W5 audit PASS. Dashboard numbers equal Pai's DB table. Web Dashboard/My Tasks pages still use mock data |
    | All other endpoints in section 10 (comments, activity) | Contract defined; no endpoint implementation yet |

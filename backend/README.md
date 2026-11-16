@@ -1,14 +1,45 @@
 # MobG Backend
 
 Express 5 + TypeScript (ESM), a shared PostgreSQL pool and Better Auth 1.7.7.
-Session guards, `GET /api/me`, `GET /api/users` and the project routes are backed by
-PostgreSQL. The project task routes (`/api/projects/:projectId/tasks`) are implemented and
-covered by HTTP tests; they are not verified from the web UI yet. Comments, activity,
-dashboard, My Tasks and member add/remove endpoints are not implemented yet.
+Implemented and database-backed: `GET /api/me`, `GET /api/users`, `GET /api/search`,
+project CRUD, project members (list/add/remove), project tasks (CRUD), `GET /api/tasks/mine`
+and `GET /api/dashboard`. Comments and activity are contract-only (no endpoint yet).
+All of these passed the W5 audit on Pai's seed (`npm run test:api-audit`, see
+[W5 backend report](../docs/w5-backend-report.md)). The web app calls the project, task,
+member, search and `/api/me` endpoints; its Dashboard and My Tasks pages still use mock data.
 Frontend Login uses Better Auth. Public signup, email verification and password reset
 are described in [account setup](../docs/account-registration.md).
-The frontend has a project API client; Dashboard/My Tasks
-still use mock data. Do not infer full browser integration from DB/HTTP tests.
+
+## Quick start (one flow)
+
+A teammate can follow this to get a running API with three accounts and demo data.
+Run from the repository root in PowerShell. Variable names come from [`.env.example`](../.env.example).
+
+1. Copy the env file and fill the DB password: `Copy-Item .env.example .env`, then edit `.env`
+   privately: set `POSTGRES_PASSWORD`, delete the `BETTER_AUTH_SECRET=change_me...` line.
+   Keep `POSTGRES_HOST=127.0.0.1`, `POSTGRES_PORT=5433`, `PORT=5000`,
+   `CORS_ORIGIN=http://localhost:3000`, `BETTER_AUTH_URL=http://localhost:5000`.
+2. Start PostgreSQL: `docker compose up -d`.
+3. Install and create the auth secret:
+
+   ```powershell
+   cd backend
+   npm ci
+   npm run setup:auth-secret
+   ```
+
+4. Make a demo database with Pai's seed (accounts Owner / Member / Outsider). Follow
+   [database/README.md → isolated demonstration database](../database/README.md#prepare-a-persistent-isolated-demonstration-database);
+   `set-seed-env.ps1` asks for the three passwords without showing them.
+5. Start the API on that database in the same terminal (`$env:POSTGRES_DB` is still set by step 4):
+   `npm run dev`. Check `http://localhost:5000/api/health` → `{"status":"OK",...}`.
+6. Flow to try (web): copy `web/env.example` to `web/.env.local`, run `npm ci` and `npm run dev`
+   in `web/`, open `http://localhost:3000/login`, sign in as `mobg-member@example.test`, open
+   **MobG W5 Main Demo** (progress 20%), change "Future Medium" to Done (40%), then Log out.
+   The same flow by API with curl is in [API contract → section 1](API-CONTRACT.md#1-login--logout--current-user).
+7. Optional automatic check of every endpoint: `npm run test:api-audit` (prints 169/169 PASS).
+
+Close the terminal (or `Remove-Item Env:POSTGRES_DB`) before normal development on `mobg_db`.
 
 ## Local setup
 
@@ -58,6 +89,7 @@ Commands:
 | `npm run seed:demo -- --database NAME --w5` | Provision/verify accounts and seed W5 in a separate `mobg_w5_demo_*` DB |
 | `npm run db:backup -- --database SOURCE --restore-database NEW_NAME` | Private backup plus verified restore to a new `mobg_w5_restore_*` DB |
 | `npm run test:demo-rehearsal` | Disposable W5 setup, native auth, seed rerun and Docker backup/restore |
+| `npm run test:api-audit [-- --out FILE]` | W5 API audit: fresh `mobg_w5_demo_audit_*` DB with Pai's seed, real server, 169 HTTP checks; removes its DB |
 
 Run `npm run typecheck` before committing; `npm run dev` does not report type errors.
 `GET /api/health` is a server health endpoint, not a database or Login check.
@@ -73,8 +105,8 @@ Run `npm run typecheck` before committing; `npm run dev` does not report type er
 | `src/guards.ts`, `src/middleware/auth.ts` | `requireAuth` and `requireProjectRole("Member" \| "Owner")` |
 | `src/errors.ts`, `src/pgErrors.ts` | `ApiError` and PostgreSQL error helpers |
 | `src/mappers/` | DB rows to public DTOs (BIGINT strings to numbers, dates, roles) |
-| `src/routes/` | `me.ts`, `users.ts`, `projects.ts`, `tasks.ts` |
-| `src/services/` | Database functions (`authDb.ts`, `projectDb.ts`, `taskDb.ts`, `dbHelpers.ts`) |
+| `src/routes/` | `me.ts`, `users.ts`, `projects.ts`, `members.ts`, `tasks.ts`, `myTasks.ts`, `dashboard.ts`, `search.ts` |
+| `src/services/` | Pai's database functions (`authDb.ts`, `projectDb.ts`, `taskDb.ts`, `dashboardDb.ts`, `searchDb.ts`, `dbHelpers.ts`) |
 | `src/provisioning/`, `src/seed-accounts.ts` | Account provisioning (not part of the serving app) |
 
 ## Authentication and permissions
