@@ -1,3 +1,4 @@
+
 import { ApiRequestError, request } from '@/lib/projectApi';
 import type {
   CreateTaskRequest,
@@ -44,6 +45,30 @@ export const taskApi = {
     }
 
     return body.members;
+  },
+
+  // ดึงงานที่มอบหมายให้ผู้ใช้จาก session ปัจจุบัน
+  async getMyTasks(query: TaskListQuery = {}): Promise<Task[]> {
+    const params = new URLSearchParams();
+
+    if (query.status) {
+      params.set('status', query.status);
+    }
+
+    const qs = params.toString();
+
+    const body = await request<Success<TasksResponse>>(
+      `/api/tasks/mine${qs ? `?${qs}` : ''}`,
+    );
+
+    if (!Array.isArray(body.tasks)) {
+      throw new ApiRequestError(
+        'The server returned an invalid My Tasks list.',
+        200,
+      );
+    }
+
+    return body.tasks;
   },
 
   async getTasks(
