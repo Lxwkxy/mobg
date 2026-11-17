@@ -1,12 +1,14 @@
 
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
+
 import { ApiRequestError, projectApi } from '@/lib/projectApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import ProtectedState from '@/components/ProtectedState';
+import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
 
 function formatDate(value: string | null | undefined) {
   if (!value) return 'Not set';
@@ -32,6 +34,10 @@ export default function ProjectDetailPage() {
   const params = useParams<{ projectId: string }>();
   const router = useRouter();
 
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
   const load = useCallback(async () => {
     const projectId = Number(params.projectId);
 
@@ -47,10 +53,72 @@ export default function ProjectDetailPage() {
     data: project,
     httpStatus,
     retry,
-    } = useProtectedLoad(load, {
-  revalidateOnFocus: true,
-  hideDataWhileRefreshing: true,
+  } = useProtectedLoad(load, {
+    revalidateOnFocus: true,
+    hideDataWhileRefreshing: true,
   });
+
+  const openDeleteDialog = () => {
+    setDeleteError('');
+    setIsDeleteDialogOpen(true);
+  };
+
+  const closeDeleteDialog = () => {
+    if (isDeleting) return;
+
+    setIsDeleteDialogOpen(false);
+    setDeleteError('');
+  };
+
+  const handleDeleteProject = async () => {
+    if (!project || isDeleting) return;
+
+    setIsDeleting(true);
+    setDeleteError('');
+
+    try {
+      const projectId = Number(params.projectId);
+
+      if (!Number.isSafeInteger(projectId) || projectId <= 0) {
+        throw new ApiRequestError('Invalid project ID.', 400);
+      }
+
+      await projectApi.deleteProject(projectId);
+
+      router.push('/projects');
+      router.refresh();
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        if (error.status === 401) {
+          router.push('/login');
+          return;
+        }
+
+        if (error.status === 403) {
+          setDeleteError(
+            'You do not have permission to delete this project.',
+          );
+          return;
+        }
+
+        if (error.status === 404) {
+          setDeleteError(
+            'This project could not be found. It may have already been deleted.',
+          );
+          return;
+        }
+
+        setDeleteError(error.message);
+        return;
+      }
+
+      setDeleteError(
+        'Unable to delete this project. Please try again.',
+      );
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   if (status === 'error') {
     const canRetry = httpStatus !== 400 && httpStatus !== 404;
@@ -94,83 +162,139 @@ export default function ProjectDetailPage() {
   }
 
   const progress = Math.max(0, Math.min(100, project.progressPercent));
+  const isOwner = project.myRole === 'Owner';
 
   return (
-    <div className="mx-auto min-w-0 w-full max-w-4xl [overflow-wrap:anywhere]">
-      <Link
-        href="/projects"
-        className="mb-5 min-h-11 inline-flex items-center text-[13px] text-[#666666] hover:text-black"
-      >
-        ← Back to Projects
-      </Link>
+    <>
+      <div className="mx-auto min-w-0 w-full max-w-4xl [overflow-wrap:anywhere]">
+        <Link
+          href="/projects"
+          className="mb-5 min-h-11 inline-flex items-center text-[13px] text-[#666666] hover:text-black"
+        >
+          ← Back to Projects
+        </Link>
 
-      <div className="rounded-2xl border border-[#e0e0e0] bg-white p-4 sm:p-6 md:p-8">
-        <div className="mb-6">
-          <p className="mb-2 text-[12px] text-[#777777]">Project details</p>
+        <div className="rounded-2xl border border-[#e0e0e0] bg-white p-4 sm:p-6 md:p-8">
+          <div className="mb-6">
+            <p className="mb-2 text-[12px] text-[#777777]">
+              Project details
+            </p>
 
-          <h1 className="mb-3 text-[30px] font-extrabold text-[#1f1f1f]">
-            {project.projectName}
-          </h1>
+            <h1 className="mb-3 text-[30px] font-extrabold text-[#1f1f1f]">
+              {project.projectName}
+            </h1>
 
-          <p className="whitespace-pre-wrap text-[14px] leading-6 text-[#666666]">
-            {project.projectDescription || 'No description provided.'}
-          </p>
-        </div>
-
-        <div className="grid gap-4 border-t border-[#eeeeee] pt-6 sm:grid-cols-2">
-          <div>
-            <p className="mb-1 text-[11px] text-[#888888]">Start date</p>
-            <p className="text-[13px] font-semibold">
-              {formatDate(project.startDate)}
+            <p className="whitespace-pre-wrap text-[14px] leading-6 text-[#666666]">
+              {project.projectDescription || 'No description provided.'}
             </p>
           </div>
 
-          <div>
-            <p className="mb-1 text-[11px] text-[#888888]">Due date</p>
-            <p className="text-[13px] font-semibold">
-              {formatDate(project.dueDate)}
+          <div className="grid gap-4 border-t border-[#eeeeee] pt-6 sm:grid-cols-2">
+            <div>
+              <p className="mb-1 text-[11px] text-[#888888]">
+                Start date
+              </p>
+              <p className="text-[13px] font-semibold">
+                {formatDate(project.startDate)}
+              </p>
+            </div>
+
+            <div>
+              <p className="mb-1 text-[11px] text-[#888888]">
+                Due date
+              </p>
+              <p className="text-[13px] font-semibold">
+                {formatDate(project.dueDate)}
+              </p>
+            </div>
+
+            <div>
+              <p className="mb-1 text-[11px] text-[#888888]">
+                Status
+              </p>
+              <p className="text-[13px] font-semibold">
+                {project.derivedStatus}
+              </p>
+            </div>
+
+            <div>
+              <p className="mb-1 text-[11px] text-[#888888]">
+                Your role
+              </p>
+              <p className="text-[13px] font-semibold">
+                {project.myRole ?? '—'}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-7 border-t border-[#eeeeee] pt-6">
+            <div className="mb-2 flex justify-between text-[12px]">
+              <span>Progress</span>
+              <strong>{progress}%</strong>
+            </div>
+
+            <div className="h-2 overflow-hidden rounded-full bg-[#e5e5e5]">
+              <div
+                className="h-full rounded-full bg-[#62c400]"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+
+            <p className="mt-3 text-[12px] text-[#777777]">
+              {project.completedTasks} of {project.totalTasks} tasks completed
             </p>
           </div>
 
-          <div>
-            <p className="mb-1 text-[11px] text-[#888888]">Status</p>
-            <p className="text-[13px] font-semibold">{project.derivedStatus}</p>
+          <div className="mt-7 flex flex-wrap gap-3 border-t border-[#eeeeee] pt-6">
+            <Link
+              href={`/projects/${project.projectId}/tasks`}
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-[#222222] px-5 py-3 text-[13px] font-semibold text-white transition-colors hover:bg-[#444444] sm:w-auto"
+            >
+              View Tasks →
+            </Link>
+
+            <Link
+              href={`/projects/${project.projectId}/members`}
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-[#dddddd] px-5 py-3 text-[13px] font-semibold text-[#333333] transition-colors hover:bg-[#f5f5f5] sm:w-auto"
+            >
+              Members
+            </Link>
+
+            {isOwner && (
+              <>
+                <Link
+                  href={`/projects/${project.projectId}/settings`}
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-[#dddddd] px-5 py-3 text-[13px] font-semibold text-[#333333] transition-colors hover:bg-[#f5f5f5] sm:w-auto"
+                >
+                  <span className="mr-2">⚙</span>
+                  Settings
+                </Link>
+
+                <button
+                  type="button"
+                  onClick={openDeleteDialog}
+                  disabled={isDeleting}
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-red-300 px-5 py-3 text-[13px] font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                >
+                  Delete Project
+                </button>
+              </>
+            )}
           </div>
-
-          <div>
-            <p className="mb-1 text-[11px] text-[#888888]">Your role</p>
-            <p className="text-[13px] font-semibold">{project.myRole ?? '—'}</p>
-          </div>
-        </div>
-
-        <div className="mt-7 border-t border-[#eeeeee] pt-6">
-          <div className="mb-2 flex justify-between text-[12px]">
-            <span>Progress</span>
-            <strong>{progress}%</strong>
-          </div>
-
-          <div className="h-2 overflow-hidden rounded-full bg-[#e5e5e5]">
-            <div
-              className="h-full rounded-full bg-[#62c400]"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-
-          <p className="mt-3 text-[12px] text-[#777777]">
-            {project.completedTasks} of {project.totalTasks} tasks completed
-          </p>
-        </div>
-
-        {/* Navigate to this project's task list */}
-        <div className="mt-7 border-t border-[#eeeeee] pt-6">
-          <Link
-            href={`/projects/${project.projectId}/tasks`}
-            className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-[#222222] px-5 py-3 text-[13px] font-semibold text-white transition-colors hover:bg-[#444444] sm:w-auto"
-          >
-            View Tasks →
-          </Link>
         </div>
       </div>
-    </div>
+
+      <ConfirmationDialog
+        open={isDeleteDialogOpen}
+        title="Delete Project?"
+        description="Are you sure you want to permanently delete this project?"
+        itemName={project.projectName}
+        confirmLabel="Delete Project"
+        isLoading={isDeleting}
+        error={deleteError}
+        onCancel={closeDeleteDialog}
+        onConfirm={() => void handleDeleteProject()}
+      />
+    </>
   );
 }

@@ -1,12 +1,19 @@
+
 import { API_BASE_URL } from '@/lib/auth-client';
 import type {
+  AddMemberRequest,
   ApiFailure,
   CreateProjectRequest,
   ErrorDetail,
+  MemberResponse,
+  MembersResponse,
+  MessageResponse,
   ProjectItem,
   ProjectListQuery,
+  ProjectMember,
   ProjectResponse,
   ProjectsResponse,
+  UpdateProjectRequest,
   UserProfile,
   UsersResponse,
 } from '@/types';
@@ -80,10 +87,11 @@ export async function request<T extends { success: true }>(
 }
 
 export const projectApi = {
-  async getProjects(query: ProjectListQuery = {}): Promise<ProjectListResult> {
+  async getProjects(
+    query: ProjectListQuery = {},
+  ): Promise<ProjectListResult> {
     const params = new URLSearchParams();
 
-    // URLSearchParams จะ encode ค่าให้เอง (เช่น "In progress")
     if (query.status) params.set('status', query.status);
     if (query.page) params.set('page', String(query.page));
     if (query.pageSize) params.set('pageSize', String(query.pageSize));
@@ -101,7 +109,10 @@ export const projectApi = {
       );
     }
 
-    return { projects: body.projects, pagination: body.pagination };
+    return {
+      projects: body.projects,
+      pagination: body.pagination,
+    };
   },
 
   async getUsers(): Promise<UserProfile[]> {
@@ -117,7 +128,9 @@ export const projectApi = {
     return body.users;
   },
 
-  async createProject(input: CreateProjectRequest): Promise<ProjectItem> {
+  async createProject(
+    input: CreateProjectRequest,
+  ): Promise<ProjectItem> {
     const body = await request<Success<ProjectResponse>>('/api/projects', {
       method: 'POST',
       body: JSON.stringify(input),
@@ -132,5 +145,80 @@ export const projectApi = {
     );
 
     return body.project;
+  },
+
+  async updateProject(
+    projectId: number,
+    input: UpdateProjectRequest,
+  ): Promise<ProjectItem> {
+    const body = await request<Success<ProjectResponse>>(
+      `/api/projects/${projectId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      },
+    );
+
+    return body.project;
+  },
+
+  async deleteProject(projectId: number): Promise<string> {
+    const body = await request<Success<MessageResponse>>(
+      `/api/projects/${projectId}`,
+      {
+        method: 'DELETE',
+      },
+    );
+
+    return body.message;
+  },
+
+  // Get all members in a project.
+  async getProjectMembers(
+    projectId: number,
+  ): Promise<ProjectMember[]> {
+    const body = await request<Success<MembersResponse>>(
+      `/api/projects/${projectId}/members`,
+    );
+
+    if (!Array.isArray(body.members)) {
+      throw new ApiRequestError(
+        'The server returned an invalid members list.',
+        200,
+      );
+    }
+
+    return body.members;
+  },
+
+  // Add a user to a project.
+  async addProjectMember(
+    projectId: number,
+    input: AddMemberRequest,
+  ): Promise<ProjectMember> {
+    const body = await request<Success<MemberResponse>>(
+      `/api/projects/${projectId}/members`,
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
+    );
+
+    return body.member;
+  },
+
+  // Remove a member from a project.
+  async removeProjectMember(
+    projectId: number,
+    userId: number,
+  ): Promise<string> {
+    const body = await request<Success<MessageResponse>>(
+      `/api/projects/${projectId}/members/${userId}`,
+      {
+        method: 'DELETE',
+      },
+    );
+
+    return body.message;
   },
 };

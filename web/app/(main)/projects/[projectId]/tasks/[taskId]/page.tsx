@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 
 import ProtectedState from '@/components/ProtectedState';
+import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
 import {
   ApiRequestError,
   projectApi,
@@ -62,6 +63,7 @@ function TaskDetailContent({
   const router = useRouter();
 
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteError, setDeleteError] = useState('');
 
   const load = useCallback(async (): Promise<TaskDetailData> => {
@@ -82,18 +84,24 @@ function TaskDetailContent({
     httpStatus,
     retry,
   } = useProtectedLoad(load, {
-  revalidateOnFocus: true,
-  hideDataWhileRefreshing: true,
+    revalidateOnFocus: true,
+    hideDataWhileRefreshing: true,
   });
+
+  const openDeleteDialog = () => {
+    setDeleteError('');
+    setIsDeleteDialogOpen(true);
+  };
+
+  const closeDeleteDialog = () => {
+    if (isDeleting) return;
+
+    setIsDeleteDialogOpen(false);
+    setDeleteError('');
+  };
 
   const handleDelete = async () => {
     if (!data || isDeleting) return;
-
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${data.task.taskTitle}"? This action cannot be undone.`,
-    );
-
-    if (!confirmed) return;
 
     setIsDeleting(true);
     setDeleteError('');
@@ -119,7 +127,9 @@ function TaskDetailContent({
         }
 
         if (error.status === 404) {
-          setDeleteError('This task could not be found. It may have already been deleted.');
+          setDeleteError(
+            'This task could not be found. It may have already been deleted.',
+          );
           return;
         }
 
@@ -175,20 +185,33 @@ function TaskDetailContent({
   }
 
   return (
-    <TaskDetailView
-      task={data.task}
-      projectId={projectId}
-      isOwner={data.project.myRole === 'Owner'}
-      isDeleting={isDeleting}
-      deleteError={deleteError}
-      onDelete={handleDelete}
-      onBack={() => router.push(`/projects/${projectId}/tasks`)}
-      onEdit={() =>
-        router.push(
-          `/projects/${projectId}/tasks/${data.task.taskId}/edit`,
-        )
-      }
-    />
+    <>
+      <TaskDetailView
+        task={data.task}
+        projectId={projectId}
+        isOwner={data.project.myRole === 'Owner'}
+        isDeleting={isDeleting}
+        onDelete={openDeleteDialog}
+        onBack={() => router.push(`/projects/${projectId}/tasks`)}
+        onEdit={() =>
+          router.push(
+            `/projects/${projectId}/tasks/${data.task.taskId}/edit`,
+          )
+        }
+      />
+
+      <ConfirmationDialog
+        open={isDeleteDialogOpen}
+        title="Delete Task?"
+        description="Are you sure you want to permanently delete this task?"
+        itemName={data.task.taskTitle}
+        confirmLabel="Delete Task"
+        isLoading={isDeleting}
+        error={deleteError}
+        onCancel={closeDeleteDialog}
+        onConfirm={() => void handleDelete()}
+      />
+    </>
   );
 }
 
@@ -197,7 +220,6 @@ function TaskDetailView({
   projectId,
   isOwner,
   isDeleting,
-  deleteError,
   onDelete,
   onBack,
   onEdit,
@@ -206,7 +228,6 @@ function TaskDetailView({
   projectId: string;
   isOwner: boolean;
   isDeleting: boolean;
-  deleteError: string;
   onDelete: () => void;
   onBack: () => void;
   onEdit: () => void;
@@ -238,20 +259,11 @@ function TaskDetailView({
               disabled={isDeleting}
               className="min-h-11 rounded-lg border border-red-300 px-5 py-2 text-[12px] font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {isDeleting ? 'Deleting...' : 'Delete Task'}
+              Delete Task
             </button>
           )}
         </div>
       </div>
-
-      {deleteError && (
-        <p
-          role="alert"
-          className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-[13px] text-red-600"
-        >
-          {deleteError}
-        </p>
-      )}
 
       <div className="rounded-2xl border border-[#e0e0e0] bg-white p-4 sm:p-6 md:p-8">
         <div className="mb-6 border-b border-[#eeeeee] pb-6">

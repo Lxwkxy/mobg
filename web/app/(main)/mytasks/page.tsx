@@ -1,17 +1,16 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 
 import { taskApi } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import ProtectedState from '@/components/ProtectedState';
+import TaskFilters from '@/components/tasks/TaskFilters';
 
-import type { Task, TaskStatus } from '@/types';
+import type { Task, TaskPriority, TaskStatus } from '@/types';
 
-// ต้องประกาศนอก Component เพื่อให้ useProtectedLoad
-// ไม่เข้าใจว่า load เปลี่ยนทุกครั้งที่ render
 const loadMyTasks = () => taskApi.getMyTasks();
 
 const STATUS_OPTIONS: TaskStatus[] = [
@@ -21,7 +20,10 @@ const STATUS_OPTIONS: TaskStatus[] = [
 ];
 
 export default function MyTasksPage() {
-  const [activeTab, setActiveTab] = useState('All');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
+  const [priorityFilter, setPriorityFilter] = useState<TaskPriority | ''>('');
+
   const [updatingTaskId, setUpdatingTaskId] = useState<number | null>(null);
   const [actionError, setActionError] = useState('');
 
@@ -30,6 +32,26 @@ export default function MyTasksPage() {
     hideDataWhileRefreshing: true,
     revalidateOnRoute: '/mytasks',
   });
+
+  // ต้องเรียก Hooks ทั้งหมดก่อนเงื่อนไข return
+  const tasksList = data ?? [];
+
+  const filteredTasks = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+
+    return tasksList.filter((task) => {
+      const matchesSearch =
+        !keyword || task.taskTitle.toLowerCase().includes(keyword);
+
+      const matchesStatus =
+        !statusFilter || task.status === statusFilter;
+
+      const matchesPriority =
+        priorityFilter === '' || task.priority === priorityFilter;
+
+      return matchesSearch && matchesStatus && matchesPriority;
+    });
+  }, [tasksList, search, statusFilter, priorityFilter]);
 
   const handleStatusChange = async (
     task: Task,
@@ -49,7 +71,6 @@ export default function MyTasksPage() {
         { status: newStatus },
       );
 
-      // โหลดข้อมูลล่าสุดหลังเปลี่ยนสถานะสำเร็จ
       retry();
     } catch (error) {
       console.error('Failed to update task status:', error);
@@ -64,6 +85,19 @@ export default function MyTasksPage() {
     }
   };
 
+  const clearFilters = () => {
+    setSearch('');
+    setStatusFilter('');
+    setPriorityFilter('');
+  };
+
+  const getPriorityLabel = (priority: number) => {
+    if (priority === 1) return 'High';
+    if (priority === 2) return 'Medium';
+    return 'Low';
+  };
+
+  // แสดง Loading / Error หลังเรียก Hooks ครบแล้ว
   if (status !== 'ready' || data === null) {
     return (
       <ProtectedState
@@ -72,58 +106,6 @@ export default function MyTasksPage() {
       />
     );
   }
-
-  const tasksList = data;
-
-  const getPriorityLabel = (priority: number) => {
-    if (priority === 1) return 'High';
-    if (priority === 2) return 'Medium';
-    return 'Low';
-  };
-
-  const countHigh = tasksList.filter(
-    (task) => task.priority === 1,
-  ).length;
-
-  const countInProgress = tasksList.filter(
-    (task) => task.status === 'In progress',
-  ).length;
-
-  const countTodo = tasksList.filter(
-    (task) => task.status === 'To do',
-  ).length;
-
-  const countDone = tasksList.filter(
-    (task) => task.status === 'Done',
-  ).length;
-
-  const tabs = [
-    { name: 'All', count: tasksList.length },
-    { name: 'High priority', count: countHigh },
-    { name: 'In progress', count: countInProgress },
-    { name: 'To do', count: countTodo },
-    { name: 'Done', count: countDone },
-  ];
-
-  const filteredTasks = tasksList.filter((task) => {
-    if (activeTab === 'High priority') {
-      return task.priority === 1;
-    }
-
-    if (activeTab === 'In progress') {
-      return task.status === 'In progress';
-    }
-
-    if (activeTab === 'To do') {
-      return task.status === 'To do';
-    }
-
-    if (activeTab === 'Done') {
-      return task.status === 'Done';
-    }
-
-    return true;
-  });
 
   return (
     <div className="min-w-0">
@@ -137,45 +119,36 @@ export default function MyTasksPage() {
         </p>
       </div>
 
-      {/* TASK FILTER TABS */}
-      <div className="mb-6 flex flex-col gap-4">
-        <div
-          aria-label="Task filters"
-          className="flex flex-wrap items-center gap-2"
-        >
-          {tabs.map((tab) => (
-            <button
-              key={tab.name}
-              type="button"
-              onClick={() => setActiveTab(tab.name)}
-              aria-pressed={activeTab === tab.name}
-              className={`flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-medium transition-colors ${
-                activeTab === tab.name
-                  ? 'bg-[#dcdcdc] font-bold text-[#111111]'
-                  : 'border border-[#dcdcdc] bg-white text-[#555555] hover:bg-[#f4f4f4]'
-              }`}
-            >
-              {tab.name}
+      <TaskFilters
+        search={search}
+        status={statusFilter}
+        priority={priorityFilter}
+        onSearchChange={setSearch}
+        onStatusChange={setStatusFilter}
+        onPriorityChange={setPriorityFilter}
+        onClear={clearFilters}
+      />
 
-              <span className="rounded-full bg-black/5 px-1.5 py-0.5 text-[11px]">
-                {tab.count}
-              </span>
-            </button>
-          ))}
+      {actionError && (
+        <div
+          role="alert"
+          className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-[13px] text-red-700"
+        >
+          {actionError}
+        </div>
+      )}
+
+      <div className="min-w-0 rounded-xl border border-[#e0e0e0] bg-white p-4 sm:p-6">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-[14px] font-semibold text-[#333333]">
+            Assigned Tasks
+          </h2>
+
+          <span className="text-[12px] text-[#888888]">
+            {filteredTasks.length} of {tasksList.length} tasks
+          </span>
         </div>
 
-        {actionError && (
-          <div
-            role="alert"
-            className="rounded-lg border border-red-200 bg-red-50 p-3 text-[13px] text-red-700"
-          >
-            {actionError}
-          </div>
-        )}
-      </div>
-
-      {/* TASKS TABLE */}
-      <div className="min-w-0 rounded-xl border border-[#e0e0e0] bg-white p-4 sm:p-6">
         <div
           aria-hidden="true"
           className="hidden grid-cols-[2fr_1.3fr_1fr_0.8fr_1.1fr_1.1fr] items-center gap-3 border-b border-[#e8e8e8] pb-3 text-[12px] font-semibold text-[#888888] xl:grid"
@@ -200,8 +173,18 @@ export default function MyTasksPage() {
               <p className="mt-1 text-[12px] text-[#999999]">
                 {tasksList.length === 0
                   ? 'Tasks assigned to you will appear here.'
-                  : 'Try selecting another filter.'}
+                  : 'Try changing your search or filters.'}
               </p>
+
+              {tasksList.length > 0 && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="mt-4 min-h-10 rounded-lg border border-[#dedede] px-4 text-[12px] hover:bg-[#f5f5f5]"
+                >
+                  Clear filters
+                </button>
+              )}
             </div>
           ) : (
             filteredTasks.map((row) => {
@@ -217,7 +200,6 @@ export default function MyTasksPage() {
                   key={`${row.projectId}-${row.taskId}`}
                   className="grid min-w-0 grid-cols-1 items-start gap-3 border-b border-[#f0f0f0] py-4 last:border-none sm:grid-cols-2 xl:grid-cols-[2fr_1.3fr_1fr_0.8fr_1.1fr_1.1fr] xl:items-center [&>div]:min-w-0 [overflow-wrap:anywhere]"
                 >
-                  {/* TASK NAME */}
                   <div className="flex min-w-0 flex-col sm:col-span-2 xl:col-span-1">
                     <Link
                       href={`/projects/${row.projectId}/tasks/${row.taskId}`}
@@ -231,7 +213,6 @@ export default function MyTasksPage() {
                     </span>
                   </div>
 
-                  {/* PROJECT */}
                   <div className="flex items-center gap-2 text-[12px] text-[#444444]">
                     <span className="shrink-0 font-semibold xl:sr-only">
                       Project:
@@ -247,7 +228,6 @@ export default function MyTasksPage() {
                     </Link>
                   </div>
 
-                  {/* ASSIGNEES */}
                   <div className="flex items-center gap-2 text-[12px] text-[#444444]">
                     <span className="shrink-0 font-semibold xl:sr-only">
                       Assignee:
@@ -261,7 +241,6 @@ export default function MyTasksPage() {
                       {assigneeNames.length > 0 ? (
                         <span>
                           {assigneeNames.slice(0, 2).join(', ')}
-
                           {assigneeNames.length > 2 &&
                             ` +${assigneeNames.length - 2}`}
                         </span>
@@ -271,17 +250,15 @@ export default function MyTasksPage() {
 
                       {assigneeNames.length > 2 && (
                         <details>
-                          <summary className="min-h-11 flex cursor-pointer items-center">
+                          <summary className="flex min-h-11 cursor-pointer items-center">
                             Show all assignees
                           </summary>
-
                           <span>{assigneeNames.join(', ')}</span>
                         </details>
                       )}
                     </div>
                   </div>
 
-                  {/* PRIORITY */}
                   <div>
                     <span className="mr-2 text-[12px] font-semibold xl:sr-only">
                       Priority:
@@ -292,7 +269,6 @@ export default function MyTasksPage() {
                     </span>
                   </div>
 
-                  {/* STATUS */}
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[12px] font-semibold xl:sr-only">
                       Status:
@@ -324,14 +300,12 @@ export default function MyTasksPage() {
                     )}
                   </div>
 
-                  {/* DUE DATE */}
                   <div className="flex items-center gap-1.5 text-[12px] text-[#555555]">
                     <span className="font-semibold xl:sr-only">
                       Due:
                     </span>
 
                     <span>📅</span>
-
                     <span>{row.dueDate}</span>
 
                     {row.isOverdue && (

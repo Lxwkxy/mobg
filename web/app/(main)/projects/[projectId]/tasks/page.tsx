@@ -1,14 +1,15 @@
 
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 
 import ProtectedState from '@/components/ProtectedState';
+import TaskFilters from '@/components/tasks/TaskFilters';
 import { parseRouteId, taskApi } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
-import type { Task } from '@/types';
+import type { Task, TaskPriority, TaskStatus } from '@/types';
 
 function formatDate(value: string | null | undefined) {
   if (!value) return 'No due date';
@@ -50,7 +51,10 @@ function priorityClass(priority: Task['priority']) {
   }
 }
 
-function TaskRow({ task, projectId }: {
+function TaskRow({
+  task,
+  projectId,
+}: {
   task: Task;
   projectId: number;
 }) {
@@ -103,7 +107,13 @@ function TaskRow({ task, projectId }: {
         <p className="mb-1 text-[10px] text-[#999999] sm:hidden">
           Due date
         </p>
-        <p className={`text-[12px] ${task.isOverdue ? 'font-semibold text-red-600' : 'text-[#555555]'}`}>
+        <p
+          className={`text-[12px] ${
+            task.isOverdue
+              ? 'font-semibold text-red-600'
+              : 'text-[#555555]'
+          }`}
+        >
           {formatDate(task.dueDate)}
         </p>
       </div>
@@ -112,7 +122,9 @@ function TaskRow({ task, projectId }: {
         <p className="mb-1 text-[10px] text-[#999999] sm:hidden">
           Priority
         </p>
-        <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ${priorityClass(task.priority)}`}>
+        <span
+          className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ${priorityClass(task.priority)}`}
+        >
           {priorityLabel(task.priority)}
         </span>
       </div>
@@ -132,6 +144,10 @@ function TaskRow({ task, projectId }: {
 function ProjectTasksContent({ projectId }: { projectId: string }) {
   const router = useRouter();
 
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
+  const [priorityFilter, setPriorityFilter] = useState<TaskPriority | ''>('');
+
   const load = useCallback(async () => {
     const id = parseRouteId(projectId, 'project ID');
     return taskApi.getTasks(id);
@@ -143,11 +159,36 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
     httpStatus,
     retry,
   } = useProtectedLoad(load, {
-  revalidateOnFocus: true,
-  hideDataWhileRefreshing: true,
+    revalidateOnFocus: true,
+    hideDataWhileRefreshing: true,
   });
 
   const numericProjectId = Number(projectId);
+
+  const filteredTasks = useMemo(() => {
+    if (!tasks) return [];
+
+    const keyword = search.trim().toLowerCase();
+
+    return tasks.filter((task) => {
+      const matchesSearch =
+        !keyword || task.taskTitle.toLowerCase().includes(keyword);
+
+      const matchesStatus =
+        !statusFilter || task.status === statusFilter;
+
+      const matchesPriority =
+        priorityFilter === '' || task.priority === priorityFilter;
+
+      return matchesSearch && matchesStatus && matchesPriority;
+    });
+  }, [tasks, search, statusFilter, priorityFilter]);
+
+  const clearFilters = () => {
+    setSearch('');
+    setStatusFilter('');
+    setPriorityFilter('');
+  };
 
   if (status === 'error') {
     const message =
@@ -216,14 +257,22 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
 
         <button
           type="button"
-          onClick={() =>
-            router.push(`/projects/${projectId}/tasks/new`)
-          }
+          onClick={() => router.push(`/projects/${projectId}/tasks/new`)}
           className="min-h-11 rounded-lg bg-[#222222] px-5 text-[12px] font-medium text-white hover:bg-[#444444]"
         >
           + Create Task
         </button>
       </div>
+
+      <TaskFilters
+        search={search}
+        status={statusFilter}
+        priority={priorityFilter}
+        onSearchChange={setSearch}
+        onStatusChange={setStatusFilter}
+        onPriorityChange={setPriorityFilter}
+        onClear={clearFilters}
+      />
 
       <div className="overflow-hidden rounded-2xl border border-[#e5e5e5] bg-white">
         <div className="flex items-center justify-between border-b border-[#eeeeee] px-5 py-4">
@@ -231,7 +280,7 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
             Tasks
           </h2>
           <span className="text-[12px] text-[#888888]">
-            {tasks.length} {tasks.length === 1 ? 'task' : 'tasks'}
+            {filteredTasks.length} of {tasks.length} tasks
           </span>
         </div>
 
@@ -244,6 +293,22 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
               Create the first task for this project.
             </p>
           </div>
+        ) : filteredTasks.length === 0 ? (
+          <div className="flex min-h-56 flex-col items-center justify-center px-5 text-center">
+            <p className="text-[14px] font-semibold text-[#444444]">
+              No tasks found
+            </p>
+            <p className="mt-2 text-[12px] text-[#999999]">
+              Try changing your search or filters.
+            </p>
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="mt-4 min-h-10 rounded-lg border border-[#dedede] px-4 text-[12px] hover:bg-[#f5f5f5]"
+            >
+              Clear filters
+            </button>
+          </div>
         ) : (
           <>
             <div className="hidden grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)_minmax(100px,0.8fr)_minmax(90px,0.7fr)_minmax(100px,0.8fr)] gap-3 border-b border-[#eeeeee] bg-[#fafafa] px-4 py-3 text-[11px] font-semibold text-[#888888] sm:grid">
@@ -254,7 +319,7 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
               <span>Status</span>
             </div>
 
-            {tasks.map((task) => (
+            {filteredTasks.map((task) => (
               <TaskRow
                 key={task.taskId}
                 task={task}
@@ -272,8 +337,6 @@ export default function ProjectTasksPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
 
-  // Remount when projectId changes so the previous project's rows
-  // cannot remain visible while the next project is loading.
   return (
     <ProjectTasksContent
       key={projectId}
