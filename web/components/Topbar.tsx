@@ -100,13 +100,6 @@ export default function Topbar() {
     };
   }, [shouldRevalidate, refreshSession]);
 
-  // Redirect เมื่อ Session หมดอายุหรือ Logout สำเร็จ
-  useEffect(() => {
-    if (status === 'login-required') {
-      router.replace('/login');
-    }
-  }, [status, router]);
-
   // ปิด Dropdown เมื่อคลิกด้านนอก
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {

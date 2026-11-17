@@ -5,9 +5,14 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import {
+  notFound,
+  useParams,
+  useRouter,
+} from 'next/navigation';
 
 import {
   ApiRequestError,
@@ -18,6 +23,8 @@ import { useSession } from '@/lib/SessionProvider';
 import ProtectedState from '@/components/ProtectedState';
 import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
 import type { ProjectItem } from '@/types';
+
+const emptySubscribe = () => () => {};
 
 type DeleteTarget = {
   scope: string;
@@ -51,15 +58,20 @@ function formatDate(value: string | null | undefined) {
   }).format(date);
 }
 
-function describeError(httpStatus: number | undefined) {
-  if (httpStatus === 400) return 'Invalid project ID.';
-  if (httpStatus === 404) return 'Project not found.';
-  return 'Unable to load the project. Please try again.';
-}
-
 export default function ProjectDetailPage() {
   const params = useParams<{ projectId: string }>();
   const router = useRouter();
+  const isClient = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
+
+  const parsedProjectId = Number(params.projectId);
+  const isValidProjectId =
+    /^\d+$/.test(params.projectId) &&
+    Number.isSafeInteger(parsedProjectId) &&
+    parsedProjectId > 0;
 
   const {
     session,
@@ -86,14 +98,12 @@ export default function ProjectDetailPage() {
   const activeDeleteRef = useRef<DeleteTarget | null>(null);
 
   const load = useCallback(async () => {
-    const projectId = Number(params.projectId);
-
-    if (!Number.isSafeInteger(projectId) || projectId <= 0) {
-      throw new ApiRequestError('Invalid project ID.', 400);
+    if (!isValidProjectId) {
+      return null;
     }
 
-    return projectApi.getProjectById(projectId);
-  }, [params.projectId]);
+    return projectApi.getProjectById(parsedProjectId);
+  }, [isValidProjectId, parsedProjectId]);
 
   const {
     status,
@@ -104,6 +114,16 @@ export default function ProjectDetailPage() {
     revalidateOnFocus: true,
     hideDataWhileRefreshing: true,
   });
+
+  const isNotFound =
+    !isValidProjectId ||
+    (status === 'error' && (httpStatus === 400 || httpStatus === 404));
+
+  useEffect(() => {
+    if (isNotFound && isClient) {
+      notFound();
+    }
+  }, [isNotFound, isClient]);
 
   const displayedProject =
     project !== null &&
@@ -245,6 +265,10 @@ export default function ProjectDetailPage() {
     },
     [getLatestSession, refreshSession],
   );
+
+  if (isNotFound) {
+    return null;
+  }
 
   const openDeleteDialog = () => {
     if (
@@ -475,8 +499,6 @@ export default function ProjectDetailPage() {
     isDeleteDialogOpen && isDeleteTargetVerified;
 
   if (status === 'error') {
-    const canRetry = httpStatus !== 400 && httpStatus !== 404;
-
     return (
       <>
         {visiblePermissionNotice && (
@@ -490,7 +512,7 @@ export default function ProjectDetailPage() {
 
         <div className="mx-auto min-w-0 max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-4 sm:p-6 [overflow-wrap:anywhere]">
           <p role="alert" className="mb-4 text-[13px] text-red-600">
-            {describeError(httpStatus)}
+            Unable to load the project. Please try again.
           </p>
 
           <div className="flex flex-wrap gap-3">
@@ -502,15 +524,13 @@ export default function ProjectDetailPage() {
               Back to Projects
             </button>
 
-            {canRetry && (
-              <button
-                type="button"
-                onClick={retry}
-                className="min-h-11 rounded-lg bg-[#222222] px-4 py-2 text-[12px] text-white"
-              >
-                Try again
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={retry}
+              className="min-h-11 rounded-lg bg-[#222222] px-4 py-2 text-[12px] text-white"
+            >
+              Try again
+            </button>
           </div>
         </div>
       </>

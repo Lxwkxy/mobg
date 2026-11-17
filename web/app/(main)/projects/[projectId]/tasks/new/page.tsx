@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -11,7 +10,7 @@ import {
   type FormEvent,
 } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { notFound, useParams, useRouter } from 'next/navigation';
 
 import ProtectedState from '@/components/ProtectedState';
 import AssigneeSelector from '@/components/tasks/AssigneeSelector';
@@ -1458,6 +1457,11 @@ function CreateTaskContent({
     refreshSession,
   } = useSession();
 
+  const isInvalidId =
+    !/^\d+$/.test(projectId) ||
+    !Number.isSafeInteger(Number(projectId)) ||
+    Number(projectId) <= 0;
+
   const load = useCallback(async (): Promise<FormData> => {
     const id = parseRouteId(projectId, 'project ID');
 
@@ -1483,6 +1487,16 @@ function CreateTaskContent({
     hideDataWhileRefreshing: false,
   });
 
+  const isNotFound =
+    isInvalidId ||
+    (status === 'error' && (httpStatus === 400 || httpStatus === 404));
+
+  useEffect(() => {
+    if (isNotFound) {
+      notFound();
+    }
+  }, [isNotFound]);
+
   /*
    * Retry ต้องตรวจ Session ใหม่ก่อนโหลดข้อมูล Project
    */
@@ -1495,6 +1509,10 @@ function CreateTaskContent({
 
     await retry();
   }, [refreshSession, retry]);
+
+  if (isNotFound) {
+    return null;
+  }
 
   /*
    * เก็บ Form เดิมไว้ระหว่างตรวจ Session
@@ -1602,11 +1620,7 @@ function CreateTaskContent({
           role="alert"
           className="mb-4 text-[13px] text-red-600"
         >
-          {httpStatus === 400
-            ? 'Invalid project ID.'
-            : httpStatus === 404
-              ? 'Project not found or you are not a member.'
-              : 'Unable to load the task form. Please try again.'}
+          Unable to load the task form. Please try again.
         </p>
 
         <div className="flex flex-wrap gap-3">
@@ -1618,15 +1632,13 @@ function CreateTaskContent({
             Back to Projects
           </button>
 
-          {httpStatus !== 400 && httpStatus !== 404 && (
-            <button
-              type="button"
-              onClick={handleRetry}
-              className="min-h-11 rounded-lg bg-[#222222] px-4 text-[13px] text-white"
-            >
-              Try again
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={handleRetry}
+            className="min-h-11 rounded-lg bg-[#222222] px-4 text-[13px] text-white"
+          >
+            Try again
+          </button>
         </div>
       </div>
     );

@@ -1,40 +1,33 @@
-
 'use client';
 
 import {
   useCallback,
+  useEffect,
   useState,
   type FormEvent,
 } from 'react';
-
 import Link from 'next/link';
-
 import {
+  notFound,
   useParams,
   usePathname,
   useRouter,
 } from 'next/navigation';
 
 import ProtectedState from '@/components/ProtectedState';
-
 import AssigneeSelector from '@/components/tasks/AssigneeSelector';
-
 import { ApiRequestError } from '@/lib/projectApi';
-
 import {
   parseRouteId,
   taskApi,
 } from '@/lib/taskApi';
-
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
-
 import {
   mapTaskServerErrors,
   normalizeAssigneeIds,
   validateTaskForm,
   type TaskFormErrors,
 } from '@/lib/taskForm';
-
 import type {
   Task,
   TaskPriority,
@@ -54,6 +47,14 @@ const statusOptions: TaskStatus[] = [
   'Done',
 ];
 
+function isPositiveIntString(value: string) {
+  return (
+    /^\d+$/.test(value) &&
+    Number.isSafeInteger(Number(value)) &&
+    Number(value) > 0
+  );
+}
+
 function EditTaskContent({
   projectId,
   taskId,
@@ -65,8 +66,6 @@ function EditTaskContent({
 }) {
   const router = useRouter();
 
-  // เก็บข้อมูลต้นฉบับไว้ตลอดการแก้ไขครั้งนี้
-  // ไม่ให้ข้อมูลจากการ Refresh เขียนทับค่าที่ผู้ใช้กำลังแก้
   const [baseline] = useState<Task>(() => data.task);
 
   const [taskTitle, setTaskTitle] = useState(
@@ -175,7 +174,6 @@ function EditTaskContent({
 
     const input: UpdateTaskRequest = {};
 
-    // ส่งเฉพาะค่าที่ผู้ใช้เปลี่ยนจริง
     if (trimmedTitle !== baseline.taskTitle) {
       input.taskTitle = trimmedTitle;
     }
@@ -526,6 +524,9 @@ function EditTaskLoader({
 }) {
   const router = useRouter();
 
+  const isInvalidId =
+    !isPositiveIntString(projectId) || !isPositiveIntString(taskId);
+
   const load = useCallback(
     async (): Promise<EditTaskData> => {
       const parsedProjectId = parseRouteId(
@@ -569,12 +570,24 @@ function EditTaskLoader({
     hideDataWhileRefreshing: true,
   });
 
+  const isNotFound =
+    isInvalidId ||
+    (loadStatus === 'error' && (httpStatus === 400 || httpStatus === 404));
+
+  useEffect(() => {
+    if (isNotFound) {
+      notFound();
+    }
+  }, [isNotFound]);
+
+  if (isNotFound) {
+    return null;
+  }
+
   const showContent =
     loadStatus === 'ready' &&
     data !== null;
 
-  // ใช้ retained ระหว่างตรวจ Session
-  // เพื่อรักษา State ของ EditTaskContent
   const retainedData = retained ?? data;
 
   const hasRetainedContent =
@@ -587,11 +600,7 @@ function EditTaskLoader({
         role="alert"
         className="mb-4 text-[13px] text-red-600"
       >
-        {httpStatus === 400
-          ? 'Invalid project or task ID.'
-          : httpStatus === 404
-            ? 'Task not found in this project.'
-            : 'Unable to load task information. Please try again.'}
+        Unable to load task information. Please try again.
       </p>
 
       <div className="flex flex-wrap gap-3">
@@ -607,31 +616,19 @@ function EditTaskLoader({
           Back to Tasks
         </button>
 
-        {httpStatus !== 400 &&
-          httpStatus !== 404 && (
-            <button
-              type="button"
-              onClick={retry}
-              className="min-h-11 rounded-lg bg-[#222222] px-4 text-[13px] text-white"
-            >
-              Try again
-            </button>
-          )}
+        <button
+          type="button"
+          onClick={retry}
+          className="min-h-11 rounded-lg bg-[#222222] px-4 text-[13px] text-white"
+        >
+          Try again
+        </button>
       </div>
     </div>
   );
 
-  // 400 และ 404 ต้องแสดง Error แม้มี retained form อยู่
-  const isNotFoundOrInvalid =
-    httpStatus === 400 ||
-    httpStatus === 404;
-
   const shouldShowError =
-    loadStatus === 'error' &&
-    (
-      isNotFoundOrInvalid ||
-      !hasRetainedContent
-    );
+    loadStatus === 'error' && !hasRetainedContent;
 
   return (
     <>

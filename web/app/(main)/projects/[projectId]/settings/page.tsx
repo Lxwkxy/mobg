@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { notFound, useParams, useRouter } from 'next/navigation';
 
 import {
   ApiRequestError,
@@ -42,7 +42,6 @@ type StoredProjectDraft = {
 
 type SaveListener = () => void;
 
-// เก็บสถานะ PATCH ไว้นอก Component เพื่อให้ยังล็อกอยู่แม้ Component remount
 const projectSaveLocks = new Map<string, symbol>();
 const projectSaveListeners = new Map<string, Set<SaveListener>>();
 
@@ -119,9 +118,7 @@ function getNextDate(value: string) {
 }
 
 function describeError(status: number | undefined) {
-  if (status === 400) return 'Invalid project ID.';
   if (status === 403) return 'You do not have permission to view this project.';
-  if (status === 404) return 'Project not found.';
   return 'Unable to load project settings. Please try again.';
 }
 
@@ -300,7 +297,6 @@ function ProjectSettingsForm({
     };
   }, []);
 
-  // รับข้อมูล API ล่าสุด โดยรักษาค่าที่ผู้ใช้แก้ไขเองไว้
   useEffect(() => {
     const latestForm = createProjectForm(project);
     const previousBaseline = baselineRef.current;
@@ -320,7 +316,6 @@ function ProjectSettingsForm({
     });
   }, [project]);
 
-  // เก็บ Draft แยกตามบัญชีและ Project
   useEffect(() => {
     if (project.myRole !== 'Owner') {
       removeStoredDraft(draftKey);
@@ -370,8 +365,6 @@ function ProjectSettingsForm({
         return false;
       }
 
-      // อ่าน session ล่าสุดจาก SessionProvider โดยตรง
-      // เพื่อไม่ให้ค่าค้างเมื่อฟอร์มเดิมถูก unmount หลังสลับบัญชี
       let currentSession = getLatestSession();
 
       if (currentSession.status === 'loading') {
@@ -500,7 +493,6 @@ function ProjectSettingsForm({
     const submittedForm = form;
     const submittedBaseline = baseline;
 
-    // ล็อกก่อนเริ่มส่ง PATCH เพื่อป้องกันการกดซ้ำหรือ remount
     const saveToken = acquireProjectSave(requestDraftKey);
 
     if (!saveToken) {
@@ -522,8 +514,6 @@ function ProjectSettingsForm({
         return;
       }
 
-      // ใช้ค่าจาก API เป็น Baseline ใหม่
-      // และรักษาค่าที่ผู้ใช้ยังไม่ได้บันทึกไว้
       const latestBaseline = createProjectForm(updatedProject);
 
       const nextForm = mergeProjectForm(
@@ -608,7 +598,6 @@ function ProjectSettingsForm({
         setSaveError('Something went wrong. Please try again.');
       }
     } finally {
-      // ปลดล็อกเมื่อ PATCH จบจริงเท่านั้น ไม่ขึ้นกับ Session revision
       releaseProjectSave(requestDraftKey, saveToken);
     }
   }
@@ -879,6 +868,11 @@ function ProjectSettingsLoader({
   const { session } = useSession();
   const activeLoaderTokenRef = useRef<object | null>(null);
 
+  const isInvalidId =
+    !/^\d+$/.test(projectId) ||
+    !Number.isSafeInteger(Number(projectId)) ||
+    Number(projectId) <= 0;
+
   useEffect(() => {
     activeLoaderTokenRef.current = {};
 
@@ -912,6 +906,16 @@ function ProjectSettingsLoader({
     hideDataWhileRefreshing: true,
   });
 
+  const isNotFound =
+    isInvalidId ||
+    (status === 'error' && (httpStatus === 400 || httpStatus === 404));
+
+  useEffect(() => {
+    if (isNotFound) {
+      notFound();
+    }
+  }, [isNotFound]);
+
   const showContent =
     status === 'ready' &&
     project !== null;
@@ -940,17 +944,17 @@ function ProjectSettingsLoader({
     }
   }, [project, retainedUserId, status]);
 
-  // คงฟอร์มไว้ระหว่าง session กำลังตรวจใหม่ (loading) เพื่อไม่ให้ unmount กลางทาง
   const isRetainedUserCurrent =
     retainedUserId !== null &&
     (session.status !== 'ready' ||
       session.user?.userId === retainedUserId);
 
+  if (isNotFound) {
+    return null;
+  }
+
   if (status === 'error') {
-    const canRetry =
-      httpStatus !== 400 &&
-      httpStatus !== 403 &&
-      httpStatus !== 404;
+    const canRetry = httpStatus !== 403;
 
     return (
       <div className="mx-auto w-full max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-4 sm:p-6">

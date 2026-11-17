@@ -1,2 +1,5 @@
-import AccountForm from '@/components/AccountForm';
-export default function ForgotPasswordPage() { return <AccountForm mode="forgot" />; }
+import LoginSplitView from '@/components/LoginSplitView';
+
+export default function ForgotPasswordPage() {
+  return <LoginSplitView initialMode="forgot" />;
+}
