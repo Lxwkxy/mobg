@@ -2,7 +2,9 @@
 
 import {
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import Link from 'next/link';
@@ -102,27 +104,34 @@ function getRemovalError(error: unknown) {
 function ProjectMembersContent({
   projectId,
   data,
-  retry,
+  isMutating,
+  selectionResetKey,
   feedback,
-  onFeedbackChange,
+  onAddMember,
+  onRemoveMember,
 }: {
   projectId: number;
   data: MembersData;
-  retry: () => void;
+  isMutating: boolean;
+  selectionResetKey: number;
   feedback: MembersFeedback | null;
-  onFeedbackChange: (feedback: MembersFeedback | null) => void;
+  onAddMember: (userId: number) => void;
+  onRemoveMember: (member: ProjectMember) => void;
 }) {
-  const router = useRouter();
-  const { session, isCurrentSessionRevision } = useSession();
-
   const { project, members, users } = data;
 
-  const [selectedUserId, setSelectedUserId] = useState('');
-  const [isMutating, setIsMutating] = useState(false);
+  const [selection, setSelection] = useState<{
+    resetKey: number;
+    userId: string;
+  }>({
+    resetKey: selectionResetKey,
+    userId: '',
+  });
+
+  const selectedUserId =
+    selection.resetKey === selectionResetKey ? selection.userId : '';
 
   const isOwner = project.myRole === 'Owner';
-
-  const scope = `${String(session.user?.userId ?? '')}:${projectId}`;
 
   const actionError = feedback?.message ?? '';
   const blockingTasks = feedback?.taskNames ?? [];
@@ -137,143 +146,19 @@ function ProjectMembersContent({
     );
   }, [members, users]);
 
-  const isRequestCurrent = useCallback(
-    (revision: number, userId: number | string | null) => {
-      return (
-        userId !== null &&
-        session.user?.userId === userId &&
-        isCurrentSessionRevision(revision)
-      );
-    },
-    [
-      isCurrentSessionRevision,
-      session.user?.userId,
-    ],
-  );
-
-  async function handleAddMember() {
+  function handleAddClick() {
     const userId = Number(selectedUserId);
 
     if (
       !Number.isSafeInteger(userId) ||
       userId <= 0 ||
       isMutating ||
-      !isOwner ||
-      session.status !== 'ready' ||
-      !session.user
+      !isOwner
     ) {
       return;
     }
 
-    const requestRevision = session.revision;
-    const requestUserId = session.user.userId;
-
-    setIsMutating(true);
-    onFeedbackChange(null);
-
-    try {
-      await projectApi.addProjectMember(projectId, { userId });
-
-      if (!isRequestCurrent(requestRevision, requestUserId)) {
-        return;
-      }
-
-      setSelectedUserId('');
-      retry();
-    } catch (error) {
-      if (!isRequestCurrent(requestRevision, requestUserId)) {
-        return;
-      }
-
-      if (
-        error instanceof ApiRequestError &&
-        error.status === 401
-      ) {
-        router.replace('/login');
-        return;
-      }
-
-      onFeedbackChange({
-        scope,
-        message: getErrorMessage(error),
-        taskNames: [],
-      });
-
-      if (
-        error instanceof ApiRequestError &&
-        error.details?.some(
-          (detail) => detail.reason === 'ALREADY_MEMBER',
-        )
-      ) {
-        retry();
-      }
-    } finally {
-      if (isRequestCurrent(requestRevision, requestUserId)) {
-        setIsMutating(false);
-      }
-    }
-  }
-
-  async function handleRemoveMember(member: ProjectMember) {
-    if (
-      isMutating ||
-      !isOwner ||
-      session.status !== 'ready' ||
-      !session.user
-    ) {
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Remove ${member.userName} from this project?`,
-    );
-
-    if (!confirmed) return;
-
-    const requestRevision = session.revision;
-    const requestUserId = session.user.userId;
-
-    setIsMutating(true);
-    onFeedbackChange(null);
-
-    try {
-      await projectApi.removeProjectMember(
-        projectId,
-        member.userId,
-      );
-
-      if (!isRequestCurrent(requestRevision, requestUserId)) {
-        return;
-      }
-
-      retry();
-    } catch (error) {
-      if (!isRequestCurrent(requestRevision, requestUserId)) {
-        return;
-      }
-
-      if (
-        error instanceof ApiRequestError &&
-        error.status === 401
-      ) {
-        router.replace('/login');
-        return;
-      }
-
-      const result = getRemovalError(error);
-
-      onFeedbackChange({
-        scope,
-        message: result.message,
-        taskNames: result.taskNames,
-      });
-
-      retry();
-    } finally {
-      if (isRequestCurrent(requestRevision, requestUserId)) {
-        setIsMutating(false);
-      }
-    }
+    onAddMember(userId);
   }
 
   return (
@@ -311,7 +196,10 @@ function ProjectMembersContent({
                 <select
                   value={selectedUserId}
                   onChange={(event) =>
-                    setSelectedUserId(event.target.value)
+                    setSelection({
+                      resetKey: selectionResetKey,
+                      userId: event.target.value,
+                    })
                   }
                   disabled={isMutating}
                   className="min-h-11 min-w-0 flex-1 rounded-lg border border-[#dddddd] bg-white px-3 text-sm outline-none focus:border-[#777777] disabled:bg-[#f5f5f5]"
@@ -330,7 +218,7 @@ function ProjectMembersContent({
 
                 <button
                   type="button"
-                  onClick={handleAddMember}
+                  onClick={handleAddClick}
                   disabled={!selectedUserId || isMutating}
                   className="min-h-11 rounded-lg bg-[#222222] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -354,8 +242,8 @@ function ProjectMembersContent({
 
             {blockingTasks.length > 0 && (
               <ul className="mt-2 list-inside list-disc space-y-1">
-                {blockingTasks.map((taskName) => (
-                  <li key={taskName}>{taskName}</li>
+                {blockingTasks.map((taskName, index) => (
+                  <li key={`${index}-${taskName}`}>{taskName}</li>
                 ))}
               </ul>
             )}
@@ -413,7 +301,7 @@ function ProjectMembersContent({
                     {isOwner && (
                       <button
                         type="button"
-                        onClick={() => void handleRemoveMember(member)}
+                        onClick={() => onRemoveMember(member)}
                         disabled={isMutating}
                         className="min-h-10 rounded-lg border border-[#e5baba] px-3 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                       >
@@ -443,36 +331,71 @@ function ProjectMembersLoader({
   projectId: string;
 }) {
   const router = useRouter();
-  const { session } = useSession();
+  const { session, refreshSession } = useSession();
 
   const [feedback, setFeedback] = useState<MembersFeedback | null>(null);
+  const [mutatingScope, setMutatingScope] = useState<string | null>(null);
+  const [selectionResetKey, setSelectionResetKey] = useState(0);
+
+  const activeLoadsRef = useRef<Set<Promise<MembersData>>>(
+    new Set(),
+  );
 
   const currentScope = `${String(session.user?.userId ?? '')}:${projectId}`;
 
-  const load = useCallback(async (): Promise<MembersData> => {
-    const parsedProjectId = Number(projectId);
+  const mountedRef = useRef(false);
+  const sessionRef = useRef(session);
+  const currentScopeRef = useRef(currentScope);
+  const mutationSequenceRef = useRef(0);
 
-    if (
-      !Number.isSafeInteger(parsedProjectId) ||
-      parsedProjectId <= 0
-    ) {
-      throw new ApiRequestError('Invalid project ID.', 400);
-    }
+  useEffect(() => {
+    mountedRef.current = true;
 
-    const project = await projectApi.getProjectById(parsedProjectId);
-
-    const [members, users] = await Promise.all([
-      projectApi.getProjectMembers(parsedProjectId),
-      project.myRole === 'Owner'
-        ? projectApi.getUsers()
-        : Promise.resolve([]),
-    ]);
-
-    return {
-      project,
-      members,
-      users,
+    return () => {
+      mountedRef.current = false;
     };
+  }, []);
+
+  useEffect(() => {
+    sessionRef.current = session;
+    currentScopeRef.current = currentScope;
+  }, [currentScope, session]);
+
+  const load = useCallback((): Promise<MembersData> => {
+    const request = (async (): Promise<MembersData> => {
+      const parsedProjectId = Number(projectId);
+
+      if (
+        !Number.isSafeInteger(parsedProjectId) ||
+        parsedProjectId <= 0
+      ) {
+        throw new ApiRequestError('Invalid project ID.', 400);
+      }
+
+      const project = await projectApi.getProjectById(parsedProjectId);
+
+      const [members, users] = await Promise.all([
+        projectApi.getProjectMembers(parsedProjectId),
+        project.myRole === 'Owner'
+          ? projectApi.getUsers()
+          : Promise.resolve([]),
+      ]);
+
+      return {
+        project,
+        members,
+        users,
+      };
+    })();
+
+    activeLoadsRef.current.add(request);
+
+    void request.then(
+      () => activeLoadsRef.current.delete(request),
+      () => activeLoadsRef.current.delete(request),
+    );
+
+    return request;
   }, [projectId]);
 
   const {
@@ -485,8 +408,252 @@ function ProjectMembersLoader({
     hideDataWhileRefreshing: true,
   });
 
+  const refreshAfterMutation = useCallback(async () => {
+    // รอ request ที่เริ่มจาก focus หรือการโหลดก่อนหน้าจบทั้งหมด
+    while (activeLoadsRef.current.size > 0) {
+      await Promise.allSettled([
+        ...activeLoadsRef.current,
+      ]);
+    }
+
+    // โหลดข้อมูลใหม่หลัง request เก่าจบแล้ว
+    retry();
+  }, [retry]);
+
+  const isMutationStillCurrent = useCallback(
+    async (
+      requestId: number,
+      requestScope: string,
+      requestUserId: number | string,
+    ): Promise<boolean> => {
+      if (
+        !mountedRef.current ||
+        mutationSequenceRef.current !== requestId ||
+        currentScopeRef.current !== requestScope
+      ) {
+        return false;
+      }
+
+      const latestSession = sessionRef.current;
+
+      if (latestSession.status === 'loading') {
+        const verifiedSession = await refreshSession();
+
+        if (
+          !mountedRef.current ||
+          mutationSequenceRef.current !== requestId ||
+          currentScopeRef.current !== requestScope
+        ) {
+          return false;
+        }
+
+        return (
+          verifiedSession.status === 'ready' &&
+          verifiedSession.user?.userId === requestUserId
+        );
+      }
+
+      return (
+        latestSession.status === 'ready' &&
+        latestSession.user?.userId === requestUserId
+      );
+    },
+    [refreshSession],
+  );
+
+  const handleAddMember = useCallback(
+    async (userId: number) => {
+      const parsedProjectId = Number(projectId);
+
+      if (
+        !Number.isSafeInteger(parsedProjectId) ||
+        parsedProjectId <= 0 ||
+        mutatingScope === currentScope ||
+        session.status !== 'ready' ||
+        !session.user
+      ) {
+        return;
+      }
+
+      const requestUserId = session.user.userId;
+      const requestScope = currentScope;
+      const requestId = mutationSequenceRef.current + 1;
+
+      mutationSequenceRef.current = requestId;
+      setMutatingScope(requestScope);
+      setFeedback(null);
+
+      try {
+        await projectApi.addProjectMember(parsedProjectId, { userId });
+
+        const isCurrent = await isMutationStillCurrent(
+          requestId,
+          requestScope,
+          requestUserId,
+        );
+
+        if (!isCurrent) {
+          return;
+        }
+
+        setSelectionResetKey((value) => value + 1);
+        await refreshAfterMutation();
+      } catch (error) {
+        const isCurrent = await isMutationStillCurrent(
+          requestId,
+          requestScope,
+          requestUserId,
+        );
+
+        if (!isCurrent) {
+          return;
+        }
+
+        if (
+          error instanceof ApiRequestError &&
+          error.status === 401
+        ) {
+          router.replace('/login');
+          return;
+        }
+
+        setFeedback({
+          scope: requestScope,
+          message: getErrorMessage(error),
+          taskNames: [],
+        });
+
+        if (
+          error instanceof ApiRequestError &&
+          error.details?.some(
+            (detail) => detail.reason === 'ALREADY_MEMBER',
+          )
+        ) {
+          await refreshAfterMutation();
+        }
+      } finally {
+        if (
+          mountedRef.current &&
+          mutationSequenceRef.current === requestId
+        ) {
+          setMutatingScope((current) =>
+            current === requestScope ? null : current,
+          );
+        }
+      }
+    },
+    [
+      currentScope,
+      isMutationStillCurrent,
+      mutatingScope,
+      projectId,
+      refreshAfterMutation,
+      router,
+      session.status,
+      session.user,
+    ],
+  );
+
+  const handleRemoveMember = useCallback(
+    async (member: ProjectMember) => {
+      const parsedProjectId = Number(projectId);
+
+      if (
+        !Number.isSafeInteger(parsedProjectId) ||
+        parsedProjectId <= 0 ||
+        mutatingScope === currentScope ||
+        session.status !== 'ready' ||
+        !session.user
+      ) {
+        return;
+      }
+
+      const confirmed = window.confirm(
+        `Remove ${member.userName} from this project?`,
+      );
+
+      if (!confirmed) return;
+
+      const requestUserId = session.user.userId;
+      const requestScope = currentScope;
+      const requestId = mutationSequenceRef.current + 1;
+
+      mutationSequenceRef.current = requestId;
+      setMutatingScope(requestScope);
+      setFeedback(null);
+
+      try {
+        await projectApi.removeProjectMember(
+          parsedProjectId,
+          member.userId,
+        );
+
+        const isCurrent = await isMutationStillCurrent(
+          requestId,
+          requestScope,
+          requestUserId,
+        );
+
+        if (!isCurrent) {
+          return;
+        }
+
+        await refreshAfterMutation();
+      } catch (error) {
+        const isCurrent = await isMutationStillCurrent(
+          requestId,
+          requestScope,
+          requestUserId,
+        );
+
+        if (!isCurrent) {
+          return;
+        }
+
+        if (
+          error instanceof ApiRequestError &&
+          error.status === 401
+        ) {
+          router.replace('/login');
+          return;
+        }
+
+        const result = getRemovalError(error);
+
+        setFeedback({
+          scope: requestScope,
+          message: result.message,
+          taskNames: result.taskNames,
+        });
+
+        await refreshAfterMutation();
+      } finally {
+        if (
+          mountedRef.current &&
+          mutationSequenceRef.current === requestId
+        ) {
+          setMutatingScope((current) =>
+            current === requestScope ? null : current,
+          );
+        }
+      }
+    },
+    [
+      currentScope,
+      isMutationStillCurrent,
+      mutatingScope,
+      projectId,
+      refreshAfterMutation,
+      router,
+      session.status,
+      session.user,
+    ],
+  );
+
   const visibleFeedback =
     feedback?.scope === currentScope ? feedback : null;
+
+  const isMutating = mutatingScope === currentScope;
 
   if (status === 'error') {
     return (
@@ -537,11 +704,14 @@ function ProjectMembersLoader({
 
   return (
     <ProjectMembersContent
+      key={currentScope}
       projectId={Number(projectId)}
       data={data}
-      retry={retry}
+      isMutating={isMutating}
+      selectionResetKey={selectionResetKey}
       feedback={visibleFeedback}
-      onFeedbackChange={setFeedback}
+      onAddMember={(userId) => void handleAddMember(userId)}
+      onRemoveMember={(member) => void handleRemoveMember(member)}
     />
   );
 }

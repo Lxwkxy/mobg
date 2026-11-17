@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -18,11 +17,23 @@ import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import { useSession } from '@/lib/SessionProvider';
 import ProtectedState from '@/components/ProtectedState';
 import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
+import type { ProjectItem } from '@/types';
 
 type DeleteContext = {
-  revision: number;
+  scope: string;
   userId: number | string;
   projectId: number;
+};
+
+type ScopedPageNotice = {
+  scope: string;
+  message: string;
+};
+
+type LatestProjectOverride = {
+  scope: string;
+  baseProject: ProjectItem;
+  project: ProjectItem;
 };
 
 function formatDate(value: string | null | undefined) {
@@ -51,14 +62,22 @@ export default function ProjectDetailPage() {
 
   const {
     session,
-    isCurrentSessionRevision,
+    refreshSession,
   } = useSession();
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [permissionNotice, setPermissionNotice] =
+    useState<ScopedPageNotice | null>(null);
+  const [latestProjectOverride, setLatestProjectOverride] =
+    useState<LatestProjectOverride | null>(null);
+
+  const currentScope = `${String(session.user?.userId ?? '')}:${params.projectId}`;
 
   const mountedRef = useRef(false);
+  const sessionRef = useRef(session);
+  const currentScopeRef = useRef(currentScope);
   const requestSequenceRef = useRef(0);
   const activeDeleteRef = useRef<DeleteContext | null>(null);
 
@@ -82,6 +101,14 @@ export default function ProjectDetailPage() {
     hideDataWhileRefreshing: true,
   });
 
+  const displayedProject =
+    project !== null &&
+    latestProjectOverride !== null &&
+    latestProjectOverride.scope === currentScope &&
+    latestProjectOverride.baseProject === project
+      ? latestProjectOverride.project
+      : project;
+
   useEffect(() => {
     mountedRef.current = true;
 
@@ -92,16 +119,26 @@ export default function ProjectDetailPage() {
     };
   }, []);
 
-  // ปิด Dialog และยกเลิก response เดิมเมื่อบัญชีหรือ Session เปลี่ยน
+  useEffect(() => {
+    sessionRef.current = session;
+    currentScopeRef.current = currentScope;
+  }, [currentScope, session]);
+
+  // ปิด Dialog และยกเลิก response เดิมเมื่อเปลี่ยนบัญชีหรือออกจากระบบ
   useEffect(() => {
     const context = activeDeleteRef.current;
 
     if (!context) return;
 
-    if (
-      context.revision !== session.revision ||
-      context.userId !== session.user?.userId
-    ) {
+    const accountChanged =
+      session.status === 'ready' &&
+      session.user?.userId !== context.userId;
+
+    const sessionEnded =
+      session.status === 'login-required' ||
+      session.status === 'no-profile';
+
+    if (accountChanged || sessionEnded) {
       requestSequenceRef.current += 1;
       activeDeleteRef.current = null;
       setIsDeleteDialogOpen(false);
@@ -109,7 +146,7 @@ export default function ProjectDetailPage() {
       setDeleteError('');
     }
   }, [
-    session.revision,
+    session.status,
     session.user?.userId,
   ]);
 
@@ -121,10 +158,11 @@ export default function ProjectDetailPage() {
     if (!context) return;
 
     if (
-      status !== 'ready' ||
-      project === null ||
-      project.projectId !== context.projectId ||
-      project.myRole !== 'Owner'
+      status === 'error' ||
+      (status === 'ready' &&
+        (displayedProject === null ||
+          displayedProject.projectId !== context.projectId ||
+          displayedProject.myRole !== 'Owner'))
     ) {
       requestSequenceRef.current += 1;
       activeDeleteRef.current = null;
@@ -132,36 +170,58 @@ export default function ProjectDetailPage() {
       setIsDeleting(false);
       setDeleteError('');
     }
-  }, [project, status]);
+  }, [displayedProject, status]);
 
   const isDeleteRequestCurrent = useCallback(
-    (
+    async (
       requestId: number,
       context: DeleteContext,
-    ) => {
+    ): Promise<boolean> => {
       const activeContext = activeDeleteRef.current;
 
+      if (
+        !mountedRef.current ||
+        requestSequenceRef.current !== requestId ||
+        currentScopeRef.current !== context.scope ||
+        activeContext === null ||
+        activeContext.scope !== context.scope ||
+        activeContext.userId !== context.userId ||
+        activeContext.projectId !== context.projectId
+      ) {
+        return false;
+      }
+
+      const latestSession = sessionRef.current;
+
+      if (latestSession.status === 'loading') {
+        const verifiedSession = await refreshSession();
+        const postRefreshContext = activeDeleteRef.current;
+
+        return (
+          mountedRef.current &&
+          requestSequenceRef.current === requestId &&
+          currentScopeRef.current === context.scope &&
+          postRefreshContext !== null &&
+          postRefreshContext.scope === context.scope &&
+          postRefreshContext.userId === context.userId &&
+          postRefreshContext.projectId === context.projectId &&
+          verifiedSession.status === 'ready' &&
+          verifiedSession.user?.userId === context.userId
+        );
+      }
+
       return (
-        mountedRef.current &&
-        requestSequenceRef.current === requestId &&
-        activeContext !== null &&
-        activeContext.revision === context.revision &&
-        activeContext.userId === context.userId &&
-        activeContext.projectId === context.projectId &&
-        session.user?.userId === context.userId &&
-        isCurrentSessionRevision(context.revision)
+        latestSession.status === 'ready' &&
+        latestSession.user?.userId === context.userId
       );
     },
-    [
-      isCurrentSessionRevision,
-      session.user?.userId,
-    ],
+    [refreshSession],
   );
 
   const openDeleteDialog = () => {
     if (
-      !project ||
-      project.myRole !== 'Owner' ||
+      !displayedProject ||
+      displayedProject.myRole !== 'Owner' ||
       session.status !== 'ready' ||
       !session.user ||
       isDeleting
@@ -174,18 +234,19 @@ export default function ProjectDetailPage() {
     if (
       !Number.isSafeInteger(projectId) ||
       projectId <= 0 ||
-      project.projectId !== projectId
+      displayedProject.projectId !== projectId
     ) {
       return;
     }
 
     activeDeleteRef.current = {
-      revision: session.revision,
+      scope: currentScope,
       userId: session.user.userId,
       projectId,
     };
 
     setDeleteError('');
+    setPermissionNotice(null);
     setIsDeleteDialogOpen(true);
   };
 
@@ -202,6 +263,7 @@ export default function ProjectDetailPage() {
   const handleDeleteProject = async () => {
     if (
       !project ||
+      !displayedProject ||
       isDeleting ||
       !isDeleteDialogOpen
     ) {
@@ -220,10 +282,9 @@ export default function ProjectDetailPage() {
       session.status !== 'ready' ||
       !session.user ||
       session.user.userId !== context.userId ||
-      session.revision !== context.revision ||
-      !isCurrentSessionRevision(context.revision) ||
-      project.projectId !== context.projectId ||
-      project.myRole !== 'Owner'
+      currentScope !== context.scope ||
+      displayedProject.projectId !== context.projectId ||
+      displayedProject.myRole !== 'Owner'
     ) {
       requestSequenceRef.current += 1;
       activeDeleteRef.current = null;
@@ -237,6 +298,7 @@ export default function ProjectDetailPage() {
 
     setIsDeleting(true);
     setDeleteError('');
+    setPermissionNotice(null);
 
     try {
       // โหลดข้อมูล Project ล่าสุดก่อน DELETE
@@ -244,47 +306,57 @@ export default function ProjectDetailPage() {
         context.projectId,
       );
 
-      if (!isDeleteRequestCurrent(requestId, context)) {
+      if (!(await isDeleteRequestCurrent(requestId, context))) {
         return;
       }
 
-      // หากข้อมูลล่าสุดไม่ใช่ Owner ห้ามลบ
+      // หากข้อมูลล่าสุดไม่ใช่ Owner ห้ามส่ง DELETE
       if (
         latestProject.projectId !== context.projectId ||
         latestProject.myRole !== 'Owner'
       ) {
         activeDeleteRef.current = null;
+        setIsDeleting(false);
         setIsDeleteDialogOpen(false);
-        setDeleteError(
-          'You no longer have permission to delete this project.',
-        );
+        setDeleteError('');
+
+        setLatestProjectOverride({
+          scope: context.scope,
+          baseProject: project,
+          project: latestProject,
+        });
+
+        setPermissionNotice({
+          scope: context.scope,
+          message:
+            'Your Owner permission has changed. You can no longer delete this project.',
+        });
+
+        // โหลด Project ใหม่เพื่ออัปเดตข้อมูลให้ตรงกัน
+        retry();
+
         return;
       }
 
       // ตรวจ Session และสิทธิ์อีกครั้งก่อนส่ง DELETE
-      if (
-        session.status !== 'ready' ||
-        !session.user ||
-        session.user.userId !== context.userId ||
-        !isCurrentSessionRevision(context.revision) ||
-        !isDeleteRequestCurrent(requestId, context)
-      ) {
+      if (!(await isDeleteRequestCurrent(requestId, context))) {
         return;
       }
 
       await projectApi.deleteProject(context.projectId);
 
-      if (!isDeleteRequestCurrent(requestId, context)) {
+      if (!(await isDeleteRequestCurrent(requestId, context))) {
         return;
       }
 
       activeDeleteRef.current = null;
+      setIsDeleting(false);
       setIsDeleteDialogOpen(false);
 
       router.push('/projects');
       router.refresh();
     } catch (error) {
-      if (!isDeleteRequestCurrent(requestId, context)) {
+      if (!(await isDeleteRequestCurrent(requestId, context))) {
         return;
       }
 
@@ -292,14 +364,22 @@ export default function ProjectDetailPage() {
         if (error.status === 401) {
           activeDeleteRef.current = null;
           setIsDeleteDialogOpen(false);
+          setIsDeleting(false);
           router.replace('/login');
           return;
         }
 
         if (error.status === 403) {
-          setDeleteError(
-            'You do not have permission to delete this project.',
-          );
+          activeDeleteRef.current = null;
+          setIsDeleteDialogOpen(false);
+          setIsDeleting(false);
+          setDeleteError('');
+          setPermissionNotice({
+            scope: context.scope,
+            message:
+              'Your Owner permission has changed. You can no longer delete this project.',
+          });
+          retry();
           return;
         }
 
@@ -318,58 +398,100 @@ export default function ProjectDetailPage() {
         'Unable to delete this project. Please try again.',
       );
     } finally {
-      if (isDeleteRequestCurrent(requestId, context)) {
+      if (
+        mountedRef.current &&
+        requestSequenceRef.current === requestId
+      ) {
         setIsDeleting(false);
       }
     }
   };
 
+  const visiblePermissionNotice =
+    permissionNotice?.scope === currentScope
+      ? permissionNotice.message
+      : '';
+
   if (status === 'error') {
     const canRetry = httpStatus !== 400 && httpStatus !== 404;
 
     return (
-      <div className="mx-auto min-w-0 max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-4 sm:p-6 [overflow-wrap:anywhere]">
-        <p role="alert" className="mb-4 text-[13px] text-red-600">
-          {describeError(httpStatus)}
-        </p>
-
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => router.push('/projects')}
-            className="min-h-11 rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px]"
+      <>
+        {visiblePermissionNotice && (
+          <div
+            role="alert"
+            className="mx-auto mb-4 max-w-4xl rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
           >
-            Back to Projects
-          </button>
+            {visiblePermissionNotice}
+          </div>
+        )}
 
-          {canRetry && (
+        <div className="mx-auto min-w-0 max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-4 sm:p-6 [overflow-wrap:anywhere]">
+          <p role="alert" className="mb-4 text-[13px] text-red-600">
+            {describeError(httpStatus)}
+          </p>
+
+          <div className="flex flex-wrap gap-3">
             <button
               type="button"
-              onClick={retry}
-              className="min-h-11 rounded-lg bg-[#222222] px-4 py-2 text-[12px] text-white"
+              onClick={() => router.push('/projects')}
+              className="min-h-11 rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px]"
             >
-              Try again
+              Back to Projects
             </button>
-          )}
+
+            {canRetry && (
+              <button
+                type="button"
+                onClick={retry}
+                className="min-h-11 rounded-lg bg-[#222222] px-4 py-2 text-[12px] text-white"
+              >
+                Try again
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
-  if (status !== 'ready' || project === null) {
+  if (status !== 'ready' || displayedProject === null) {
     return (
-      <ProtectedState
-        status={status === 'ready' ? 'loading' : status}
-        onRetry={retry}
-      />
+      <>
+        {visiblePermissionNotice && (
+          <div
+            role="alert"
+            className="mx-auto mb-4 max-w-4xl rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+          >
+            {visiblePermissionNotice}
+          </div>
+        )}
+
+        <ProtectedState
+          status={status === 'ready' ? 'loading' : status}
+          onRetry={retry}
+        />
+      </>
     );
   }
 
-  const progress = Math.max(0, Math.min(100, project.progressPercent));
-  const isOwner = project.myRole === 'Owner';
+  const progress = Math.max(
+    0,
+    Math.min(100, displayedProject.progressPercent),
+  );
+  const isOwner = displayedProject.myRole === 'Owner';
 
   return (
     <>
+      {visiblePermissionNotice && (
+        <div
+          role="alert"
+          className="mx-auto mb-4 max-w-4xl rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+        >
+          {visiblePermissionNotice}
+        </div>
+      )}
+
       <div className="mx-auto min-w-0 w-full max-w-4xl [overflow-wrap:anywhere]">
         <Link
           href="/projects"
@@ -385,11 +507,12 @@ export default function ProjectDetailPage() {
             </p>
 
             <h1 className="mb-3 text-[30px] font-extrabold text-[#1f1f1f]">
-              {project.projectName}
+              {displayedProject.projectName}
             </h1>
 
             <p className="whitespace-pre-wrap text-[14px] leading-6 text-[#666666]">
-              {project.projectDescription || 'No description provided.'}
+              {displayedProject.projectDescription ||
+                'No description provided.'}
             </p>
           </div>
 
@@ -399,7 +522,7 @@ export default function ProjectDetailPage() {
                 Start date
               </p>
               <p className="text-[13px] font-semibold">
-                {formatDate(project.startDate)}
+                {formatDate(displayedProject.startDate)}
               </p>
             </div>
 
@@ -408,7 +531,7 @@ export default function ProjectDetailPage() {
                 Due date
               </p>
               <p className="text-[13px] font-semibold">
-                {formatDate(project.dueDate)}
+                {formatDate(displayedProject.dueDate)}
               </p>
             </div>
 
@@ -417,7 +540,7 @@ export default function ProjectDetailPage() {
                 Status
               </p>
               <p className="text-[13px] font-semibold">
-                {project.derivedStatus}
+                {displayedProject.derivedStatus}
               </p>
             </div>
 
@@ -426,7 +549,7 @@ export default function ProjectDetailPage() {
                 Your role
               </p>
               <p className="text-[13px] font-semibold">
-                {project.myRole ?? '—'}
+                {displayedProject.myRole ?? '—'}
               </p>
             </div>
           </div>
@@ -445,20 +568,21 @@ export default function ProjectDetailPage() {
             </div>
 
             <p className="mt-3 text-[12px] text-[#777777]">
-              {project.completedTasks} of {project.totalTasks} tasks completed
+              {displayedProject.completedTasks} of{' '}
+              {displayedProject.totalTasks} tasks completed
             </p>
           </div>
 
           <div className="mt-7 flex flex-wrap gap-3 border-t border-[#eeeeee] pt-6">
             <Link
-              href={`/projects/${project.projectId}/tasks`}
+              href={`/projects/${displayedProject.projectId}/tasks`}
               className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-[#222222] px-5 py-3 text-[13px] font-semibold text-white transition-colors hover:bg-[#444444] sm:w-auto"
             >
               View Tasks →
             </Link>
 
             <Link
-              href={`/projects/${project.projectId}/members`}
+              href={`/projects/${displayedProject.projectId}/members`}
               className="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-[#dddddd] px-5 py-3 text-[13px] font-semibold text-[#333333] transition-colors hover:bg-[#f5f5f5] sm:w-auto"
             >
               Members
@@ -467,7 +591,7 @@ export default function ProjectDetailPage() {
             {isOwner && (
               <>
                 <Link
-                  href={`/projects/${project.projectId}/settings`}
+                  href={`/projects/${displayedProject.projectId}/settings`}
                   className="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-[#dddddd] px-5 py-3 text-[13px] font-semibold text-[#333333] transition-colors hover:bg-[#f5f5f5] sm:w-auto"
                 >
                   <span className="mr-2">⚙</span>
@@ -492,7 +616,7 @@ export default function ProjectDetailPage() {
         open={isDeleteDialogOpen}
         title="Delete Project?"
         description="Deleting this project will permanently delete all tasks in it, including their comments and assignments. All project memberships will also be deleted. This cannot be undone. Are you sure you want to continue?"
-        itemName={project.projectName}
+        itemName={displayedProject.projectName}
         confirmLabel="Delete Project"
         isLoading={isDeleting}
         error={deleteError}

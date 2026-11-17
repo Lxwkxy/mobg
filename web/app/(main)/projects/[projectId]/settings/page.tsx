@@ -6,7 +6,9 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type FormEvent,
+  type RefObject,
 } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
@@ -37,6 +39,67 @@ type StoredProjectDraft = {
   baseline: ProjectForm;
   form: ProjectForm;
 };
+
+type SaveListener = () => void;
+
+// เก็บสถานะ PATCH ไว้นอก Component เพื่อให้ยังล็อกอยู่แม้ Component remount
+const projectSaveLocks = new Map<string, symbol>();
+const projectSaveListeners = new Map<string, Set<SaveListener>>();
+
+function isProjectSavePending(key: string) {
+  return key !== '' && projectSaveLocks.has(key);
+}
+
+function subscribeProjectSave(
+  key: string,
+  listener: SaveListener,
+) {
+  if (!key) {
+    return () => {};
+  }
+
+  let listeners = projectSaveListeners.get(key);
+
+  if (!listeners) {
+    listeners = new Set();
+    projectSaveListeners.set(key, listeners);
+  }
+
+  listeners.add(listener);
+
+  return () => {
+    listeners?.delete(listener);
+
+    if (listeners?.size === 0) {
+      projectSaveListeners.delete(key);
+    }
+  };
+}
+
+function notifyProjectSave(key: string) {
+  projectSaveListeners.get(key)?.forEach((listener) => listener());
+}
+
+function acquireProjectSave(key: string) {
+  if (!key || projectSaveLocks.has(key)) {
+    return null;
+  }
+
+  const token = Symbol(key);
+  projectSaveLocks.set(key, token);
+  notifyProjectSave(key);
+
+  return token;
+}
+
+function releaseProjectSave(key: string, token: symbol) {
+  if (projectSaveLocks.get(key) !== token) {
+    return;
+  }
+
+  projectSaveLocks.delete(key);
+  notifyProjectSave(key);
+}
 
 function getDateInputValue(value: string | null | undefined) {
   return value ? value.slice(0, 10) : '';
@@ -90,7 +153,7 @@ function readStoredDraft(
   key: string,
   initialForm: ProjectForm,
 ): StoredProjectDraft {
-  if (typeof window === 'undefined') {
+  if (typeof window === 'undefined' || !key) {
     return {
       baseline: initialForm,
       form: initialForm,
@@ -138,6 +201,8 @@ function readStoredDraft(
 }
 
 function removeStoredDraft(key: string) {
+  if (!key) return;
+
   try {
     window.sessionStorage.removeItem(key);
   } catch {
@@ -152,12 +217,14 @@ function mergeProjectForm(
 ): ProjectForm {
   return {
     projectName:
-      currentForm.projectName === previousBaseline.projectName
+      currentForm.projectName.trim() ===
+      previousBaseline.projectName.trim()
         ? latestForm.projectName
         : currentForm.projectName,
 
     projectDescription:
-      currentForm.projectDescription === previousBaseline.projectDescription
+      currentForm.projectDescription.trim() ===
+      previousBaseline.projectDescription.trim()
         ? latestForm.projectDescription
         : currentForm.projectDescription,
 
@@ -175,15 +242,19 @@ function mergeProjectForm(
 
 function ProjectSettingsForm({
   project,
+  ownerUserId,
   draftKey,
+  activeLoaderTokenRef,
 }: {
   project: ProjectItem;
+  ownerUserId: number | string;
   draftKey: string;
+  activeLoaderTokenRef: RefObject<object | null>;
 }) {
   const router = useRouter();
   const {
     session,
-    isCurrentSessionRevision,
+    refreshSession,
   } = useSession();
 
   const [storedDraft] = useState<StoredProjectDraft>(() =>
@@ -200,24 +271,38 @@ function ProjectSettingsForm({
 
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [saveError, setSaveError] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
+
+  const subscribeSave = useCallback(
+    (listener: SaveListener) => subscribeProjectSave(draftKey, listener),
+    [draftKey],
+  );
+
+  const getSaveSnapshot = useCallback(
+    () => isProjectSavePending(draftKey),
+    [draftKey],
+  );
+
+  const isSaving = useSyncExternalStore(
+    subscribeSave,
+    getSaveSnapshot,
+    () => false,
+  );
 
   const baselineRef = useRef(baseline);
   const mountedRef = useRef(false);
-  const requestSequenceRef = useRef(0);
-  const activeSaveRevisionRef = useRef<number | null>(null);
-
-  const sessionRevision = session.revision;
+  const sessionRef = useRef(session);
 
   useEffect(() => {
     mountedRef.current = true;
 
     return () => {
       mountedRef.current = false;
-      requestSequenceRef.current += 1;
-      activeSaveRevisionRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
 
   // รับข้อมูล API ล่าสุด โดยรักษาค่าที่ผู้ใช้แก้ไขเองไว้
   useEffect(() => {
@@ -246,6 +331,13 @@ function ProjectSettingsForm({
       return;
     }
 
+    if (
+      session.status === 'ready' &&
+      session.user?.userId !== ownerUserId
+    ) {
+      return;
+    }
+
     try {
       window.sessionStorage.setItem(
         draftKey,
@@ -257,38 +349,49 @@ function ProjectSettingsForm({
     } catch {
       // ฟอร์มยังใช้งานได้ แม้ browser ไม่อนุญาตให้เก็บ sessionStorage
     }
-  }, [baseline, draftKey, form, project.myRole]);
+  }, [
+    baseline,
+    draftKey,
+    form,
+    ownerUserId,
+    project.myRole,
+    session.status,
+    session.user?.userId,
+  ]);
 
-  // ยกเลิกสิทธิ์ของ PATCH เก่าเมื่อ Session revision เปลี่ยน
-  useEffect(() => {
-    if (
-      activeSaveRevisionRef.current !== null &&
-      activeSaveRevisionRef.current !== sessionRevision
-    ) {
-      requestSequenceRef.current += 1;
-      activeSaveRevisionRef.current = null;
-      setIsSaving(false);
-    }
-  }, [sessionRevision]);
-
-  const isRequestCurrent = useCallback(
-    (
-      requestId: number,
-      requestRevision: number,
+  const verifyStillCurrentOwnerAndPage = useCallback(
+    async (
       requestUserId: number | string,
-    ) => {
+      requestLoaderToken: object | null,
+    ): Promise<boolean> => {
+      if (
+        requestLoaderToken === null ||
+        activeLoaderTokenRef.current !== requestLoaderToken
+      ) {
+        return false;
+      }
+
+      const currentSession = sessionRef.current;
+
+      if (currentSession.status === 'loading') {
+        const verifiedSession = await refreshSession();
+
+        if (activeLoaderTokenRef.current !== requestLoaderToken) {
+          return false;
+        }
+
+        return (
+          verifiedSession.status === 'ready' &&
+          verifiedSession.user?.userId === requestUserId
+        );
+      }
+
       return (
-        mountedRef.current &&
-        requestSequenceRef.current === requestId &&
-        activeSaveRevisionRef.current === requestRevision &&
-        session.user?.userId === requestUserId &&
-        isCurrentSessionRevision(requestRevision)
+        currentSession.status === 'ready' &&
+        currentSession.user?.userId === requestUserId
       );
     },
-    [
-      isCurrentSessionRevision,
-      session.user?.userId,
-    ],
+    [activeLoaderTokenRef, refreshSession],
   );
 
   function updateField<K extends keyof ProjectForm>(
@@ -371,9 +474,10 @@ function ProjectSettingsForm({
 
     if (
       project.myRole !== 'Owner' ||
-      activeSaveRevisionRef.current !== null ||
+      isProjectSavePending(draftKey) ||
       session.status !== 'ready' ||
-      !session.user
+      !session.user ||
+      session.user.userId !== ownerUserId
     ) {
       return;
     }
@@ -391,28 +495,32 @@ function ProjectSettingsForm({
       return;
     }
 
-    const requestRevision = session.revision;
     const requestUserId = session.user.userId;
-    const requestId = requestSequenceRef.current + 1;
+    const requestProjectId = project.projectId;
+    const requestDraftKey = draftKey;
+    const requestLoaderToken = activeLoaderTokenRef.current;
+    const submittedForm = form;
+    const submittedBaseline = baseline;
 
-    requestSequenceRef.current = requestId;
-    activeSaveRevisionRef.current = requestRevision;
+    // ล็อกก่อนเริ่มส่ง PATCH เพื่อป้องกันการกดซ้ำหรือ remount
+    const saveToken = acquireProjectSave(requestDraftKey);
 
-    setIsSaving(true);
+    if (!saveToken) {
+      return;
+    }
 
     try {
       const updatedProject = await projectApi.updateProject(
-        project.projectId,
+        requestProjectId,
         input,
       );
 
-      if (
-        !isRequestCurrent(
-          requestId,
-          requestRevision,
-          requestUserId,
-        )
-      ) {
+      const isStillCurrent = await verifyStillCurrentOwnerAndPage(
+        requestUserId,
+        requestLoaderToken,
+      );
+
+      if (!isStillCurrent) {
         return;
       }
 
@@ -421,8 +529,8 @@ function ProjectSettingsForm({
       const latestBaseline = createProjectForm(updatedProject);
 
       const nextForm = mergeProjectForm(
-        form,
-        baseline,
+        submittedForm,
+        submittedBaseline,
         latestBaseline,
       );
 
@@ -438,7 +546,7 @@ function ProjectSettingsForm({
       if (hasUnsavedChanges) {
         try {
           window.sessionStorage.setItem(
-            draftKey,
+            requestDraftKey,
             JSON.stringify({
               baseline: latestBaseline,
               form: nextForm,
@@ -448,23 +556,24 @@ function ProjectSettingsForm({
           // ไม่ให้ปัญหา sessionStorage ขัดขวางการทำงานของหน้า
         }
       } else {
-        removeStoredDraft(draftKey);
+        removeStoredDraft(requestDraftKey);
       }
 
-      baselineRef.current = latestBaseline;
-      setBaseline(latestBaseline);
-      setForm(nextForm);
+      if (mountedRef.current) {
+        baselineRef.current = latestBaseline;
+        setBaseline(latestBaseline);
+        setForm(nextForm);
+      }
 
-      router.push(`/projects/${project.projectId}`);
+      router.push(`/projects/${requestProjectId}`);
       router.refresh();
     } catch (error) {
-      if (
-        !isRequestCurrent(
-          requestId,
-          requestRevision,
-          requestUserId,
-        )
-      ) {
+      const isStillCurrent = await verifyStillCurrentOwnerAndPage(
+        requestUserId,
+        requestLoaderToken,
+      );
+
+      if (!isStillCurrent || !mountedRef.current) {
         return;
       }
 
@@ -501,16 +610,8 @@ function ProjectSettingsForm({
         setSaveError('Something went wrong. Please try again.');
       }
     } finally {
-      if (
-        isRequestCurrent(
-          requestId,
-          requestRevision,
-          requestUserId,
-        )
-      ) {
-        activeSaveRevisionRef.current = null;
-        setIsSaving(false);
-      }
+      // ปลดล็อกเมื่อ PATCH จบจริงเท่านั้น ไม่ขึ้นกับ Session revision
+      releaseProjectSave(requestDraftKey, saveToken);
     }
   }
 
@@ -555,12 +656,16 @@ function ProjectSettingsForm({
     <div className="mx-auto w-full min-w-0 max-w-3xl [overflow-wrap:anywhere]">
       <Link
         href={`/projects/${project.projectId}`}
-        onClick={() => {
-          if (!isSaving) {
-            removeStoredDraft(draftKey);
+        onClick={(event) => {
+          if (isSaving) {
+            event.preventDefault();
+            return;
           }
+
+          removeStoredDraft(draftKey);
         }}
         aria-disabled={isSaving}
+        tabIndex={isSaving ? -1 : undefined}
         className={`mb-5 inline-flex min-h-11 items-center text-[13px] text-[#666666] hover:text-black ${
           isSaving ? 'pointer-events-none opacity-50' : ''
         }`}
@@ -736,12 +841,16 @@ function ProjectSettingsForm({
           <div className="mt-7 flex flex-wrap justify-end gap-3 border-t border-[#eeeeee] pt-6">
             <Link
               href={`/projects/${project.projectId}`}
-              onClick={() => {
-                if (!isSaving) {
-                  removeStoredDraft(draftKey);
+              onClick={(event) => {
+                if (isSaving) {
+                  event.preventDefault();
+                  return;
                 }
+
+                removeStoredDraft(draftKey);
               }}
               aria-disabled={isSaving}
+              tabIndex={isSaving ? -1 : undefined}
               className={`inline-flex min-h-11 items-center justify-center rounded-lg border border-[#dddddd] px-5 py-2 text-[13px] font-semibold text-[#444444] hover:bg-[#f7f7f7] ${
                 isSaving ? 'pointer-events-none opacity-50' : ''
               }`}
@@ -770,6 +879,15 @@ function ProjectSettingsLoader({
 }) {
   const router = useRouter();
   const { session } = useSession();
+  const activeLoaderTokenRef = useRef<object | null>(null);
+
+  useEffect(() => {
+    activeLoaderTokenRef.current = {};
+
+    return () => {
+      activeLoaderTokenRef.current = null;
+    };
+  }, []);
 
   const load = useCallback(async () => {
     const parsedProjectId = Number(projectId);
@@ -824,9 +942,11 @@ function ProjectSettingsLoader({
     }
   }, [project, retainedUserId, status]);
 
+  // คงฟอร์มไว้ระหว่าง session กำลังตรวจใหม่ (loading) เพื่อไม่ให้ unmount กลางทาง
   const isRetainedUserCurrent =
     retainedUserId !== null &&
-    session.user?.userId === retainedUserId;
+    (session.status !== 'ready' ||
+      session.user?.userId === retainedUserId);
 
   if (status === 'error') {
     const canRetry =
@@ -867,6 +987,7 @@ function ProjectSettingsLoader({
     <>
       {hasRetainedProject &&
         retainedProject &&
+        retainedUserId !== null &&
         isRetainedUserCurrent && (
           <div
             hidden={!showContent}
@@ -875,7 +996,9 @@ function ProjectSettingsLoader({
             <ProjectSettingsForm
               key={`${retainedUserId}-${retainedProject.projectId}`}
               project={retainedProject}
+              ownerUserId={retainedUserId}
               draftKey={draftKey}
+              activeLoaderTokenRef={activeLoaderTokenRef}
             />
           </div>
         )}
