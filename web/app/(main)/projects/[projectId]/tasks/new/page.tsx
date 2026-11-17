@@ -1,3 +1,4 @@
+
 'use client';
 
 import {
@@ -491,7 +492,6 @@ function CreateTaskForm({
           latestSession.status === 'ready' &&
           latestSession.user?.userId === receipt.userId
         ) {
-          // ลบ Receipt เฉพาะรายการที่ตรงกับ Token นี้
           const raw = safeGetStorage(createdTaskStorageKey);
 
           const storedReceipt = parseCreatedTaskReceipt(
@@ -523,7 +523,6 @@ function CreateTaskForm({
           latestSession.status === 'ready' &&
           latestSession.user?.userId !== receipt.userId
         ) {
-          // บัญชีเปลี่ยนแล้ว ห้ามเปิด Task ของบัญชีเดิม
           return;
         }
 
@@ -595,11 +594,19 @@ function CreateTaskForm({
   // ตรวจสถานะ Submission ข้ามแท็บ
   useEffect(() => {
     let cancelled = false;
+    let latestQueryId = 0;
 
     async function refreshSubmissionState() {
+      const queryId = ++latestQueryId;
       const active = await hasActiveSubmission(submissionLockName);
 
-      if (!cancelled && isMountedRef.current) {
+      // ป้องกันผล query เก่าที่กลับมาทีหลัง
+      // เขียนทับสถานะจาก query ล่าสุด
+      if (
+        !cancelled &&
+        isMountedRef.current &&
+        queryId === latestQueryId
+      ) {
         setIsOtherTabSaving(active);
       }
     }
@@ -657,6 +664,7 @@ function CreateTaskForm({
 
     return () => {
       cancelled = true;
+      latestQueryId += 1;
 
       window.removeEventListener('storage', handleStorage);
       window.removeEventListener('focus', handleFocus);
@@ -682,8 +690,6 @@ function CreateTaskForm({
 
     const frameId = window.requestAnimationFrame(() => {
       try {
-        // ตรวจ Receipt ก่อน Draft เสมอ
-        // ถ้ามี Receipt แปลว่า POST สำเร็จแล้ว ห้ามคืน Draft เก่ากลับมา
         const savedReceipt = parseCreatedTaskReceipt(
           safeGetStorage(createdTaskStorageKey),
           userId,
@@ -810,7 +816,6 @@ function CreateTaskForm({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    // ถ้ามี Receipt แล้ว ห้าม POST ซ้ำ
     if (createdReceiptRef.current) {
       await resumeCreatedTask();
       return;
@@ -892,8 +897,6 @@ function CreateTaskForm({
         token,
       };
 
-      // บันทึก Receipt ก่อนตรวจ Session รอบหลัง
-      // localStorage เป็น best-effort เท่านั้น
       createdReceiptRef.current = receipt;
 
       safeSetStorage(
@@ -901,7 +904,6 @@ function CreateTaskForm({
         JSON.stringify(receipt),
       );
 
-      // POST สำเร็จแล้ว ไม่ควรเหลือ Draft ให้ส่งซ้ำ
       safeRemoveStorage(draftKey);
 
       if (isCurrent()) {
@@ -915,7 +917,6 @@ function CreateTaskForm({
     const performSubmission = async () => {
       if (!isCurrent()) return;
 
-      // ป้องกัน POST ซ้ำ หากมี Receipt เกิดขึ้นแล้ว
       const existingReceipt = createdReceiptRef.current;
 
       if (existingReceipt) {
@@ -957,8 +958,6 @@ function CreateTaskForm({
 
         const createdTask = await taskApi.createTask(id, input);
 
-        // taskApi.createTask คืน Task
-        // ต้องตรวจ taskId ก่อนนำไปใช้เป็น Receipt
         if (
           !Number.isSafeInteger(createdTask.taskId) ||
           createdTask.taskId <= 0
@@ -968,21 +967,16 @@ function CreateTaskForm({
           );
         }
 
-        // บันทึก Receipt ทันทีหลัง POST สำเร็จ
-        // แม้ Component จะ stale หรือกำลังเปลี่ยนบัญชีก็ต้องเก็บผลนี้ไว้
         const receipt = recordCreatedTask(createdTask.taskId);
 
         if (!isCurrent()) return;
 
-        // จากจุดนี้เป็นต้นไป ไม่มีการเรียก POST อีก
         await verifyCreatedTaskReceipt(requestId, receipt);
       } catch (error) {
         console.error('Failed to create task:', error);
 
         if (!isCurrent()) return;
 
-        // หากมี Receipt แล้ว ให้ถือว่าสร้างสำเร็จ
-        // และห้ามนำ Error นี้ไปแสดงเป็นการสร้างไม่สำเร็จ
         const existingReceipt = createdReceiptRef.current;
 
         if (existingReceipt) {
@@ -1066,6 +1060,10 @@ function CreateTaskForm({
               if (!isCurrent()) return;
 
               if (!lock) {
+                // อีกแท็บกำลังถือ Lock อยู่
+                // ปิดปุ่มทันที และตรวจสถานะอีกครั้งใน finally
+                setIsOtherTabSaving(true);
+
                 setErrors({
                   general:
                     'A task submission is already in progress in another tab. Please wait until it finishes.',
@@ -1079,8 +1077,6 @@ function CreateTaskForm({
         } catch (lockError) {
           console.error('Web Locks unavailable:', lockError);
 
-          // Fallback เฉพาะกรณีที่ Callback ยังไม่เริ่มทำงาน
-          // หาก Callback เริ่มแล้ว จะไม่เสี่ยงเรียก POST ซ้ำ
           if (!callbackStarted && isCurrent()) {
             await performSubmission();
           }
@@ -1098,28 +1094,33 @@ function CreateTaskForm({
       }
     } finally {
       // navigator.locks.request() จบแล้ว
-      // Lock ถูกปล่อยก่อนลบ Marker และแจ้งแท็บอื่น
+      // Lock ของแท็บนี้ถูกปล่อยแล้ว ณ จุดนี้
       removeSubmissionMarker();
 
       if (activeSubmissionRef.current === requestId) {
-        activeSubmissionRef.current = null;
-        submittingRef.current = false;
+        // ตรวจสถานะ Lock ล่าสุดก่อนปลดสถานะ Busy
+        // เพื่อไม่ให้ปุ่มเปิดระหว่างที่อีกแท็บยังถือ Lock อยู่
+        const anotherTabIsSaving =
+          await hasActiveSubmission(submissionLockName);
 
-        if (isMountedRef.current) {
-          setIsSaving(false);
-          setIsOtherTabSaving(false);
+        // ป้องกันการอัปเดต state หาก component ถูก unmount
+        // หรือมี submission ใหม่เข้ามาแทน request นี้
+        if (activeSubmissionRef.current === requestId) {
+          activeSubmissionRef.current = null;
+          submittingRef.current = false;
+
+          if (isMountedRef.current) {
+            setIsSaving(false);
+            setIsOtherTabSaving(anotherTabIsSaving);
+          }
         }
       }
     }
   }
 
   /*
-   * สำคัญ:
-   * ต้องแสดง Receipt ก่อน Loading UI
-   *
-   * เพราะ POST อาจสำเร็จแล้ว แต่ refreshSession() ล้มเหลว
-   * ในกรณีนี้ต้องให้ผู้ใช้กดตรวจ Session ซ้ำได้
-   * โดยไม่เปิด Form และไม่เรียก POST ซ้ำ
+   * แสดง Receipt ก่อน Loading UI
+   * เพื่อป้องกันการส่ง POST ซ้ำหลังสร้าง Task สำเร็จ
    */
   if (createdReceipt) {
     return (
@@ -1162,8 +1163,6 @@ function CreateTaskForm({
     );
   }
 
-  // ระหว่างตรวจ Session ต้องซ่อนข้อมูลบัญชีเดิมทั้งหน้า
-  // แต่ Component ยัง mounted อยู่ จึงไม่สูญเสีย Form State
   if (isRefreshing) {
     return (
       <ProtectedState
@@ -1382,6 +1381,7 @@ function CreateTaskContent({
   projectId: string;
 }) {
   const router = useRouter();
+  const { session } = useSession();
 
   const load = useCallback(async (): Promise<FormData> => {
     const id = parseRouteId(projectId, 'project ID');
@@ -1426,22 +1426,17 @@ function CreateTaskContent({
   }, [userId]);
 
   /*
-   * สำคัญ:
-   * ต้องตรวจ retained ก่อน status === 'error'
-   *
-   * useProtectedLoad จะเก็บข้อมูลล่าสุดไว้ใน retained
-   * แม้ Session จะอยู่ในสถานะ error
-   *
-   * การ render CreateTaskForm ด้วย key เดิมจะทำให้ Form
-   * ไม่ถูก unmount และไม่สูญเสีย Draft หรือ Receipt ใน memory
-   *
-   * isRefreshing จะซ่อนชื่อ Project และข้อมูลบัญชีเดิมทั้งหมด
-   * จนกว่าจะตรวจ Session และโหลดข้อมูลใหม่สำเร็จ
+   * เก็บ Form เดิมไว้เมื่อกำลังตรวจ Session
+   * แต่ไม่ใช้ retained บัง Error จาก API เมื่อ Session ตรวจผ่านแล้ว
    */
   if (
     retained &&
     retainedUserId !== null &&
-    (status === 'loading' || status === 'error')
+    (
+      status === 'loading' ||
+      session.status === 'loading' ||
+      session.status === 'error'
+    )
   ) {
     return (
       <CreateTaskForm
