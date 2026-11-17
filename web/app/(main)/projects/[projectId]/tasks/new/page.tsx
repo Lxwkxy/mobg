@@ -1214,6 +1214,27 @@ function CreateTaskForm({
     );
   }
 
+  /*
+   * เมื่อ Session ตรวจล้มเหลว:
+   * เก็บ CreateTaskForm instance ไว้
+   * แต่ซ่อนข้อมูลเดิมและแสดง Error พร้อม Retry
+   *
+   * ต้องตรวจ error ก่อน loading
+   * เพื่อไม่ให้หน้า Error กลับไปค้างที่ Loading
+   */
+  if (session.status === 'error') {
+    return (
+      <ProtectedState
+        status="error"
+        onRetry={onRetry}
+      />
+    );
+  }
+
+  /*
+   * ระหว่างตรวจ Session:
+   * เก็บ Form instance ไว้ แต่ซ่อนข้อมูลเดิมด้วย Loading UI
+   */
   if (isRefreshing || !draftId || !isDraftReady) {
     return (
       <ProtectedState
@@ -1515,7 +1536,13 @@ function CreateTaskContent({
         projectId={projectId}
         userId={retainedUserId}
         data={retained}
-        isRefreshing={true}
+        isRefreshing={
+          session.status === 'loading' ||
+          (
+            session.status === 'ready' &&
+            isRefreshing
+          )
+        }
         onRetry={handleRetry}
       />
     );
