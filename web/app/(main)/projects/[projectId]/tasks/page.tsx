@@ -148,7 +148,6 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority | ''>('');
 
-  // โหลดข้อมูลใหม่เมื่อ Project ID หรือ Status Filter เปลี่ยน
   // ถ้าเลือก All จะไม่ส่ง status ไปยัง API
   const load = useCallback(async () => {
     const id = parseRouteId(projectId, 'project ID');
@@ -170,8 +169,8 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
 
   const numericProjectId = Number(projectId);
 
-  // Search และ Priority ยังคงกรองข้อมูลฝั่ง Client
-  // ส่วน Status กรองจาก API แล้ว
+  // Search และ Priority กรองข้อมูลฝั่ง Client
+  // Status กรองจาก API
   const filteredTasks = useMemo(() => {
     if (!tasks) return [];
 
@@ -288,7 +287,7 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
           </span>
         </div>
 
-        {tasks.length === 0 ? (
+        {tasks.length === 0 && statusFilter === '' ? (
           <div className="flex min-h-56 flex-col items-center justify-center px-5 text-center">
             <p className="text-[14px] font-semibold text-[#444444]">
               No tasks yet

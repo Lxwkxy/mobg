@@ -1,22 +1,22 @@
 'use client';
 
 import {
+  startTransition,
   useCallback,
   useEffect,
+  useRef,
   useState,
   type FormEvent,
 } from 'react';
 import Link from 'next/link';
-import {
-  useParams,
-  useRouter,
-} from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 
 import {
   ApiRequestError,
   projectApi,
 } from '@/lib/projectApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
+import { useSession } from '@/lib/SessionProvider';
 import ProtectedState from '@/components/ProtectedState';
 
 import type {
@@ -145,6 +145,34 @@ function removeStoredDraft(key: string) {
   }
 }
 
+function mergeProjectForm(
+  currentForm: ProjectForm,
+  previousBaseline: ProjectForm,
+  latestForm: ProjectForm,
+): ProjectForm {
+  return {
+    projectName:
+      currentForm.projectName === previousBaseline.projectName
+        ? latestForm.projectName
+        : currentForm.projectName,
+
+    projectDescription:
+      currentForm.projectDescription === previousBaseline.projectDescription
+        ? latestForm.projectDescription
+        : currentForm.projectDescription,
+
+    startDate:
+      currentForm.startDate === previousBaseline.startDate
+        ? latestForm.startDate
+        : currentForm.startDate,
+
+    dueDate:
+      currentForm.dueDate === previousBaseline.dueDate
+        ? latestForm.dueDate
+        : currentForm.dueDate,
+  };
+}
+
 function ProjectSettingsForm({
   project,
   draftKey,
@@ -153,13 +181,16 @@ function ProjectSettingsForm({
   draftKey: string;
 }) {
   const router = useRouter();
+  const {
+    session,
+    isCurrentSessionRevision,
+  } = useSession();
 
   const [storedDraft] = useState<StoredProjectDraft>(() =>
     readStoredDraft(draftKey, createProjectForm(project)),
   );
 
-  // เก็บค่าเดิมที่ใช้เปิดฟอร์มไว้สำหรับเปรียบเทียบ PATCH
-  const [baseline] = useState<ProjectForm>(
+  const [baseline, setBaseline] = useState<ProjectForm>(
     () => storedDraft.baseline,
   );
 
@@ -170,6 +201,43 @@ function ProjectSettingsForm({
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [saveError, setSaveError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  const baselineRef = useRef(baseline);
+  const mountedRef = useRef(false);
+  const requestSequenceRef = useRef(0);
+  const activeSaveRevisionRef = useRef<number | null>(null);
+
+  const sessionRevision = session.revision;
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      requestSequenceRef.current += 1;
+      activeSaveRevisionRef.current = null;
+    };
+  }, []);
+
+  // รับข้อมูล API ล่าสุด โดยรักษาค่าที่ผู้ใช้แก้ไขเองไว้
+  useEffect(() => {
+    const latestForm = createProjectForm(project);
+    const previousBaseline = baselineRef.current;
+
+    baselineRef.current = latestForm;
+
+    startTransition(() => {
+      setForm((currentForm) =>
+        mergeProjectForm(
+          currentForm,
+          previousBaseline,
+          latestForm,
+        ),
+      );
+
+      setBaseline(latestForm);
+    });
+  }, [project]);
 
   // เก็บ Draft แยกตามบัญชีและ Project
   useEffect(() => {
@@ -190,6 +258,38 @@ function ProjectSettingsForm({
       // ฟอร์มยังใช้งานได้ แม้ browser ไม่อนุญาตให้เก็บ sessionStorage
     }
   }, [baseline, draftKey, form, project.myRole]);
+
+  // ยกเลิกสิทธิ์ของ PATCH เก่าเมื่อ Session revision เปลี่ยน
+  useEffect(() => {
+    if (
+      activeSaveRevisionRef.current !== null &&
+      activeSaveRevisionRef.current !== sessionRevision
+    ) {
+      requestSequenceRef.current += 1;
+      activeSaveRevisionRef.current = null;
+      setIsSaving(false);
+    }
+  }, [sessionRevision]);
+
+  const isRequestCurrent = useCallback(
+    (
+      requestId: number,
+      requestRevision: number,
+      requestUserId: number | string,
+    ) => {
+      return (
+        mountedRef.current &&
+        requestSequenceRef.current === requestId &&
+        activeSaveRevisionRef.current === requestRevision &&
+        session.user?.userId === requestUserId &&
+        isCurrentSessionRevision(requestRevision)
+      );
+    },
+    [
+      isCurrentSessionRevision,
+      session.user?.userId,
+    ],
+  );
 
   function updateField<K extends keyof ProjectForm>(
     field: K,
@@ -270,9 +370,10 @@ function ProjectSettingsForm({
     event.preventDefault();
 
     if (
-      !project ||
       project.myRole !== 'Owner' ||
-      isSaving
+      activeSaveRevisionRef.current !== null ||
+      session.status !== 'ready' ||
+      !session.user
     ) {
       return;
     }
@@ -285,25 +386,88 @@ function ProjectSettingsForm({
 
     const input = buildUpdateInput();
 
-    // ไม่มี field เปลี่ยน ไม่ต้องส่ง PATCH
     if (Object.keys(input).length === 0) {
       setSaveError('No changes to save.');
       return;
     }
 
+    const requestRevision = session.revision;
+    const requestUserId = session.user.userId;
+    const requestId = requestSequenceRef.current + 1;
+
+    requestSequenceRef.current = requestId;
+    activeSaveRevisionRef.current = requestRevision;
+
     setIsSaving(true);
 
     try {
-      await projectApi.updateProject(
+      const updatedProject = await projectApi.updateProject(
         project.projectId,
         input,
       );
 
-      removeStoredDraft(draftKey);
+      if (
+        !isRequestCurrent(
+          requestId,
+          requestRevision,
+          requestUserId,
+        )
+      ) {
+        return;
+      }
+
+      // ใช้ค่าจาก API เป็น Baseline ใหม่
+      // และรักษาค่าที่ผู้ใช้ยังไม่ได้บันทึกไว้
+      const latestBaseline = createProjectForm(updatedProject);
+
+      const nextForm = mergeProjectForm(
+        form,
+        baseline,
+        latestBaseline,
+      );
+
+      const hasUnsavedChanges =
+        nextForm.projectName.trim() !==
+          latestBaseline.projectName.trim() ||
+        nextForm.projectDescription.trim() !==
+          latestBaseline.projectDescription.trim() ||
+        nextForm.startDate !== latestBaseline.startDate ||
+        (nextForm.dueDate || null) !==
+          (latestBaseline.dueDate || null);
+
+      if (hasUnsavedChanges) {
+        try {
+          window.sessionStorage.setItem(
+            draftKey,
+            JSON.stringify({
+              baseline: latestBaseline,
+              form: nextForm,
+            } satisfies StoredProjectDraft),
+          );
+        } catch {
+          // ไม่ให้ปัญหา sessionStorage ขัดขวางการทำงานของหน้า
+        }
+      } else {
+        removeStoredDraft(draftKey);
+      }
+
+      baselineRef.current = latestBaseline;
+      setBaseline(latestBaseline);
+      setForm(nextForm);
 
       router.push(`/projects/${project.projectId}`);
       router.refresh();
     } catch (error) {
+      if (
+        !isRequestCurrent(
+          requestId,
+          requestRevision,
+          requestUserId,
+        )
+      ) {
+        return;
+      }
+
       if (error instanceof ApiRequestError) {
         if (error.status === 401) {
           router.replace('/login');
@@ -337,7 +501,16 @@ function ProjectSettingsForm({
         setSaveError('Something went wrong. Please try again.');
       }
     } finally {
-      setIsSaving(false);
+      if (
+        isRequestCurrent(
+          requestId,
+          requestRevision,
+          requestUserId,
+        )
+      ) {
+        activeSaveRevisionRef.current = null;
+        setIsSaving(false);
+      }
     }
   }
 
@@ -382,7 +555,15 @@ function ProjectSettingsForm({
     <div className="mx-auto w-full min-w-0 max-w-3xl [overflow-wrap:anywhere]">
       <Link
         href={`/projects/${project.projectId}`}
-        className="mb-5 inline-flex min-h-11 items-center text-[13px] text-[#666666] hover:text-black"
+        onClick={() => {
+          if (!isSaving) {
+            removeStoredDraft(draftKey);
+          }
+        }}
+        aria-disabled={isSaving}
+        className={`mb-5 inline-flex min-h-11 items-center text-[13px] text-[#666666] hover:text-black ${
+          isSaving ? 'pointer-events-none opacity-50' : ''
+        }`}
       >
         ← Back to Project
       </Link>
@@ -555,7 +736,11 @@ function ProjectSettingsForm({
           <div className="mt-7 flex flex-wrap justify-end gap-3 border-t border-[#eeeeee] pt-6">
             <Link
               href={`/projects/${project.projectId}`}
-              onClick={() => removeStoredDraft(draftKey)}
+              onClick={() => {
+                if (!isSaving) {
+                  removeStoredDraft(draftKey);
+                }
+              }}
               aria-disabled={isSaving}
               className={`inline-flex min-h-11 items-center justify-center rounded-lg border border-[#dddddd] px-5 py-2 text-[13px] font-semibold text-[#444444] hover:bg-[#f7f7f7] ${
                 isSaving ? 'pointer-events-none opacity-50' : ''
@@ -584,6 +769,7 @@ function ProjectSettingsLoader({
   projectId: string;
 }) {
   const router = useRouter();
+  const { session } = useSession();
 
   const load = useCallback(async () => {
     const parsedProjectId = Number(projectId);
@@ -614,8 +800,6 @@ function ProjectSettingsLoader({
     status === 'ready' &&
     project !== null;
 
-  // เก็บ Component เดิมไว้ระหว่างตรวจ Session
-  // เพื่อไม่ให้ Draft ถูก reset เมื่อกลับมาเปิดแท็บ
   const retainedProject = retained ?? project;
 
   const hasRetainedProject =
@@ -627,8 +811,6 @@ function ProjectSettingsLoader({
       ? `mobg:project-settings:${retainedUserId}:${retainedProject.projectId}`
       : '';
 
-  // เมื่อโหลดข้อมูลล่าสุดแล้วยืนยันว่าไม่ใช่ Owner
-  // ให้ล้าง Draft ของบัญชีและ Project นี้
   useEffect(() => {
     if (
       status === 'ready' &&
@@ -641,6 +823,10 @@ function ProjectSettingsLoader({
       );
     }
   }, [project, retainedUserId, status]);
+
+  const isRetainedUserCurrent =
+    retainedUserId !== null &&
+    session.user?.userId === retainedUserId;
 
   if (status === 'error') {
     const canRetry =
@@ -679,20 +865,22 @@ function ProjectSettingsLoader({
 
   return (
     <>
-      {hasRetainedProject && retainedProject && (
-        <div
-          hidden={!showContent}
-          inert={!showContent}
-        >
-          <ProjectSettingsForm
-            key={`${retainedUserId}-${retainedProject.projectId}`}
-            project={retainedProject}
-            draftKey={draftKey}
-          />
-        </div>
-      )}
+      {hasRetainedProject &&
+        retainedProject &&
+        isRetainedUserCurrent && (
+          <div
+            hidden={!showContent}
+            inert={!showContent}
+          >
+            <ProjectSettingsForm
+              key={`${retainedUserId}-${retainedProject.projectId}`}
+              project={retainedProject}
+              draftKey={draftKey}
+            />
+          </div>
+        )}
 
-      {!showContent && (
+      {(!showContent || !isRetainedUserCurrent) && (
         <ProtectedState
           status={status === 'ready' ? 'loading' : status}
           onRetry={retry}

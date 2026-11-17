@@ -111,6 +111,14 @@ export default function MyTasksPage() {
     );
   }
 
+  const hasActiveFilters =
+    search !== '' ||
+    statusFilter !== '' ||
+    priorityFilter !== '';
+
+  const hasNoAssignedTasks =
+    tasksList.length === 0 && !hasActiveFilters;
+
   return (
     <div className="min-w-0">
       <div className="mb-6">
@@ -169,18 +177,18 @@ export default function MyTasksPage() {
           {filteredTasks.length === 0 ? (
             <div className="py-10 text-center">
               <p className="text-[14px] font-semibold text-[#555555]">
-                {tasksList.length === 0
+                {hasNoAssignedTasks
                   ? 'You have no assigned tasks.'
                   : 'No tasks found.'}
               </p>
 
               <p className="mt-1 text-[12px] text-[#999999]">
-                {tasksList.length === 0
+                {hasNoAssignedTasks
                   ? 'Tasks assigned to you will appear here.'
                   : 'Try changing your search or filters.'}
               </p>
 
-              {tasksList.length > 0 && (
+              {!hasNoAssignedTasks && (
                 <button
                   type="button"
                   onClick={clearFilters}

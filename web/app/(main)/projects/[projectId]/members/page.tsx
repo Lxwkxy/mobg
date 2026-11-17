@@ -28,6 +28,12 @@ type MembersData = {
   users: UserProfile[];
 };
 
+type MembersFeedback = {
+  scope: string;
+  message: string;
+  taskNames: string[];
+};
+
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiRequestError) {
     if (error.status === 401) {
@@ -97,22 +103,29 @@ function ProjectMembersContent({
   projectId,
   data,
   retry,
+  feedback,
+  onFeedbackChange,
 }: {
   projectId: number;
   data: MembersData;
   retry: () => void;
+  feedback: MembersFeedback | null;
+  onFeedbackChange: (feedback: MembersFeedback | null) => void;
 }) {
   const router = useRouter();
   const { session, isCurrentSessionRevision } = useSession();
 
   const { project, members, users } = data;
 
-  const [actionError, setActionError] = useState('');
-  const [blockingTasks, setBlockingTasks] = useState<string[]>([]);
   const [selectedUserId, setSelectedUserId] = useState('');
   const [isMutating, setIsMutating] = useState(false);
 
   const isOwner = project.myRole === 'Owner';
+
+  const scope = `${String(session.user?.userId ?? '')}:${projectId}`;
+
+  const actionError = feedback?.message ?? '';
+  const blockingTasks = feedback?.taskNames ?? [];
 
   const availableUsers = useMemo(() => {
     const memberIds = new Set(
@@ -156,8 +169,7 @@ function ProjectMembersContent({
     const requestUserId = session.user.userId;
 
     setIsMutating(true);
-    setActionError('');
-    setBlockingTasks([]);
+    onFeedbackChange(null);
 
     try {
       await projectApi.addProjectMember(projectId, { userId });
@@ -167,8 +179,6 @@ function ProjectMembersContent({
       }
 
       setSelectedUserId('');
-
-      // โหลดรายชื่อสมาชิกจาก API ใหม่หลังเพิ่มสำเร็จ
       retry();
     } catch (error) {
       if (!isRequestCurrent(requestRevision, requestUserId)) {
@@ -183,9 +193,12 @@ function ProjectMembersContent({
         return;
       }
 
-      setActionError(getErrorMessage(error));
+      onFeedbackChange({
+        scope,
+        message: getErrorMessage(error),
+        taskNames: [],
+      });
 
-      // กรณีสมาชิกถูกเพิ่มไปแล้วจากอีกแท็บ ให้โหลดข้อมูลล่าสุด
       if (
         error instanceof ApiRequestError &&
         error.details?.some(
@@ -221,8 +234,7 @@ function ProjectMembersContent({
     const requestUserId = session.user.userId;
 
     setIsMutating(true);
-    setActionError('');
-    setBlockingTasks([]);
+    onFeedbackChange(null);
 
     try {
       await projectApi.removeProjectMember(
@@ -234,7 +246,6 @@ function ProjectMembersContent({
         return;
       }
 
-      // โหลดรายชื่อสมาชิกจาก API ใหม่หลังลบสำเร็จ
       retry();
     } catch (error) {
       if (!isRequestCurrent(requestRevision, requestUserId)) {
@@ -251,10 +262,12 @@ function ProjectMembersContent({
 
       const result = getRemovalError(error);
 
-      setActionError(result.message);
-      setBlockingTasks(result.taskNames);
+      onFeedbackChange({
+        scope,
+        message: result.message,
+        taskNames: result.taskNames,
+      });
 
-      // โหลดข้อมูลล่าสุดไว้ด้วย เผื่อสถานะสมาชิกเปลี่ยนจากอีกแท็บ
       retry();
     } finally {
       if (isRequestCurrent(requestRevision, requestUserId)) {
@@ -430,6 +443,11 @@ function ProjectMembersLoader({
   projectId: string;
 }) {
   const router = useRouter();
+  const { session } = useSession();
+
+  const [feedback, setFeedback] = useState<MembersFeedback | null>(null);
+
+  const currentScope = `${String(session.user?.userId ?? '')}:${projectId}`;
 
   const load = useCallback(async (): Promise<MembersData> => {
     const parsedProjectId = Number(projectId);
@@ -466,6 +484,9 @@ function ProjectMembersLoader({
     revalidateOnFocus: true,
     hideDataWhileRefreshing: true,
   });
+
+  const visibleFeedback =
+    feedback?.scope === currentScope ? feedback : null;
 
   if (status === 'error') {
     return (
@@ -519,6 +540,8 @@ function ProjectMembersLoader({
       projectId={Number(projectId)}
       data={data}
       retry={retry}
+      feedback={visibleFeedback}
+      onFeedbackChange={setFeedback}
     />
   );
 }

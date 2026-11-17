@@ -1,14 +1,29 @@
 
 'use client';
 
-import { useCallback, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 
-import { ApiRequestError, projectApi } from '@/lib/projectApi';
+import {
+  ApiRequestError,
+  projectApi,
+} from '@/lib/projectApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
+import { useSession } from '@/lib/SessionProvider';
 import ProtectedState from '@/components/ProtectedState';
 import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
+
+type DeleteContext = {
+  revision: number;
+  userId: number | string;
+  projectId: number;
+};
 
 function formatDate(value: string | null | undefined) {
   if (!value) return 'Not set';
@@ -34,9 +49,18 @@ export default function ProjectDetailPage() {
   const params = useParams<{ projectId: string }>();
   const router = useRouter();
 
+  const {
+    session,
+    isCurrentSessionRevision,
+  } = useSession();
+
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+
+  const mountedRef = useRef(false);
+  const requestSequenceRef = useRef(0);
+  const activeDeleteRef = useRef<DeleteContext | null>(null);
 
   const load = useCallback(async () => {
     const projectId = Number(params.projectId);
@@ -58,7 +82,109 @@ export default function ProjectDetailPage() {
     hideDataWhileRefreshing: true,
   });
 
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      requestSequenceRef.current += 1;
+      activeDeleteRef.current = null;
+    };
+  }, []);
+
+  // ปิด Dialog และยกเลิก response เดิมเมื่อบัญชีหรือ Session เปลี่ยน
+  useEffect(() => {
+    const context = activeDeleteRef.current;
+
+    if (!context) return;
+
+    if (
+      context.revision !== session.revision ||
+      context.userId !== session.user?.userId
+    ) {
+      requestSequenceRef.current += 1;
+      activeDeleteRef.current = null;
+      setIsDeleteDialogOpen(false);
+      setIsDeleting(false);
+      setDeleteError('');
+    }
+  }, [
+    session.revision,
+    session.user?.userId,
+  ]);
+
+  // ปิด Dialog หาก Project เปลี่ยน, โหลดข้อมูลไม่ได้
+  // หรือผู้ใช้ไม่ได้เป็น Owner แล้ว
+  useEffect(() => {
+    const context = activeDeleteRef.current;
+
+    if (!context) return;
+
+    if (
+      status !== 'ready' ||
+      project === null ||
+      project.projectId !== context.projectId ||
+      project.myRole !== 'Owner'
+    ) {
+      requestSequenceRef.current += 1;
+      activeDeleteRef.current = null;
+      setIsDeleteDialogOpen(false);
+      setIsDeleting(false);
+      setDeleteError('');
+    }
+  }, [project, status]);
+
+  const isDeleteRequestCurrent = useCallback(
+    (
+      requestId: number,
+      context: DeleteContext,
+    ) => {
+      const activeContext = activeDeleteRef.current;
+
+      return (
+        mountedRef.current &&
+        requestSequenceRef.current === requestId &&
+        activeContext !== null &&
+        activeContext.revision === context.revision &&
+        activeContext.userId === context.userId &&
+        activeContext.projectId === context.projectId &&
+        session.user?.userId === context.userId &&
+        isCurrentSessionRevision(context.revision)
+      );
+    },
+    [
+      isCurrentSessionRevision,
+      session.user?.userId,
+    ],
+  );
+
   const openDeleteDialog = () => {
+    if (
+      !project ||
+      project.myRole !== 'Owner' ||
+      session.status !== 'ready' ||
+      !session.user ||
+      isDeleting
+    ) {
+      return;
+    }
+
+    const projectId = Number(params.projectId);
+
+    if (
+      !Number.isSafeInteger(projectId) ||
+      projectId <= 0 ||
+      project.projectId !== projectId
+    ) {
+      return;
+    }
+
+    activeDeleteRef.current = {
+      revision: session.revision,
+      userId: session.user.userId,
+      projectId,
+    };
+
     setDeleteError('');
     setIsDeleteDialogOpen(true);
   };
@@ -66,31 +192,107 @@ export default function ProjectDetailPage() {
   const closeDeleteDialog = () => {
     if (isDeleting) return;
 
+    requestSequenceRef.current += 1;
+    activeDeleteRef.current = null;
+
     setIsDeleteDialogOpen(false);
     setDeleteError('');
   };
 
   const handleDeleteProject = async () => {
-    if (!project || isDeleting) return;
+    if (
+      !project ||
+      isDeleting ||
+      !isDeleteDialogOpen
+    ) {
+      return;
+    }
+
+    const context = activeDeleteRef.current;
+
+    if (!context) {
+      setIsDeleteDialogOpen(false);
+      return;
+    }
+
+    // ตรวจสอบข้อมูลก่อนเริ่มคำขอ
+    if (
+      session.status !== 'ready' ||
+      !session.user ||
+      session.user.userId !== context.userId ||
+      session.revision !== context.revision ||
+      !isCurrentSessionRevision(context.revision) ||
+      project.projectId !== context.projectId ||
+      project.myRole !== 'Owner'
+    ) {
+      requestSequenceRef.current += 1;
+      activeDeleteRef.current = null;
+      setIsDeleteDialogOpen(false);
+      setDeleteError('');
+      return;
+    }
+
+    const requestId = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestId;
 
     setIsDeleting(true);
     setDeleteError('');
 
     try {
-      const projectId = Number(params.projectId);
+      // โหลดข้อมูล Project ล่าสุดก่อน DELETE
+      const latestProject = await projectApi.getProjectById(
+        context.projectId,
+      );
 
-      if (!Number.isSafeInteger(projectId) || projectId <= 0) {
-        throw new ApiRequestError('Invalid project ID.', 400);
+      if (!isDeleteRequestCurrent(requestId, context)) {
+        return;
       }
 
-      await projectApi.deleteProject(projectId);
+      // หากข้อมูลล่าสุดไม่ใช่ Owner ห้ามลบ
+      if (
+        latestProject.projectId !== context.projectId ||
+        latestProject.myRole !== 'Owner'
+      ) {
+        activeDeleteRef.current = null;
+        setIsDeleteDialogOpen(false);
+        setDeleteError(
+          'You no longer have permission to delete this project.',
+        );
+        return;
+      }
+
+      // ตรวจ Session และสิทธิ์อีกครั้งก่อนส่ง DELETE
+      if (
+        session.status !== 'ready' ||
+        !session.user ||
+        session.user.userId !== context.userId ||
+        !isCurrentSessionRevision(context.revision) ||
+        !isDeleteRequestCurrent(requestId, context)
+      ) {
+        return;
+      }
+
+      await projectApi.deleteProject(context.projectId);
+
+      if (!isDeleteRequestCurrent(requestId, context)) {
+        return;
+      }
+
+      activeDeleteRef.current = null;
+      setIsDeleteDialogOpen(false);
 
       router.push('/projects');
       router.refresh();
     } catch (error) {
+      if (!isDeleteRequestCurrent(requestId, context)) {
+        return;
+      }
+
       if (error instanceof ApiRequestError) {
         if (error.status === 401) {
-          router.push('/login');
+          activeDeleteRef.current = null;
+          setIsDeleteDialogOpen(false);
+          router.replace('/login');
           return;
         }
 
@@ -116,7 +318,9 @@ export default function ProjectDetailPage() {
         'Unable to delete this project. Please try again.',
       );
     } finally {
-      setIsDeleting(false);
+      if (isDeleteRequestCurrent(requestId, context)) {
+        setIsDeleting(false);
+      }
     }
   };
 

@@ -1,7 +1,11 @@
-
 'use client';
 
-import { useCallback, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 
@@ -11,6 +15,7 @@ import {
   ApiRequestError,
   projectApi,
 } from '@/lib/projectApi';
+import { useSession } from '@/lib/SessionProvider';
 import { taskApi, parseRouteId } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import type { Project, Task } from '@/types';
@@ -53,6 +58,13 @@ type TaskDetailData = {
   project: Project;
 };
 
+type DeleteContext = {
+  revision: number;
+  userId: number | string;
+  projectId: number;
+  taskId: number;
+};
+
 function TaskDetailContent({
   projectId,
   taskId,
@@ -61,10 +73,15 @@ function TaskDetailContent({
   taskId: string;
 }) {
   const router = useRouter();
+  const { session, isCurrentSessionRevision } = useSession();
 
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+
+  const mountedRef = useRef(false);
+  const requestSequenceRef = useRef(0);
+  const deleteContextRef = useRef<DeleteContext | null>(null);
 
   const load = useCallback(async (): Promise<TaskDetailData> => {
     const numericProjectId = parseRouteId(projectId, 'project ID');
@@ -88,7 +105,86 @@ function TaskDetailContent({
     hideDataWhileRefreshing: true,
   });
 
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      requestSequenceRef.current += 1;
+      deleteContextRef.current = null;
+    };
+  }, []);
+
+  // ถ้า Session เปลี่ยนระหว่างเปิด Dialog หรือกำลังลบ
+  // ให้ปิด Dialog และยกเลิกสิทธิ์ของ Request เก่า
+  useEffect(() => {
+    const context = deleteContextRef.current;
+
+    if (!context) return;
+
+    const isSameSession =
+      session.status === 'ready' &&
+      session.user?.userId === context.userId &&
+      isCurrentSessionRevision(context.revision);
+
+    if (!isSameSession) {
+      requestSequenceRef.current += 1;
+      deleteContextRef.current = null;
+      setIsDeleteDialogOpen(false);
+      setIsDeleting(false);
+      setDeleteError('');
+    }
+  }, [
+    session.revision,
+    session.status,
+    session.user?.userId,
+    isCurrentSessionRevision,
+  ]);
+
+  // ตรวจข้อมูลที่โหลดใหม่ หาก Task เปลี่ยนหรือสิทธิ์ Owner หายไป
+  // Dialog ที่เปิดค้างอยู่จะต้องปิดและไม่เปิดกลับมาเอง
+  useEffect(() => {
+    if (!isDeleteDialogOpen || !deleteContextRef.current || !data) {
+      return;
+    }
+
+    const context = deleteContextRef.current;
+
+    const isSameItem =
+      data.project.projectId === context.projectId &&
+      data.task.taskId === context.taskId;
+
+    const stillOwner = data.project.myRole === 'Owner';
+
+    if (!isSameItem || !stillOwner) {
+      requestSequenceRef.current += 1;
+      deleteContextRef.current = null;
+      setIsDeleteDialogOpen(false);
+      setIsDeleting(false);
+      setDeleteError('');
+    }
+  }, [data, isDeleteDialogOpen]);
+
   const openDeleteDialog = () => {
+    if (
+      !data ||
+      data.project.myRole !== 'Owner' ||
+      session.status !== 'ready' ||
+      !session.user
+    ) {
+      return;
+    }
+
+    const numericProjectId = parseRouteId(projectId, 'project ID');
+    const numericTaskId = parseRouteId(taskId, 'task ID');
+
+    deleteContextRef.current = {
+      revision: session.revision,
+      userId: session.user.userId,
+      projectId: numericProjectId,
+      taskId: numericTaskId,
+    };
+
     setDeleteError('');
     setIsDeleteDialogOpen(true);
   };
@@ -96,33 +192,93 @@ function TaskDetailContent({
   const closeDeleteDialog = () => {
     if (isDeleting) return;
 
+    requestSequenceRef.current += 1;
+    deleteContextRef.current = null;
     setIsDeleteDialogOpen(false);
     setDeleteError('');
   };
 
   const handleDelete = async () => {
-    if (!data || isDeleting) return;
+    const context = deleteContextRef.current;
+
+    if (
+      !data ||
+      !context ||
+      isDeleting ||
+      !isDeleteDialogOpen ||
+      session.status !== 'ready' ||
+      !session.user ||
+      data.project.myRole !== 'Owner'
+    ) {
+      return;
+    }
+
+    const numericProjectId = parseRouteId(projectId, 'project ID');
+    const numericTaskId = parseRouteId(taskId, 'task ID');
+
+    // ตรวจสอบบัญชี, Session revision, Project, Task และ Owner
+    // อีกครั้งทันที ก่อนส่ง DELETE
+    const canDelete =
+      context.revision === session.revision &&
+      context.userId === session.user.userId &&
+      context.projectId === numericProjectId &&
+      context.taskId === numericTaskId &&
+      data.project.projectId === numericProjectId &&
+      data.task.taskId === numericTaskId &&
+      data.project.myRole === 'Owner' &&
+      isCurrentSessionRevision(context.revision);
+
+    if (!canDelete) {
+      deleteContextRef.current = null;
+      setIsDeleteDialogOpen(false);
+      setDeleteError('');
+      return;
+    }
+
+    const requestRevision = context.revision;
+    const requestUserId = context.userId;
+    const requestProjectId = context.projectId;
+    const requestTaskId = context.taskId;
+    const requestToken = ++requestSequenceRef.current;
+
+    const isRequestCurrent = () => {
+      return (
+        mountedRef.current &&
+        requestSequenceRef.current === requestToken &&
+        deleteContextRef.current === context &&
+        session.user?.userId === requestUserId &&
+        isCurrentSessionRevision(requestRevision)
+      );
+    };
 
     setIsDeleting(true);
     setDeleteError('');
 
     try {
-      const numericProjectId = parseRouteId(projectId, 'project ID');
-      const numericTaskId = parseRouteId(taskId, 'task ID');
+      await taskApi.deleteTask(requestProjectId, requestTaskId);
 
-      await taskApi.deleteTask(numericProjectId, numericTaskId);
+      if (!isRequestCurrent()) return;
 
-      router.push(`/projects/${projectId}/tasks`);
+      deleteContextRef.current = null;
+      setIsDeleteDialogOpen(false);
+
+      router.push(`/projects/${requestProjectId}/tasks`);
       router.refresh();
     } catch (error) {
+      if (!isRequestCurrent()) return;
+
       if (error instanceof ApiRequestError) {
         if (error.status === 401) {
-          router.push('/login');
+          deleteContextRef.current = null;
+          setIsDeleteDialogOpen(false);
+          router.replace('/login');
           return;
         }
 
         if (error.status === 403) {
-          setDeleteError('You do not have permission to delete this task.');
+          setDeleteError(
+            'You do not have permission to delete this task.',
+          );
           return;
         }
 
@@ -139,7 +295,9 @@ function TaskDetailContent({
 
       setDeleteError('Unable to delete this task. Please try again.');
     } finally {
-      setIsDeleting(false);
+      if (isRequestCurrent()) {
+        setIsDeleting(false);
+      }
     }
   };
 
