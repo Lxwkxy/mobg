@@ -48,20 +48,12 @@ type TaskDraft = {
   assigneeIds: number[];
 };
 
-type SubmissionLock = {
-  token: string;
-};
-
 type CreatedTaskReceipt = {
   taskId: number;
   userId: number;
   projectId: string;
+  draftId: string;
   token: string;
-};
-
-type LockQueryResult = {
-  held?: Array<{ name: string }>;
-  pending?: Array<{ name: string }>;
 };
 
 type SubmissionAccountStatus =
@@ -72,82 +64,95 @@ type SubmissionAccountStatus =
   | 'stale';
 
 const DRAFT_STORAGE_PREFIX = 'mobg:create-task-draft:';
-const SUBMISSION_STORAGE_PREFIX = 'mobg:create-task-submission:';
-const SUBMISSION_LOCK_PREFIX = 'mobg:create-task-lock:';
+const ACTIVE_DRAFT_PREFIX = 'mobg:create-task-active-draft:';
 const CREATED_TASK_PREFIX = 'mobg:create-task-receipt:';
 
-function getDraftStorageKey(userId: number, projectId: string) {
-  return `${DRAFT_STORAGE_PREFIX}${encodeURIComponent(String(userId))}:${encodeURIComponent(projectId)}`;
+function getAccountProjectKey(
+  userId: number,
+  projectId: string,
+) {
+  return `${encodeURIComponent(String(userId))}:${encodeURIComponent(projectId)}`;
 }
 
-function getSubmissionStorageKey(userId: number, projectId: string) {
-  return `${SUBMISSION_STORAGE_PREFIX}${encodeURIComponent(String(userId))}:${encodeURIComponent(projectId)}`;
+function getActiveDraftStorageKey(
+  userId: number,
+  projectId: string,
+) {
+  return `${ACTIVE_DRAFT_PREFIX}${getAccountProjectKey(userId, projectId)}`;
 }
 
-function getSubmissionLockName(userId: number, projectId: string) {
-  return `${SUBMISSION_LOCK_PREFIX}${encodeURIComponent(String(userId))}:${encodeURIComponent(projectId)}`;
+function getDraftStorageKey(
+  userId: number,
+  projectId: string,
+  draftId: string,
+) {
+  return `${DRAFT_STORAGE_PREFIX}${getAccountProjectKey(userId, projectId)}:${encodeURIComponent(draftId)}`;
 }
 
-function getCreatedTaskStorageKey(userId: number, projectId: string) {
-  return `${CREATED_TASK_PREFIX}${encodeURIComponent(String(userId))}:${encodeURIComponent(projectId)}`;
+function getCreatedTaskStorageKey(
+  userId: number,
+  projectId: string,
+  draftId: string,
+) {
+  return `${CREATED_TASK_PREFIX}${getAccountProjectKey(userId, projectId)}:${encodeURIComponent(draftId)}`;
 }
 
-function safeGetStorage(key: string): string | null {
+function safeGetSessionStorage(key: string): string | null {
   try {
-    return window.localStorage.getItem(key);
+    return window.sessionStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-function safeSetStorage(key: string, value: string): boolean {
+function safeSetSessionStorage(
+  key: string,
+  value: string,
+): boolean {
   try {
-    window.localStorage.setItem(key, value);
+    window.sessionStorage.setItem(key, value);
     return true;
   } catch {
     return false;
   }
 }
 
-function safeRemoveStorage(key: string): void {
+function safeRemoveSessionStorage(key: string): void {
   try {
-    window.localStorage.removeItem(key);
+    window.sessionStorage.removeItem(key);
   } catch {
-    // Storage may be disabled.
+    // Storage may be unavailable.
   }
 }
 
-function clearUserDrafts(userId: number) {
-  try {
-    const prefix = `${DRAFT_STORAGE_PREFIX}${encodeURIComponent(String(userId))}:`;
-    const keys: string[] = [];
-
-    for (let index = 0; index < window.localStorage.length; index += 1) {
-      const key = window.localStorage.key(index);
-
-      if (key?.startsWith(prefix)) {
-        keys.push(key);
-      }
-    }
-
-    keys.forEach((key) => safeRemoveStorage(key));
-  } catch {
-    // Ignore unavailable storage.
-  }
-}
-
-function createSubmissionToken(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+function createId(): string {
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.randomUUID === 'function'
+  ) {
     return crypto.randomUUID();
   }
 
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function isValidDraftId(value: string | null): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= 200
+  );
+}
+
+function createSubmissionToken(): string {
+  return createId();
+}
+
 function parseCreatedTaskReceipt(
   raw: string | null,
   userId: number,
   projectId: string,
+  draftId: string,
 ): CreatedTaskReceipt | null {
   if (!raw) return null;
 
@@ -160,6 +165,7 @@ function parseCreatedTaskReceipt(
       value.taskId <= 0 ||
       value.userId !== userId ||
       value.projectId !== projectId ||
+      value.draftId !== draftId ||
       typeof value.token !== 'string' ||
       value.token.length === 0
     ) {
@@ -170,42 +176,11 @@ function parseCreatedTaskReceipt(
       taskId: value.taskId,
       userId,
       projectId,
+      draftId,
       token: value.token,
     };
   } catch {
     return null;
-  }
-}
-
-/**
- * ตรวจสถานะ Web Lock ข้ามแท็บ
- *
- * ใช้เฉพาะ held เพราะ pending หมายถึงกำลังรอ Lock
- * ไม่ได้หมายความว่ามีแท็บกำลังถือ Lock อยู่
- */
-async function hasActiveSubmission(
-  lockName: string,
-): Promise<boolean> {
-  try {
-    if (
-      typeof navigator === 'undefined' ||
-      !navigator.locks ||
-      typeof navigator.locks.query !== 'function'
-    ) {
-      return false;
-    }
-
-    const lockManager = navigator.locks as LockManager & {
-      query: () => Promise<LockQueryResult>;
-    };
-
-    const state = await lockManager.query();
-
-    return (state.held ?? []).some(
-      (lock) => lock.name === lockName,
-    );
-  } catch {
-    return false;
   }
 }
 
@@ -248,10 +223,28 @@ function CreateTaskForm({
     sessionRef.current = session;
   }, [session]);
 
-  const draftKey = getDraftStorageKey(userId, projectId);
-  const submissionStorageKey = getSubmissionStorageKey(userId, projectId);
-  const submissionLockName = getSubmissionLockName(userId, projectId);
-  const createdTaskStorageKey = getCreatedTaskStorageKey(userId, projectId);
+  const activeDraftStorageKey = getActiveDraftStorageKey(
+    userId,
+    projectId,
+  );
+
+  const [draftId, setDraftId] = useState<string | null>(null);
+
+  const draftKey = useMemo(
+    () =>
+      draftId
+        ? getDraftStorageKey(userId, projectId, draftId)
+        : null,
+    [draftId, projectId, userId],
+  );
+
+  const createdTaskStorageKey = useMemo(
+    () =>
+      draftId
+        ? getCreatedTaskStorageKey(userId, projectId, draftId)
+        : null,
+    [draftId, projectId, userId],
+  );
 
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
@@ -261,7 +254,6 @@ function CreateTaskForm({
 
   const [isDraftReady, setIsDraftReady] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isOtherTabSaving, setIsOtherTabSaving] = useState(false);
   const [errors, setErrors] = useState<TaskFormErrors>({});
 
   const [createdReceipt, setCreatedReceipt] =
@@ -269,10 +261,10 @@ function CreateTaskForm({
 
   const isMountedRef = useRef(false);
   const submittingRef = useRef(false);
+  const submittedRef = useRef(false);
   const activeSubmissionRef = useRef<object | null>(null);
   const createdReceiptRef = useRef<CreatedTaskReceipt | null>(null);
-
-  const isBusy = isSaving || isOtherTabSaving;
+  const navigationStartedRef = useRef(false);
 
   const currentMemberIds = useMemo(
     () => new Set(data.members.map((member) => member.userId)),
@@ -284,14 +276,69 @@ function CreateTaskForm({
     [assigneeIds, currentMemberIds],
   );
 
+  const isBusy = isSaving;
+
   useEffect(() => {
     isMountedRef.current = true;
 
     return () => {
       isMountedRef.current = false;
       activeSubmissionRef.current = null;
+
+      /*
+       * ลบ Receipt หลังจากเริ่มนำทางไป Task แล้วเท่านั้น
+       *
+       * ถ้าการนำทางยังไม่เริ่มหรือผู้ใช้ต้อง Retry
+       * Receipt จะยังอยู่เพื่อป้องกันการ POST ซ้ำ
+       */
+      if (
+        navigationStartedRef.current &&
+        draftId &&
+        createdTaskStorageKey
+      ) {
+        safeRemoveSessionStorage(draftKey ?? '');
+        safeRemoveSessionStorage(createdTaskStorageKey);
+
+        const activeDraftId = safeGetSessionStorage(
+          activeDraftStorageKey,
+        );
+
+        if (activeDraftId === draftId) {
+          safeRemoveSessionStorage(activeDraftStorageKey);
+        }
+      }
     };
-  }, []);
+  }, [
+    activeDraftStorageKey,
+    createdTaskStorageKey,
+    draftId,
+    draftKey,
+  ]);
+
+  /*
+   * สร้างหรือกู้คืน Draft ID ของฟอร์มนี้
+   *
+   * sessionStorage แยกตาม Tab
+   * จึงไม่ใช้ Draft ID ร่วมกันระหว่างแท็บที่เปิดแยกกัน
+   */
+  useEffect(() => {
+    const savedDraftId = safeGetSessionStorage(
+      activeDraftStorageKey,
+    );
+
+    const nextDraftId = isValidDraftId(savedDraftId)
+      ? savedDraftId
+      : createId();
+
+    if (!isValidDraftId(savedDraftId)) {
+      safeSetSessionStorage(
+        activeDraftStorageKey,
+        nextDraftId,
+      );
+    }
+
+    setDraftId(nextDraftId);
+  }, [activeDraftStorageKey]);
 
   const isCurrentSubmission = useCallback(
     (requestId: object) => {
@@ -332,7 +379,9 @@ function CreateTaskForm({
         return 'stale';
       }
 
-      if (!isCurrentSessionRevision(latestSession.revision)) {
+      if (
+        !isCurrentSessionRevision(latestSession.revision)
+      ) {
         return 'stale';
       }
 
@@ -360,6 +409,12 @@ function CreateTaskForm({
     ],
   );
 
+  /*
+   * ตรวจบัญชีก่อนและหลังการส่งคำขอ
+   *
+   * ใช้ Session revision ป้องกัน Request เก่า
+   * เปลี่ยน Session ของบัญชีใหม่
+   */
   const verifySubmissionAccount = useCallback(
     async (
       requestId: object,
@@ -420,6 +475,21 @@ function CreateTaskForm({
           error,
         );
 
+        /*
+         * /api/me ล้มเหลว:
+         * เปลี่ยน Session เป็น error เพื่อให้หน้าหลัก
+         * ซ่อนข้อมูลบัญชีเดิมและแสดง Retry
+         */
+        const updated = replaceSession(
+          null,
+          'error',
+          expectedRevision,
+        );
+
+        if (!updated) {
+          return resolveLatestSession(requestId);
+        }
+
         return 'unavailable';
       }
 
@@ -456,11 +526,10 @@ function CreateTaskForm({
     ],
   );
 
-  /**
-   * ตรวจสอบ Task ที่สร้างสำเร็จแล้ว
+  /*
+   * ตรวจสอบ Receipt หลัง POST สำเร็จ
    *
-   * ฟังก์ชันนี้ไม่มีการเรียก POST
-   * ใช้ refreshSession เพื่อตรวจบัญชีเท่านั้น
+   * ไม่มีการเรียก createTask ในฟังก์ชันนี้
    */
   const verifyCreatedTaskReceipt = useCallback(
     async (
@@ -492,20 +561,11 @@ function CreateTaskForm({
           latestSession.status === 'ready' &&
           latestSession.user?.userId === receipt.userId
         ) {
-          const raw = safeGetStorage(createdTaskStorageKey);
-
-          const storedReceipt = parseCreatedTaskReceipt(
-            raw,
-            userId,
-            projectId,
-          );
-
-          if (storedReceipt?.token === receipt.token) {
-            safeRemoveStorage(createdTaskStorageKey);
-          }
-
-          createdReceiptRef.current = null;
-          setCreatedReceipt(null);
+          /*
+           * เก็บ Receipt ไว้จนกว่าจะเริ่มนำทางจริง
+           * ป้องกัน POST ซ้ำหาก router.push ยังไม่เปลี่ยนหน้า
+           */
+          navigationStartedRef.current = true;
 
           router.push(
             `/projects/${receipt.projectId}/tasks/${receipt.taskId}`,
@@ -515,6 +575,10 @@ function CreateTaskForm({
         }
 
         if (latestSession.status === 'login-required') {
+          /*
+           * ไม่ลบ Receipt เมื่อส่งผู้ใช้ไป Login
+           * เพื่อให้กลับมาตรวจ Task เดิมได้
+           */
           router.replace('/login');
           return;
         }
@@ -523,6 +587,10 @@ function CreateTaskForm({
           latestSession.status === 'ready' &&
           latestSession.user?.userId !== receipt.userId
         ) {
+          setErrors({
+            general:
+              'The task was created under another account. Please sign in with the account that created this task before opening it.',
+          });
           return;
         }
 
@@ -547,20 +615,18 @@ function CreateTaskForm({
       }
     },
     [
-      createdTaskStorageKey,
       isCurrentSubmission,
       isCurrentSessionRevision,
-      projectId,
       refreshSession,
       router,
-      userId,
     ],
   );
 
-  /**
-   * Retry สำหรับกรณี POST สำเร็จแล้ว แต่ตรวจ Session ไม่สำเร็จ
+  /*
+   * Retry หลัง POST สำเร็จ
    *
-   * จะตรวจ Session อย่างเดียว ไม่เรียก createTask อีก
+   * ตรวจ Session และเปิด Task เดิมเท่านั้น
+   * ไม่มีการ POST ซ้ำ
    */
   const resumeCreatedTask = useCallback(async () => {
     const receipt = createdReceiptRef.current;
@@ -591,120 +657,44 @@ function CreateTaskForm({
     }
   }, [isSaving, verifyCreatedTaskReceipt]);
 
-  // ตรวจสถานะ Submission ข้ามแท็บ
+  /*
+   * โหลด Receipt และ Draft ของฟอร์มนี้
+   *
+   * Receipt มีความสำคัญกว่า Draft เสมอ
+   * หากพบ Receipt จะไม่คืนค่าฟอร์มเพื่อป้องกัน POST ซ้ำ
+   */
   useEffect(() => {
+    if (!draftId || !draftKey || !createdTaskStorageKey) {
+      return;
+    }
+
     let cancelled = false;
-    let latestQueryId = 0;
 
-    async function refreshSubmissionState() {
-      const queryId = ++latestQueryId;
-      const active = await hasActiveSubmission(submissionLockName);
-
-      // ป้องกันผล query เก่าที่กลับมาทีหลัง
-      // เขียนทับสถานะจาก query ล่าสุด
-      if (
-        !cancelled &&
-        isMountedRef.current &&
-        queryId === latestQueryId
-      ) {
-        setIsOtherTabSaving(active);
-      }
-    }
-
-    function handleStorage(event: StorageEvent) {
-      if (
-        event.key === submissionStorageKey ||
-        event.key === null
-      ) {
-        void refreshSubmissionState();
-      }
-
-      if (
-        event.key === createdTaskStorageKey &&
-        event.newValue
-      ) {
-        const receipt = parseCreatedTaskReceipt(
-          event.newValue,
-          userId,
-          projectId,
-        );
-
-        if (receipt && !cancelled) {
-          createdReceiptRef.current = receipt;
-          setCreatedReceipt(receipt);
-          safeRemoveStorage(draftKey);
-        }
-      }
-    }
-
-    function handleFocus() {
-      void refreshSubmissionState();
-    }
-
-    function handlePageShow() {
-      void refreshSubmissionState();
-    }
-
-    function handleVisibilityChange() {
-      if (document.visibilityState === 'visible') {
-        void refreshSubmissionState();
-      }
-    }
-
-    void refreshSubmissionState();
-
-    window.addEventListener('storage', handleStorage);
-    window.addEventListener('focus', handleFocus);
-    window.addEventListener('pageshow', handlePageShow);
-
-    document.addEventListener(
-      'visibilitychange',
-      handleVisibilityChange,
-    );
-
-    return () => {
-      cancelled = true;
-      latestQueryId += 1;
-
-      window.removeEventListener('storage', handleStorage);
-      window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('pageshow', handlePageShow);
-
-      document.removeEventListener(
-        'visibilitychange',
-        handleVisibilityChange,
-      );
-    };
-  }, [
-    createdTaskStorageKey,
-    draftKey,
-    projectId,
-    submissionStorageKey,
-    submissionLockName,
-    userId,
-  ]);
-
-  // โหลด Receipt และ Draft ของบัญชีและ Project นี้
-  useEffect(() => {
-    let cancelled = false;
+    setIsDraftReady(false);
 
     const frameId = window.requestAnimationFrame(() => {
       try {
         const savedReceipt = parseCreatedTaskReceipt(
-          safeGetStorage(createdTaskStorageKey),
+          safeGetSessionStorage(createdTaskStorageKey),
           userId,
           projectId,
+          draftId,
         );
 
         if (savedReceipt) {
+          submittedRef.current = true;
           createdReceiptRef.current = savedReceipt;
+
           setCreatedReceipt(savedReceipt);
-          safeRemoveStorage(draftKey);
+          safeRemoveSessionStorage(draftKey);
 
           return;
         }
 
-        const savedDraft = safeGetStorage(draftKey);
+        submittedRef.current = false;
+        createdReceiptRef.current = null;
+
+        const savedDraft = safeGetSessionStorage(draftKey);
 
         if (savedDraft) {
           const draft = JSON.parse(savedDraft) as Partial<TaskDraft>;
@@ -745,10 +735,16 @@ function CreateTaskForm({
                 )
               : [],
           );
+        } else {
+          setTaskTitle('');
+          setTaskDescription('');
+          setPriority(2);
+          setDueDate('');
+          setAssigneeIds([]);
         }
       } catch (error) {
         console.error('Failed to restore task draft:', error);
-        safeRemoveStorage(draftKey);
+        safeRemoveSessionStorage(draftKey);
       } finally {
         if (!cancelled && isMountedRef.current) {
           setIsDraftReady(true);
@@ -763,14 +759,27 @@ function CreateTaskForm({
   }, [
     createdTaskStorageKey,
     currentMemberIds,
+    draftId,
     draftKey,
     projectId,
     userId,
   ]);
 
-  // บันทึก Draft หลังโหลดเสร็จ
+  /*
+   * บันทึก Draft เฉพาะก่อนสร้าง Task สำเร็จ
+   *
+   * submittedRef ป้องกันการบันทึก Draft กลับมา
+   * แม้ navigation จะล่าช้าหรือมีการ render ใหม่
+   */
   useEffect(() => {
-    if (!isDraftReady || createdReceipt) return;
+    if (
+      !draftKey ||
+      !isDraftReady ||
+      submittedRef.current ||
+      createdReceipt
+    ) {
+      return;
+    }
 
     const draft: TaskDraft = {
       taskTitle,
@@ -780,7 +789,10 @@ function CreateTaskForm({
       assigneeIds: validAssigneeIds,
     };
 
-    safeSetStorage(draftKey, JSON.stringify(draft));
+    safeSetSessionStorage(
+      draftKey,
+      JSON.stringify(draft),
+    );
   }, [
     draftKey,
     isDraftReady,
@@ -802,7 +814,12 @@ function CreateTaskForm({
   }
 
   function toggleAssignee(assigneeUserId: number) {
-    if (!currentMemberIds.has(assigneeUserId)) return;
+    if (
+      submittedRef.current ||
+      !currentMemberIds.has(assigneeUserId)
+    ) {
+      return;
+    }
 
     setAssigneeIds((current) =>
       current.includes(assigneeUserId)
@@ -813,10 +830,16 @@ function CreateTaskForm({
     clearError('assigneeIds');
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
 
-    if (createdReceiptRef.current) {
+    /*
+     * หากมี Receipt แล้ว ห้ามสร้าง Task ใหม่
+     * ให้ตรวจ Session และเปิด Task เดิมเท่านั้น
+     */
+    if (createdReceiptRef.current || submittedRef.current) {
       await resumeCreatedTask();
       return;
     }
@@ -824,9 +847,9 @@ function CreateTaskForm({
     if (
       submittingRef.current ||
       isSaving ||
-      isOtherTabSaving ||
       isRefreshing ||
-      !isDraftReady
+      !isDraftReady ||
+      !draftId
     ) {
       return;
     }
@@ -862,30 +885,8 @@ function CreateTaskForm({
       assigneeIds: validAssigneeIds,
     };
 
-    const isCurrent = () => isCurrentSubmission(requestId);
-
-    const publishSubmissionMarker = () => {
-      safeSetStorage(
-        submissionStorageKey,
-        JSON.stringify({ token } satisfies SubmissionLock),
-      );
-    };
-
-    const removeSubmissionMarker = () => {
-      const raw = safeGetStorage(submissionStorageKey);
-
-      if (!raw) return;
-
-      try {
-        const marker = JSON.parse(raw) as Partial<SubmissionLock>;
-
-        if (marker.token === token) {
-          safeRemoveStorage(submissionStorageKey);
-        }
-      } catch {
-        safeRemoveStorage(submissionStorageKey);
-      }
-    };
+    const isCurrent = () =>
+      isCurrentSubmission(requestId);
 
     const recordCreatedTask = (
       taskId: number,
@@ -894,21 +895,34 @@ function CreateTaskForm({
         taskId,
         userId,
         projectId,
+        draftId,
         token,
       };
 
+      /*
+       * ล็อกการ Submit ในหน่วยความจำก่อนทำ Storage
+       * เพื่อไม่ให้เกิด POST ซ้ำในระหว่าง render
+       */
+      submittedRef.current = true;
       createdReceiptRef.current = receipt;
 
-      safeSetStorage(
-        createdTaskStorageKey,
+      const saved = safeSetSessionStorage(
+        createdTaskStorageKey!,
         JSON.stringify(receipt),
       );
 
-      safeRemoveStorage(draftKey);
+      safeRemoveSessionStorage(draftKey!);
 
       if (isCurrent()) {
         setCreatedReceipt(receipt);
         setIsDraftReady(true);
+
+        if (!saved) {
+          setErrors({
+            general:
+              'The task was created, but the browser could not save its confirmation. Do not submit again. Keep this page open and retry session verification.',
+          });
+        }
       }
 
       return receipt;
@@ -917,13 +931,20 @@ function CreateTaskForm({
     const performSubmission = async () => {
       if (!isCurrent()) return;
 
+      /*
+       * ตรวจ Receipt ซ้ำก่อน POST
+       * ป้องกันกรณีมีการสร้างสำเร็จไปแล้ว
+       */
       const existingReceipt = createdReceiptRef.current;
 
-      if (existingReceipt) {
-        await verifyCreatedTaskReceipt(
-          requestId,
-          existingReceipt,
-        );
+      if (existingReceipt || submittedRef.current) {
+        if (existingReceipt) {
+          await verifyCreatedTaskReceipt(
+            requestId,
+            existingReceipt,
+          );
+        }
+
         return;
       }
 
@@ -942,22 +963,51 @@ function CreateTaskForm({
 
       if (accountBeforeSubmit === 'unavailable') {
         setErrors({
-          general: 'Unable to verify your account. Please try again.',
+          general:
+            'Unable to verify your account. Please try again.',
         });
         return;
       }
 
       if (accountBeforeSubmit !== 'same-user') return;
-
       if (!isCurrent()) return;
 
-      publishSubmissionMarker();
+      /*
+       * ตรวจ Receipt จาก Storage อีกครั้งก่อน POST
+       */
+      const storedReceipt = parseCreatedTaskReceipt(
+        safeGetSessionStorage(createdTaskStorageKey!),
+        userId,
+        projectId,
+        draftId,
+      );
+
+      if (storedReceipt) {
+        submittedRef.current = true;
+        createdReceiptRef.current = storedReceipt;
+        setCreatedReceipt(storedReceipt);
+        safeRemoveSessionStorage(draftKey!);
+
+        await verifyCreatedTaskReceipt(
+          requestId,
+          storedReceipt,
+        );
+
+        return;
+      }
 
       try {
         const id = parseRouteId(projectId, 'project ID');
 
-        const createdTask = await taskApi.createTask(id, input);
+        const createdTask = await taskApi.createTask(
+          id,
+          input,
+        );
 
+        /*
+         * หลังได้รับ taskId ต้องบันทึก Receipt ทันที
+         * ก่อนตรวจ Session หรือเริ่มนำทาง
+         */
         if (
           !Number.isSafeInteger(createdTask.taskId) ||
           createdTask.taskId <= 0
@@ -967,23 +1017,35 @@ function CreateTaskForm({
           );
         }
 
-        const receipt = recordCreatedTask(createdTask.taskId);
+        const receipt = recordCreatedTask(
+          createdTask.taskId,
+        );
 
         if (!isCurrent()) return;
 
-        await verifyCreatedTaskReceipt(requestId, receipt);
+        await verifyCreatedTaskReceipt(
+          requestId,
+          receipt,
+        );
       } catch (error) {
         console.error('Failed to create task:', error);
 
         if (!isCurrent()) return;
 
+        /*
+         * หากมี Receipt แปลว่า POST สำเร็จไปแล้ว
+         * ห้ามส่ง POST ใหม่ไม่ว่ากรณีใด
+         */
         const existingReceipt = createdReceiptRef.current;
 
-        if (existingReceipt) {
-          await verifyCreatedTaskReceipt(
-            requestId,
-            existingReceipt,
-          );
+        if (existingReceipt || submittedRef.current) {
+          if (existingReceipt) {
+            await verifyCreatedTaskReceipt(
+              requestId,
+              existingReceipt,
+            );
+          }
+
           return;
         }
 
@@ -1003,17 +1065,18 @@ function CreateTaskForm({
         if (accountAfterFailure === 'unavailable') {
           setErrors({
             general:
-              'Unable to verify your account after the request failed. Please refresh the page before trying again.',
+              'Unable to verify your account after the request failed. Your draft has been kept. Please verify your session before trying again.',
           });
           return;
         }
 
         if (accountAfterFailure !== 'same-user') return;
-
         if (!isCurrent()) return;
 
         if (error instanceof ApiRequestError) {
-          const serverErrors = mapTaskServerErrors(error.details);
+          const serverErrors = mapTaskServerErrors(
+            error.details,
+          );
 
           if (error.status === 401) {
             serverErrors.general =
@@ -1021,98 +1084,53 @@ function CreateTaskForm({
           } else if (error.status === 403) {
             serverErrors.general =
               'You do not have permission to create a task in this project.';
-          } else if (Object.keys(serverErrors).length > 0) {
+          } else if (
+            Object.keys(serverErrors).length > 0
+          ) {
             serverErrors.general =
-              error.message || 'Please check the highlighted fields.';
+              error.message ||
+              'Please check the highlighted fields.';
           } else {
             serverErrors.general =
-              error.message || 'Unable to create task. Please try again.';
+              error.message ||
+              'Unable to create task. Please try again.';
           }
 
           setErrors(serverErrors);
         } else {
           setErrors({
-            general: 'An unexpected error occurred. Please try again.',
+            general:
+              'An unexpected error occurred. Your draft has been kept. Please try again.',
           });
         }
       }
     };
 
     try {
-      const lockManager =
-        typeof navigator !== 'undefined'
-          ? navigator.locks
-          : undefined;
-
-      if (lockManager && typeof lockManager.request === 'function') {
-        let callbackStarted = false;
-
-        try {
-          await lockManager.request(
-            submissionLockName,
-            {
-              mode: 'exclusive',
-              ifAvailable: true,
-            },
-            async (lock) => {
-              callbackStarted = true;
-
-              if (!isCurrent()) return;
-
-              if (!lock) {
-                // อีกแท็บกำลังถือ Lock อยู่
-                // ปิดปุ่มทันที และตรวจสถานะอีกครั้งใน finally
-                setIsOtherTabSaving(true);
-
-                setErrors({
-                  general:
-                    'A task submission is already in progress in another tab. Please wait until it finishes.',
-                });
-                return;
-              }
-
-              await performSubmission();
-            },
-          );
-        } catch (lockError) {
-          console.error('Web Locks unavailable:', lockError);
-
-          if (!callbackStarted && isCurrent()) {
-            await performSubmission();
-          }
-        }
-      } else {
-        await performSubmission();
-      }
+      await performSubmission();
     } catch (error) {
       console.error('Failed to submit task:', error);
 
       if (isCurrent()) {
-        setErrors({
-          general: 'Unable to submit the task. Please try again.',
-        });
+        if (createdReceiptRef.current) {
+          setErrors({
+            general:
+              'The task was created, but your session could not be verified. Please retry verification. Do not create the task again.',
+          });
+        } else {
+          setErrors({
+            general:
+              'Unable to submit the task. Your draft has been kept. Please try again.',
+          });
+        }
       }
     } finally {
-      // navigator.locks.request() จบแล้ว
-      // Lock ของแท็บนี้ถูกปล่อยแล้ว ณ จุดนี้
-      removeSubmissionMarker();
-
       if (activeSubmissionRef.current === requestId) {
-        // ตรวจสถานะ Lock ล่าสุดก่อนปลดสถานะ Busy
-        // เพื่อไม่ให้ปุ่มเปิดระหว่างที่อีกแท็บยังถือ Lock อยู่
-        const anotherTabIsSaving =
-          await hasActiveSubmission(submissionLockName);
+        activeSubmissionRef.current = null;
+        submittingRef.current = false;
 
-        // ป้องกันการอัปเดต state หาก component ถูก unmount
-        // หรือมี submission ใหม่เข้ามาแทน request นี้
-        if (activeSubmissionRef.current === requestId) {
-          activeSubmissionRef.current = null;
-          submittingRef.current = false;
-
-          if (isMountedRef.current) {
-            setIsSaving(false);
-            setIsOtherTabSaving(anotherTabIsSaving);
-          }
+        if (isMountedRef.current) {
+          setIsSaving(false);
         }
       }
     }
@@ -1120,7 +1138,7 @@ function CreateTaskForm({
 
   /*
    * แสดง Receipt ก่อน Loading UI
-   * เพื่อป้องกันการส่ง POST ซ้ำหลังสร้าง Task สำเร็จ
+   * ป้องกันการกลับไปกด Submit หลังสร้างสำเร็จ
    */
   if (createdReceipt) {
     return (
@@ -1134,8 +1152,8 @@ function CreateTaskForm({
         </h1>
 
         <p className="mt-2 text-[13px] leading-6 text-[#666666]">
-          Your task has already been created. We need to verify your session
-          before opening it. Do not create this task again.
+          Your task has already been created. We need to verify your
+          session before opening it. Do not create this task again.
         </p>
 
         {errors.general && (
@@ -1163,16 +1181,7 @@ function CreateTaskForm({
     );
   }
 
-  if (isRefreshing) {
-    return (
-      <ProtectedState
-        status="loading"
-        onRetry={onRetry}
-      />
-    );
-  }
-
-  if (!isDraftReady) {
+  if (isRefreshing || !draftId || !isDraftReady) {
     return (
       <ProtectedState
         status="loading"
@@ -1211,7 +1220,7 @@ function CreateTaskForm({
         className="rounded-2xl border border-[#e0e0e0] bg-white p-4 shadow-sm sm:p-6 md:p-8"
       >
         <fieldset
-          disabled={isSaving || isOtherTabSaving}
+          disabled={isSaving || submittedRef.current}
           className="contents"
         >
           {errors.general && (
@@ -1242,7 +1251,9 @@ function CreateTaskForm({
               }}
               placeholder="e.g. Design login page"
               className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] ${
-                errors.taskTitle ? 'border-red-500' : 'border-[#dcdcdc]'
+                errors.taskTitle
+                  ? 'border-red-500'
+                  : 'border-[#dcdcdc]'
               }`}
               aria-invalid={Boolean(errors.taskTitle)}
             />
@@ -1292,7 +1303,9 @@ function CreateTaskForm({
                 id="priority"
                 value={priority}
                 onChange={(event) => {
-                  setPriority(Number(event.target.value) as TaskPriority);
+                  setPriority(
+                    Number(event.target.value) as TaskPriority,
+                  );
                   clearError('priority');
                 }}
                 className="w-full rounded-xl border border-[#dcdcdc] bg-white px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
@@ -1326,7 +1339,9 @@ function CreateTaskForm({
                   clearError('dueDate');
                 }}
                 className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] ${
-                  errors.dueDate ? 'border-red-500' : 'border-[#dcdcdc]'
+                  errors.dueDate
+                    ? 'border-red-500'
+                    : 'border-[#dcdcdc]'
                 }`}
                 aria-invalid={Boolean(errors.dueDate)}
               />
@@ -1343,15 +1358,17 @@ function CreateTaskForm({
             members={data.members}
             selectedIds={validAssigneeIds}
             error={errors.assigneeIds}
-            disabled={isBusy}
+            disabled={isBusy || submittedRef.current}
             onToggle={toggleAssignee}
           />
 
           <div className="flex flex-wrap justify-end gap-3 border-t border-[#eeeeee] pt-5">
             <button
               type="button"
-              disabled={isBusy}
-              onClick={() => router.push(`/projects/${projectId}/tasks`)}
+              disabled={isBusy || submittedRef.current}
+              onClick={() =>
+                router.push(`/projects/${projectId}/tasks`)
+              }
               className="min-h-11 rounded-xl border border-[#dddddd] px-5 text-[13px] font-medium text-[#444444] hover:bg-[#f7f7f7] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Cancel
@@ -1359,14 +1376,14 @@ function CreateTaskForm({
 
             <button
               type="submit"
-              disabled={isBusy || !isDraftReady}
+              disabled={
+                isBusy ||
+                submittedRef.current ||
+                !isDraftReady
+              }
               className="min-h-11 rounded-xl bg-[#222222] px-6 py-3 text-[13px] font-semibold text-white hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSaving
-                ? 'Creating...'
-                : isOtherTabSaving
-                  ? 'Creating in another tab...'
-                  : 'Create Task'}
+              {isSaving ? 'Creating...' : 'Create Task'}
             </button>
           </div>
         </fieldset>
@@ -1381,7 +1398,11 @@ function CreateTaskContent({
   projectId: string;
 }) {
   const router = useRouter();
-  const { session } = useSession();
+
+  const {
+    session,
+    refreshSession,
+  } = useSession();
 
   const load = useCallback(async (): Promise<FormData> => {
     const id = parseRouteId(projectId, 'project ID');
@@ -1408,34 +1429,78 @@ function CreateTaskContent({
     hideDataWhileRefreshing: false,
   });
 
-  const lastAuthenticatedUserId = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (userId === null || userId === undefined) return;
-
-    const previousUserId = lastAuthenticatedUserId.current;
-
-    if (
-      previousUserId !== null &&
-      previousUserId !== userId
-    ) {
-      clearUserDrafts(previousUserId);
+  /*
+   * Retry ต้องตรวจ Session ใหม่ก่อนโหลดข้อมูล Project
+   */
+  const handleRetry = useCallback(async () => {
+    try {
+      await refreshSession();
+    } catch (error) {
+      console.error('Failed to refresh session:', error);
     }
 
-    lastAuthenticatedUserId.current = userId;
-  }, [userId]);
+    await retry();
+  }, [refreshSession, retry]);
 
   /*
-   * เก็บ Form เดิมไว้เมื่อกำลังตรวจ Session
-   * แต่ไม่ใช้ retained บัง Error จาก API เมื่อ Session ตรวจผ่านแล้ว
+   * ถ้า Session กำลังตรวจ ห้ามแสดงข้อมูลบัญชีเดิม
+   */
+  if (session.status === 'loading') {
+    return (
+      <ProtectedState
+        status="loading"
+        onRetry={handleRetry}
+      />
+    );
+  }
+
+  /*
+   * ถ้า /api/me ล้มเหลว:
+   * ซ่อน Project และข้อมูลบัญชีเดิม
+   * แสดง Error พร้อม Retry โดยไม่ลบ Draft
+   */
+  if (session.status === 'error') {
+    return (
+      <ProtectedState
+        status="error"
+        onRetry={handleRetry}
+      />
+    );
+  }
+
+  if (session.status === 'login-required') {
+    return (
+      <ProtectedState
+        status="login-required"
+        onRetry={handleRetry}
+      />
+    );
+  }
+
+  if (session.status === 'no-profile') {
+    return (
+      <ProtectedState
+        status="error"
+        onRetry={handleRetry}
+      />
+    );
+  }
+
+  /*
+   * เก็บ Form เดิมไว้ได้เฉพาะเมื่อ Session ยืนยันแล้ว
+   * ว่าเป็นบัญชีเดิมเท่านั้น
+   *
+   * CreateTaskForm จะแสดง Loading ระหว่างโหลดข้อมูลใหม่
+   * โดยไม่เปิดเผยข้อมูลเดิมบนหน้าจอ
    */
   if (
     retained &&
     retainedUserId !== null &&
+    session.status === 'ready' &&
+    session.user?.userId === retainedUserId &&
     (
       status === 'loading' ||
-      session.status === 'loading' ||
-      session.status === 'error'
+      isRefreshing
     )
   ) {
     return (
@@ -1445,7 +1510,7 @@ function CreateTaskContent({
         userId={retainedUserId}
         data={retained}
         isRefreshing={true}
-        onRetry={retry}
+        onRetry={handleRetry}
       />
     );
   }
@@ -1476,7 +1541,7 @@ function CreateTaskContent({
           {httpStatus !== 400 && httpStatus !== 404 && (
             <button
               type="button"
-              onClick={retry}
+              onClick={handleRetry}
               className="min-h-11 rounded-lg bg-[#222222] px-4 text-[13px] text-white"
             >
               Try again
@@ -1496,7 +1561,24 @@ function CreateTaskContent({
     return (
       <ProtectedState
         status={status === 'ready' ? 'loading' : status}
-        onRetry={retry}
+        onRetry={handleRetry}
+      />
+    );
+  }
+
+  /*
+   * ป้องกันการใช้ข้อมูล Project ของบัญชีเก่า
+   * หลัง Session เปลี่ยนเป็นบัญชีใหม่แล้ว
+   */
+  if (
+    session.status !== 'ready' ||
+    !session.user ||
+    session.user.userId !== userId
+  ) {
+    return (
+      <ProtectedState
+        status="loading"
+        onRetry={handleRetry}
       />
     );
   }
@@ -1508,7 +1590,7 @@ function CreateTaskContent({
       userId={userId}
       data={data}
       isRefreshing={isRefreshing}
-      onRetry={retry}
+      onRetry={handleRetry}
     />
   );
 }
