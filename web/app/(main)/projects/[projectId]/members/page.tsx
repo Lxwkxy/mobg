@@ -117,6 +117,8 @@ export default function ProjectMembersPage() {
   const isOwner = project?.myRole === 'Owner';
 
   const loadData = useCallback(async () => {
+    if (!mountedRef.current) return;
+
     if (!isValidProjectId) {
       setLoadError('Invalid project ID.');
       setStatus('error');
@@ -161,10 +163,14 @@ export default function ProjectMembersPage() {
   useEffect(() => {
     mountedRef.current = true;
 
-    void loadData();
+    // เรียก loadData หลัง Effect ทำงานเสร็จ
+    const timeoutId = window.setTimeout(() => {
+      void loadData();
+    }, 0);
 
     return () => {
       mountedRef.current = false;
+      window.clearTimeout(timeoutId);
     };
   }, [loadData]);
 
@@ -199,7 +205,6 @@ export default function ProjectMembersPage() {
 
       setSelectedUserId('');
 
-      // Reload members and available users after adding.
       await loadData();
 
       router.refresh();
@@ -214,7 +219,6 @@ export default function ProjectMembersPage() {
 
       setActionError(getErrorMessage(error));
 
-      // Refresh the list if the user was already added elsewhere.
       if (
         error instanceof ApiRequestError &&
         error.details?.some(
@@ -264,7 +268,6 @@ export default function ProjectMembersPage() {
       setActionError(result.message);
       setBlockingTasks(result.taskNames);
 
-      // Refresh membership state after a failed removal.
       await loadData();
     } finally {
       setIsMutating(false);

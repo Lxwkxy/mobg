@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 
@@ -11,6 +11,8 @@ import {
 } from '@/lib/projectApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import ProtectedState from '@/components/ProtectedState';
+
+import type { ProjectItem } from '@/types';
 
 type ProjectForm = {
   projectName: string;
@@ -49,17 +51,6 @@ export default function ProjectSettingsPage() {
   const params = useParams<{ projectId: string }>();
   const router = useRouter();
 
-  const [form, setForm] = useState<ProjectForm>({
-    projectName: '',
-    projectDescription: '',
-    startDate: '',
-    dueDate: '',
-  });
-
-  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [saveError, setSaveError] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-
   const load = useCallback(async () => {
     const projectId = Number(params.projectId);
 
@@ -80,16 +71,67 @@ export default function ProjectSettingsPage() {
     hideDataWhileRefreshing: true,
   });
 
-  useEffect(() => {
-    if (!project) return;
+  if (status === 'error') {
+    const canRetry =
+      httpStatus !== 400 &&
+      httpStatus !== 403 &&
+      httpStatus !== 404;
 
-    setForm({
-      projectName: project.projectName ?? '',
-      projectDescription: project.projectDescription ?? '',
-      startDate: getDateInputValue(project.startDate),
-      dueDate: getDateInputValue(project.dueDate),
-    });
-  }, [project]);
+    return (
+      <div className="mx-auto w-full max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-4 sm:p-6">
+        <p role="alert" className="mb-4 text-[13px] text-red-600">
+          {describeError(httpStatus)}
+        </p>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => router.push(`/projects/${params.projectId}`)}
+            className="min-h-11 rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px]"
+          >
+            Back to Project
+          </button>
+
+          {canRetry && (
+            <button
+              type="button"
+              onClick={retry}
+              className="min-h-11 rounded-lg bg-[#222222] px-4 py-2 text-[12px] text-white"
+            >
+              Try again
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (status !== 'ready' || project === null) {
+    return (
+      <ProtectedState
+        status={status === 'ready' ? 'loading' : status}
+        onRetry={retry}
+      />
+    );
+  }
+
+  return <ProjectSettingsForm project={project} />;
+}
+
+function ProjectSettingsForm({ project }: { project: ProjectItem }) {
+  const router = useRouter();
+
+  // กำหนดค่าเริ่มต้นจาก Project โดยตรง ไม่ต้องใช้ Effect
+  const [form, setForm] = useState<ProjectForm>(() => ({
+    projectName: project.projectName ?? '',
+    projectDescription: project.projectDescription ?? '',
+    startDate: getDateInputValue(project.startDate),
+    dueDate: getDateInputValue(project.dueDate),
+  }));
+
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [saveError, setSaveError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   function updateField<K extends keyof ProjectForm>(
     field: K,
@@ -148,7 +190,7 @@ export default function ProjectSettingsPage() {
     setIsSaving(true);
 
     try {
-      const projectId = Number(params.projectId);
+      const projectId = project.projectId;
 
       await projectApi.updateProject(projectId, {
         projectName: form.projectName.trim(),
@@ -193,50 +235,6 @@ export default function ProjectSettingsPage() {
     } finally {
       setIsSaving(false);
     }
-  }
-
-  if (status === 'error') {
-    const canRetry =
-      httpStatus !== 400 &&
-      httpStatus !== 403 &&
-      httpStatus !== 404;
-
-    return (
-      <div className="mx-auto w-full max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-4 sm:p-6">
-        <p role="alert" className="mb-4 text-[13px] text-red-600">
-          {describeError(httpStatus)}
-        </p>
-
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => router.push(`/projects/${params.projectId}`)}
-            className="min-h-11 rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px]"
-          >
-            Back to Project
-          </button>
-
-          {canRetry && (
-            <button
-              type="button"
-              onClick={retry}
-              className="min-h-11 rounded-lg bg-[#222222] px-4 py-2 text-[12px] text-white"
-            >
-              Try again
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (status !== 'ready' || project === null) {
-    return (
-      <ProtectedState
-        status={status === 'ready' ? 'loading' : status}
-        onRetry={retry}
-      />
-    );
   }
 
   const isOwner = project.myRole === 'Owner';

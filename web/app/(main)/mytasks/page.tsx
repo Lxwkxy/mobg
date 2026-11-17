@@ -33,9 +33,10 @@ export default function MyTasksPage() {
     revalidateOnRoute: '/mytasks',
   });
 
-  // ต้องเรียก Hooks ทั้งหมดก่อนเงื่อนไข return
-  const tasksList = data ?? [];
+  // ใช้ useMemo เพื่อให้ tasksList ไม่ถูกสร้าง array ใหม่ทุก render
+  const tasksList = useMemo(() => data ?? [], [data]);
 
+  // ต้องเรียก Hooks ทั้งหมดก่อนเงื่อนไข return
   const filteredTasks = useMemo(() => {
     const keyword = search.trim().toLowerCase();
 
