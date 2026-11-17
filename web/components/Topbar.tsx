@@ -170,10 +170,10 @@ export default function Topbar() {
   const isLoading = status === 'loading';
 
   return (
-    <header className="min-h-[72px] rounded-none bg-white/95 backdrop-blur-sm border-b border-[#e6e0ff] shadow-[0_4px_20px_rgba(91,68,186,0.04)] grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,540px)_minmax(0,1fr)] items-center gap-3 px-4 py-3 sm:px-6 lg:px-[28px] relative z-10">
-      <div aria-hidden="true" className="hidden md:block" />
+    <header className="min-h-[72px] rounded-none bg-white/95 backdrop-blur-sm border-b border-[#e6e0ff] shadow-[0_4px_20px_rgba(91,68,186,0.04)] grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-[minmax(0,1fr)_minmax(0,540px)_minmax(0,1fr)] items-center gap-3 px-4 py-3 sm:px-6 lg:px-[28px] relative z-10">
+      <div aria-hidden="true" className="hidden xl:block" />
 
-      <div className="w-full min-w-0 md:col-start-2 flex justify-center">
+      <div className="w-full min-w-0 md:col-start-1 xl:col-start-2 flex justify-center">
         <Suspense
           fallback={
             <div className="h-12 w-full max-w-[540px] rounded-full bg-[#f4f1ff]" />
@@ -190,9 +190,9 @@ export default function Topbar() {
       </div>
 
       {/* USER ACCOUNT */}
-      <div className="min-w-0 max-w-full justify-self-end md:col-start-3 flex items-center gap-5">
+      <div className="min-w-0 max-w-full justify-self-end md:col-start-2 xl:col-start-3 flex items-center gap-5">
         <div
-          className="relative min-w-0 inline-block"
+          className="relative min-w-0 max-w-full inline-block"
           ref={dropdownRef}
         >
           <button
@@ -227,13 +227,13 @@ export default function Topbar() {
               </svg>
             </div>
 
-            <span className="min-w-0 [overflow-wrap:anywhere] text-[13px] font-semibold text-[#231942]">
+            <span className="min-w-0 max-w-[150px] sm:max-w-[170px] whitespace-nowrap truncate text-[13px] font-semibold text-[#231942]">
               {isLoading
                 ? 'Loading...'
                 : user?.userName || 'User'}
             </span>
 
-            <span className="flex items-center justify-center text-[#7c6fa0] w-[14px] h-[14px]">
+            <span className="shrink-0 flex items-center justify-center text-[#7c6fa0] w-[14px] h-[14px]">
               <svg
                 width="12"
                 height="12"
