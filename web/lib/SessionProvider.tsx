@@ -29,6 +29,8 @@ export type SessionState = {
 type SessionContextValue = {
   session: SessionState;
 
+  getLatestSession: () => SessionState;
+
   refreshSession: () => Promise<SessionState>;
 
   replaceSession: (
@@ -79,6 +81,11 @@ export function SessionProvider({
       sessionRef.current = nextSession;
       setSession(nextSession);
     },
+    [],
+  );
+
+  const getLatestSession = useCallback(
+    (): SessionState => sessionRef.current,
     [],
   );
 
@@ -279,6 +286,7 @@ export function SessionProvider({
   const value = useMemo(
     () => ({
       session,
+      getLatestSession,
       refreshSession,
       replaceSession,
       updateSessionUser,
@@ -288,6 +296,7 @@ export function SessionProvider({
     }),
     [
       session,
+      getLatestSession,
       refreshSession,
       replaceSession,
       updateSessionUser,

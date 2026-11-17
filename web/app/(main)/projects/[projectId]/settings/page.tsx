@@ -254,6 +254,7 @@ function ProjectSettingsForm({
   const router = useRouter();
   const {
     session,
+    getLatestSession,
     refreshSession,
   } = useSession();
 
@@ -290,7 +291,6 @@ function ProjectSettingsForm({
 
   const baselineRef = useRef(baseline);
   const mountedRef = useRef(false);
-  const sessionRef = useRef(session);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -299,10 +299,6 @@ function ProjectSettingsForm({
       mountedRef.current = false;
     };
   }, []);
-
-  useEffect(() => {
-    sessionRef.current = session;
-  }, [session]);
 
   // รับข้อมูล API ล่าสุด โดยรักษาค่าที่ผู้ใช้แก้ไขเองไว้
   useEffect(() => {
@@ -331,9 +327,11 @@ function ProjectSettingsForm({
       return;
     }
 
+    const latestSession = getLatestSession();
+
     if (
-      session.status === 'ready' &&
-      session.user?.userId !== ownerUserId
+      latestSession.status === 'ready' &&
+      latestSession.user?.userId !== ownerUserId
     ) {
       return;
     }
@@ -353,6 +351,7 @@ function ProjectSettingsForm({
     baseline,
     draftKey,
     form,
+    getLatestSession,
     ownerUserId,
     project.myRole,
     session.status,
@@ -371,19 +370,18 @@ function ProjectSettingsForm({
         return false;
       }
 
-      const currentSession = sessionRef.current;
+      // อ่าน session ล่าสุดจาก SessionProvider โดยตรง
+      // เพื่อไม่ให้ค่าค้างเมื่อฟอร์มเดิมถูก unmount หลังสลับบัญชี
+      let currentSession = getLatestSession();
 
       if (currentSession.status === 'loading') {
-        const verifiedSession = await refreshSession();
+        await refreshSession();
 
         if (activeLoaderTokenRef.current !== requestLoaderToken) {
           return false;
         }
 
-        return (
-          verifiedSession.status === 'ready' &&
-          verifiedSession.user?.userId === requestUserId
-        );
+        currentSession = getLatestSession();
       }
 
       return (
@@ -391,7 +389,7 @@ function ProjectSettingsForm({
         currentSession.user?.userId === requestUserId
       );
     },
-    [activeLoaderTokenRef, refreshSession],
+    [activeLoaderTokenRef, getLatestSession, refreshSession],
   );
 
   function updateField<K extends keyof ProjectForm>(

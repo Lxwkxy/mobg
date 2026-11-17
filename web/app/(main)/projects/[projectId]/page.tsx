@@ -21,8 +21,10 @@ import type { ProjectItem } from '@/types';
 
 type DeleteContext = {
   scope: string;
+  projectIdParam: string;
   userId: number | string;
   projectId: number;
+  projectName: string;
 };
 
 type ScopedPageNotice = {
@@ -62,10 +64,12 @@ export default function ProjectDetailPage() {
 
   const {
     session,
+    getLatestSession,
     refreshSession,
   } = useSession();
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deleteTargetName, setDeleteTargetName] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [permissionNotice, setPermissionNotice] =
@@ -76,8 +80,8 @@ export default function ProjectDetailPage() {
   const currentScope = `${String(session.user?.userId ?? '')}:${params.projectId}`;
 
   const mountedRef = useRef(false);
-  const sessionRef = useRef(session);
-  const currentScopeRef = useRef(currentScope);
+  const projectIdParamRef = useRef(params.projectId);
+  const isDeletingRef = useRef(false);
   const requestSequenceRef = useRef(0);
   const activeDeleteRef = useRef<DeleteContext | null>(null);
 
@@ -115,20 +119,22 @@ export default function ProjectDetailPage() {
     return () => {
       mountedRef.current = false;
       requestSequenceRef.current += 1;
+      isDeletingRef.current = false;
       activeDeleteRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    sessionRef.current = session;
-    currentScopeRef.current = currentScope;
-  }, [currentScope, session]);
+    projectIdParamRef.current = params.projectId;
+  }, [params.projectId]);
 
-  // ปิด Dialog และยกเลิก response เดิมเมื่อเปลี่ยนบัญชีหรือออกจากระบบ
+  // ปิด Dialog และยกเลิก response เดิมเมื่อเปลี่ยน route เปลี่ยนบัญชี หรือออกจากระบบ
   useEffect(() => {
     const context = activeDeleteRef.current;
 
     if (!context) return;
+
+    const routeChanged = params.projectId !== context.projectIdParam;
 
     const accountChanged =
       session.status === 'ready' &&
@@ -138,24 +144,26 @@ export default function ProjectDetailPage() {
       session.status === 'login-required' ||
       session.status === 'no-profile';
 
-    if (accountChanged || sessionEnded) {
+    if (routeChanged || accountChanged || sessionEnded) {
       requestSequenceRef.current += 1;
+      isDeletingRef.current = false;
       activeDeleteRef.current = null;
       setIsDeleteDialogOpen(false);
       setIsDeleting(false);
       setDeleteError('');
     }
   }, [
+    params.projectId,
     session.status,
     session.user?.userId,
   ]);
 
-  // ปิด Dialog หาก Project เปลี่ยน, โหลดข้อมูลไม่ได้
-  // หรือผู้ใช้ไม่ได้เป็น Owner แล้ว
+  // ปิด Dialog หาก Project เปลี่ยน โหลดข้อมูลไม่ได้ หรือเสียสิทธิ์ Owner
+  // แต่จะไม่ยกเลิกคำขอระหว่างที่กำลังส่ง DELETE จนกว่าจะรู้ผลจริง
   useEffect(() => {
     const context = activeDeleteRef.current;
 
-    if (!context) return;
+    if (!context || isDeletingRef.current) return;
 
     if (
       status === 'error' ||
@@ -164,11 +172,25 @@ export default function ProjectDetailPage() {
           displayedProject.projectId !== context.projectId ||
           displayedProject.myRole !== 'Owner'))
     ) {
+      const lostOwnerRole =
+        status === 'ready' &&
+        displayedProject !== null &&
+        displayedProject.projectId === context.projectId &&
+        displayedProject.myRole !== 'Owner';
+
       requestSequenceRef.current += 1;
       activeDeleteRef.current = null;
       setIsDeleteDialogOpen(false);
       setIsDeleting(false);
       setDeleteError('');
+
+      if (lostOwnerRole) {
+        setPermissionNotice({
+          scope: context.scope,
+          message:
+            'Your Owner permission has changed. You can no longer delete this project.',
+        });
+      }
     }
   }, [displayedProject, status]);
 
@@ -179,43 +201,47 @@ export default function ProjectDetailPage() {
     ): Promise<boolean> => {
       const activeContext = activeDeleteRef.current;
 
+      // ตรวจ route และคำขอก่อน เพราะช่วง session loading ค่า userId จะว่างชั่วคราว
       if (
         !mountedRef.current ||
         requestSequenceRef.current !== requestId ||
-        currentScopeRef.current !== context.scope ||
+        projectIdParamRef.current !== context.projectIdParam ||
         activeContext === null ||
-        activeContext.scope !== context.scope ||
+        activeContext.projectIdParam !== context.projectIdParam ||
         activeContext.userId !== context.userId ||
         activeContext.projectId !== context.projectId
       ) {
         return false;
       }
 
-      const latestSession = sessionRef.current;
+      let resolvedSession = getLatestSession();
 
-      if (latestSession.status === 'loading') {
-        const verifiedSession = await refreshSession();
+      if (resolvedSession.status === 'loading') {
+        await refreshSession();
+
         const postRefreshContext = activeDeleteRef.current;
 
-        return (
-          mountedRef.current &&
-          requestSequenceRef.current === requestId &&
-          currentScopeRef.current === context.scope &&
-          postRefreshContext !== null &&
-          postRefreshContext.scope === context.scope &&
-          postRefreshContext.userId === context.userId &&
-          postRefreshContext.projectId === context.projectId &&
-          verifiedSession.status === 'ready' &&
-          verifiedSession.user?.userId === context.userId
-        );
+        if (
+          !mountedRef.current ||
+          requestSequenceRef.current !== requestId ||
+          projectIdParamRef.current !== context.projectIdParam ||
+          postRefreshContext === null ||
+          postRefreshContext.projectIdParam !== context.projectIdParam ||
+          postRefreshContext.userId !== context.userId ||
+          postRefreshContext.projectId !== context.projectId
+        ) {
+          return false;
+        }
+
+        resolvedSession = getLatestSession();
       }
 
       return (
-        latestSession.status === 'ready' &&
-        latestSession.user?.userId === context.userId
+        resolvedSession.status === 'ready' &&
+        resolvedSession.user?.userId === context.userId
       );
     },
-    [refreshSession],
+    [getLatestSession, refreshSession],
   );
 
   const openDeleteDialog = () => {
@@ -241,10 +267,13 @@ export default function ProjectDetailPage() {
 
     activeDeleteRef.current = {
       scope: currentScope,
+      projectIdParam: params.projectId,
       userId: session.user.userId,
       projectId,
+      projectName: displayedProject.projectName,
     };
 
+    setDeleteTargetName(displayedProject.projectName);
     setDeleteError('');
     setPermissionNotice(null);
     setIsDeleteDialogOpen(true);
@@ -254,6 +283,7 @@ export default function ProjectDetailPage() {
     if (isDeleting) return;
 
     requestSequenceRef.current += 1;
+    isDeletingRef.current = false;
     activeDeleteRef.current = null;
 
     setIsDeleteDialogOpen(false);
@@ -282,11 +312,12 @@ export default function ProjectDetailPage() {
       session.status !== 'ready' ||
       !session.user ||
       session.user.userId !== context.userId ||
-      currentScope !== context.scope ||
+      params.projectId !== context.projectIdParam ||
       displayedProject.projectId !== context.projectId ||
       displayedProject.myRole !== 'Owner'
     ) {
       requestSequenceRef.current += 1;
+      isDeletingRef.current = false;
       activeDeleteRef.current = null;
       setIsDeleteDialogOpen(false);
       setDeleteError('');
@@ -295,6 +326,7 @@ export default function ProjectDetailPage() {
 
     const requestId = requestSequenceRef.current + 1;
     requestSequenceRef.current = requestId;
+    isDeletingRef.current = true;
 
     setIsDeleting(true);
     setDeleteError('');
@@ -315,6 +347,7 @@ export default function ProjectDetailPage() {
         latestProject.projectId !== context.projectId ||
         latestProject.myRole !== 'Owner'
       ) {
+        isDeletingRef.current = false;
         activeDeleteRef.current = null;
         setIsDeleting(false);
         setIsDeleteDialogOpen(false);
@@ -349,6 +382,7 @@ export default function ProjectDetailPage() {
         return;
       }
 
+      isDeletingRef.current = false;
       activeDeleteRef.current = null;
       setIsDeleting(false);
       setIsDeleteDialogOpen(false);
@@ -362,6 +396,7 @@ export default function ProjectDetailPage() {
 
       if (error instanceof ApiRequestError) {
         if (error.status === 401) {
+          isDeletingRef.current = false;
           activeDeleteRef.current = null;
           setIsDeleteDialogOpen(false);
           setIsDeleting(false);
@@ -370,6 +405,7 @@ export default function ProjectDetailPage() {
         }
 
         if (error.status === 403) {
+          isDeletingRef.current = false;
           activeDeleteRef.current = null;
           setIsDeleteDialogOpen(false);
           setIsDeleting(false);
@@ -402,6 +438,7 @@ export default function ProjectDetailPage() {
         mountedRef.current &&
         requestSequenceRef.current === requestId
       ) {
+        isDeletingRef.current = false;
         setIsDeleting(false);
       }
     }
@@ -411,6 +448,9 @@ export default function ProjectDetailPage() {
     permissionNotice?.scope === currentScope
       ? permissionNotice.message
       : '';
+
+  const dialogItemName =
+    displayedProject?.projectName ?? deleteTargetName;
 
   if (status === 'error') {
     const canRetry = httpStatus !== 400 && httpStatus !== 404;
@@ -451,6 +491,18 @@ export default function ProjectDetailPage() {
             )}
           </div>
         </div>
+
+        <ConfirmationDialog
+          open={isDeleteDialogOpen}
+          title="Delete Project?"
+          description="Deleting this project will permanently delete all tasks in it, including their comments and assignments. All project memberships will also be deleted. This cannot be undone. Are you sure you want to continue?"
+          itemName={dialogItemName}
+          confirmLabel="Delete Project"
+          isLoading={isDeleting}
+          error={deleteError}
+          onCancel={closeDeleteDialog}
+          onConfirm={() => void handleDeleteProject()}
+        />
       </>
     );
   }
@@ -470,6 +522,18 @@ export default function ProjectDetailPage() {
         <ProtectedState
           status={status === 'ready' ? 'loading' : status}
           onRetry={retry}
+        />
+
+        <ConfirmationDialog
+          open={isDeleteDialogOpen}
+          title="Delete Project?"
+          description="Deleting this project will permanently delete all tasks in it, including their comments and assignments. All project memberships will also be deleted. This cannot be undone. Are you sure you want to continue?"
+          itemName={dialogItemName}
+          confirmLabel="Delete Project"
+          isLoading={isDeleting}
+          error={deleteError}
+          onCancel={closeDeleteDialog}
+          onConfirm={() => void handleDeleteProject()}
         />
       </>
     );
@@ -616,7 +680,7 @@ export default function ProjectDetailPage() {
         open={isDeleteDialogOpen}
         title="Delete Project?"
         description="Deleting this project will permanently delete all tasks in it, including their comments and assignments. All project memberships will also be deleted. This cannot be undone. Are you sure you want to continue?"
-        itemName={displayedProject.projectName}
+        itemName={dialogItemName}
         confirmLabel="Delete Project"
         isLoading={isDeleting}
         error={deleteError}

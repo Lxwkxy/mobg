@@ -331,7 +331,7 @@ function ProjectMembersLoader({
   projectId: string;
 }) {
   const router = useRouter();
-  const { session, refreshSession } = useSession();
+  const { session, getLatestSession, refreshSession } = useSession();
 
   const [feedback, setFeedback] = useState<MembersFeedback | null>(null);
   const [mutatingScope, setMutatingScope] = useState<string | null>(null);
@@ -344,8 +344,7 @@ function ProjectMembersLoader({
   const currentScope = `${String(session.user?.userId ?? '')}:${projectId}`;
 
   const mountedRef = useRef(false);
-  const sessionRef = useRef(session);
-  const currentScopeRef = useRef(currentScope);
+  const projectIdRef = useRef(projectId);
   const mutationSequenceRef = useRef(0);
 
   useEffect(() => {
@@ -357,9 +356,8 @@ function ProjectMembersLoader({
   }, []);
 
   useEffect(() => {
-    sessionRef.current = session;
-    currentScopeRef.current = currentScope;
-  }, [currentScope, session]);
+    projectIdRef.current = projectId;
+  }, [projectId]);
 
   const load = useCallback((): Promise<MembersData> => {
     const request = (async (): Promise<MembersData> => {
@@ -408,6 +406,12 @@ function ProjectMembersLoader({
     hideDataWhileRefreshing: true,
   });
 
+  const retryRef = useRef(retry);
+
+  useEffect(() => {
+    retryRef.current = retry;
+  }, [retry]);
+
   const refreshAfterMutation = useCallback(async () => {
     // รอ request ที่เริ่มจาก focus หรือการโหลดก่อนหน้าจบทั้งหมด
     while (activeLoadsRef.current.size > 0) {
@@ -417,48 +421,46 @@ function ProjectMembersLoader({
     }
 
     // โหลดข้อมูลใหม่หลัง request เก่าจบแล้ว
-    retry();
-  }, [retry]);
+    retryRef.current();
+  }, []);
 
   const isMutationStillCurrent = useCallback(
     async (
       requestId: number,
-      requestScope: string,
+      requestProjectId: string,
       requestUserId: number | string,
     ): Promise<boolean> => {
+      // ตรวจ route และคำขอก่อน เพราะช่วง session loading ค่า userId จะว่างชั่วคราว
       if (
         !mountedRef.current ||
         mutationSequenceRef.current !== requestId ||
-        currentScopeRef.current !== requestScope
+        projectIdRef.current !== requestProjectId
       ) {
         return false;
       }
 
-      const latestSession = sessionRef.current;
+      let resolvedSession = getLatestSession();
 
-      if (latestSession.status === 'loading') {
-        const verifiedSession = await refreshSession();
+      if (resolvedSession.status === 'loading') {
+        await refreshSession();
 
         if (
           !mountedRef.current ||
           mutationSequenceRef.current !== requestId ||
-          currentScopeRef.current !== requestScope
+          projectIdRef.current !== requestProjectId
         ) {
           return false;
         }
 
-        return (
-          verifiedSession.status === 'ready' &&
-          verifiedSession.user?.userId === requestUserId
-        );
+        resolvedSession = getLatestSession();
       }
 
       return (
-        latestSession.status === 'ready' &&
-        latestSession.user?.userId === requestUserId
+        resolvedSession.status === 'ready' &&
+        resolvedSession.user?.userId === requestUserId
       );
     },
-    [refreshSession],
+    [getLatestSession, refreshSession],
   );
 
   const handleAddMember = useCallback(
@@ -476,6 +478,7 @@ function ProjectMembersLoader({
       }
 
       const requestUserId = session.user.userId;
+      const requestProjectId = projectId;
       const requestScope = currentScope;
       const requestId = mutationSequenceRef.current + 1;
 
@@ -488,7 +491,7 @@ function ProjectMembersLoader({
 
         const isCurrent = await isMutationStillCurrent(
           requestId,
-          requestScope,
+          requestProjectId,
           requestUserId,
         );
 
@@ -501,7 +504,7 @@ function ProjectMembersLoader({
       } catch (error) {
         const isCurrent = await isMutationStillCurrent(
           requestId,
-          requestScope,
+          requestProjectId,
           requestUserId,
         );
 
@@ -575,6 +578,7 @@ function ProjectMembersLoader({
       if (!confirmed) return;
 
       const requestUserId = session.user.userId;
+      const requestProjectId = projectId;
       const requestScope = currentScope;
       const requestId = mutationSequenceRef.current + 1;
 
@@ -590,7 +594,7 @@ function ProjectMembersLoader({
 
         const isCurrent = await isMutationStillCurrent(
           requestId,
-          requestScope,
+          requestProjectId,
           requestUserId,
         );
 
@@ -602,7 +606,7 @@ function ProjectMembersLoader({
       } catch (error) {
         const isCurrent = await isMutationStillCurrent(
           requestId,
-          requestScope,
+          requestProjectId,
           requestUserId,
         );
 
