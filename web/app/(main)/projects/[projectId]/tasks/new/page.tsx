@@ -1,3 +1,4 @@
+
 'use client';
 
 import {
@@ -1475,7 +1476,54 @@ function CreateTaskContent({
   }, [refreshSession, retry]);
 
   /*
-   * ถ้า Session กำลังตรวจ ห้ามแสดงข้อมูลบัญชีเดิม
+   * เก็บ Form เดิมไว้ระหว่างตรวจ Session
+   *
+   * กรณี loading:
+   * Session กำลังตรวจสอบ จึงยังไม่ทราบว่าเป็นบัญชีเดิมหรือไม่
+   * เก็บ Form ไว้ใน Memory แต่ซ่อนข้อมูลทั้งหมดด้วย Loading UI
+   *
+   * กรณี error:
+   * การตรวจ Session ล้มเหลว ยังสรุปไม่ได้ว่าบัญชีเปลี่ยนหรือไม่
+   * จึงเก็บ Form และสถานะ POST เดิมไว้เพื่อให้ Retry ได้
+   *
+   * กรณี ready:
+   * เก็บ Form ได้เฉพาะเมื่อ Session ยืนยันว่าเป็นบัญชีเดิม
+   *
+   * ถ้ายืนยันว่าเป็นบัญชีใหม่ หรือ logged out:
+   * เงื่อนไขนี้จะไม่ผ่าน ทำให้ Form ของบัญชีเดิมถูก Unmount
+   */
+  const canKeepPreviousForm =
+    retained !== null &&
+    retainedUserId !== null &&
+    (
+      session.status === 'loading' ||
+      session.status === 'error' ||
+      (
+        session.status === 'ready' &&
+        session.user?.userId === retainedUserId &&
+        (
+          status === 'loading' ||
+          isRefreshing
+        )
+      )
+    );
+
+  if (canKeepPreviousForm) {
+    return (
+      <CreateTaskForm
+        key={`${retainedUserId}:${projectId}`}
+        projectId={projectId}
+        userId={retainedUserId}
+        data={retained}
+        isRefreshing={true}
+        onRetry={handleRetry}
+      />
+    );
+  }
+
+  /*
+   * ถ้า Session กำลังตรวจและไม่มี Form เดิมให้เก็บ
+   * แสดง Loading ตามปกติ
    */
   if (session.status === 'loading') {
     return (
@@ -1489,7 +1537,9 @@ function CreateTaskContent({
   /*
    * ถ้า /api/me ล้มเหลว:
    * ซ่อน Project และข้อมูลบัญชีเดิม
-   * แสดง Error พร้อม Retry โดยไม่ลบ Draft
+   * แสดง Error พร้อม Retry
+   *
+   * หากมี Form เดิม จะถูกเก็บไว้ในเงื่อนไขด้านบนแล้ว
    */
   if (session.status === 'error') {
     return (
@@ -1513,35 +1563,6 @@ function CreateTaskContent({
     return (
       <ProtectedState
         status="error"
-        onRetry={handleRetry}
-      />
-    );
-  }
-
-  /*
-   * เก็บ Form เดิมไว้ได้เฉพาะเมื่อ Session ยืนยันแล้ว
-   * ว่าเป็นบัญชีเดิมเท่านั้น
-   *
-   * CreateTaskForm จะแสดง Loading ระหว่างโหลดข้อมูลใหม่
-   * โดยไม่เปิดเผยข้อมูลเดิมบนหน้าจอ
-   */
-  if (
-    retained &&
-    retainedUserId !== null &&
-    session.status === 'ready' &&
-    session.user?.userId === retainedUserId &&
-    (
-      status === 'loading' ||
-      isRefreshing
-    )
-  ) {
-    return (
-      <CreateTaskForm
-        key={`${retainedUserId}:${projectId}`}
-        projectId={projectId}
-        userId={retainedUserId}
-        data={retained}
-        isRefreshing={true}
         onRetry={handleRetry}
       />
     );
