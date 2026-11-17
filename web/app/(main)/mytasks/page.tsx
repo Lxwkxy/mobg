@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 
 import { taskApi } from '@/lib/taskApi';
@@ -10,8 +10,6 @@ import ProtectedState from '@/components/ProtectedState';
 import TaskFilters from '@/components/tasks/TaskFilters';
 
 import type { Task, TaskPriority, TaskStatus } from '@/types';
-
-const loadMyTasks = () => taskApi.getMyTasks();
 
 const STATUS_OPTIONS: TaskStatus[] = [
   'To do',
@@ -27,16 +25,25 @@ export default function MyTasksPage() {
   const [updatingTaskId, setUpdatingTaskId] = useState<number | null>(null);
   const [actionError, setActionError] = useState('');
 
+  // โหลดข้อมูลใหม่เมื่อ Status Filter เปลี่ยน
+  // ถ้าไม่ได้เลือก Status จะไม่ส่ง status ไปยัง API
+  const loadMyTasks = useCallback(
+    () =>
+      statusFilter
+        ? taskApi.getMyTasks({ status: statusFilter })
+        : taskApi.getMyTasks(),
+    [statusFilter],
+  );
+
   const { status, data, retry } = useProtectedLoad(loadMyTasks, {
     revalidateOnFocus: true,
     hideDataWhileRefreshing: true,
     revalidateOnRoute: '/mytasks',
   });
 
-  // ใช้ useMemo เพื่อให้ tasksList ไม่ถูกสร้าง array ใหม่ทุก render
   const tasksList = useMemo(() => data ?? [], [data]);
 
-  // ต้องเรียก Hooks ทั้งหมดก่อนเงื่อนไข return
+  // Search และ Priority ยังคงกรองข้อมูลฝั่ง Client
   const filteredTasks = useMemo(() => {
     const keyword = search.trim().toLowerCase();
 
@@ -44,15 +51,12 @@ export default function MyTasksPage() {
       const matchesSearch =
         !keyword || task.taskTitle.toLowerCase().includes(keyword);
 
-      const matchesStatus =
-        !statusFilter || task.status === statusFilter;
-
       const matchesPriority =
         priorityFilter === '' || task.priority === priorityFilter;
 
-      return matchesSearch && matchesStatus && matchesPriority;
+      return matchesSearch && matchesPriority;
     });
-  }, [tasksList, search, statusFilter, priorityFilter]);
+  }, [tasksList, search, priorityFilter]);
 
   const handleStatusChange = async (
     task: Task,
@@ -98,7 +102,6 @@ export default function MyTasksPage() {
     return 'Low';
   };
 
-  // แสดง Loading / Error หลังเรียก Hooks ครบแล้ว
   if (status !== 'ready' || data === null) {
     return (
       <ProtectedState

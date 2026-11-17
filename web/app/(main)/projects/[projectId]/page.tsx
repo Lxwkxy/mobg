@@ -287,7 +287,7 @@ export default function ProjectDetailPage() {
       <ConfirmationDialog
         open={isDeleteDialogOpen}
         title="Delete Project?"
-        description="Are you sure you want to permanently delete this project?"
+        description="Deleting this project will permanently delete all tasks in it, including their comments and assignments. All project memberships will also be deleted. This cannot be undone. Are you sure you want to continue?"
         itemName={project.projectName}
         confirmLabel="Delete Project"
         isLoading={isDeleting}

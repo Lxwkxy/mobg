@@ -1,9 +1,16 @@
-
 'use client';
 
-import { useCallback, useState, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type FormEvent,
+} from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import {
+  useParams,
+  useRouter,
+} from 'next/navigation';
 
 import {
   ApiRequestError,
@@ -12,7 +19,10 @@ import {
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import ProtectedState from '@/components/ProtectedState';
 
-import type { ProjectItem } from '@/types';
+import type {
+  ProjectItem,
+  UpdateProjectRequest,
+} from '@/types';
 
 type ProjectForm = {
   projectName: string;
@@ -22,6 +32,11 @@ type ProjectForm = {
 };
 
 type FieldErrors = Partial<Record<keyof ProjectForm, string>>;
+
+type StoredProjectDraft = {
+  baseline: ProjectForm;
+  form: ProjectForm;
+};
 
 function getDateInputValue(value: string | null | undefined) {
   return value ? value.slice(0, 10) : '';
@@ -47,91 +62,134 @@ function describeError(status: number | undefined) {
   return 'Unable to load project settings. Please try again.';
 }
 
-export default function ProjectSettingsPage() {
-  const params = useParams<{ projectId: string }>();
-  const router = useRouter();
-
-  const load = useCallback(async () => {
-    const projectId = Number(params.projectId);
-
-    if (!Number.isSafeInteger(projectId) || projectId <= 0) {
-      throw new ApiRequestError('Invalid project ID.', 400);
-    }
-
-    return projectApi.getProjectById(projectId);
-  }, [params.projectId]);
-
-  const {
-    status,
-    data: project,
-    httpStatus,
-    retry,
-  } = useProtectedLoad(load, {
-    revalidateOnFocus: true,
-    hideDataWhileRefreshing: true,
-  });
-
-  if (status === 'error') {
-    const canRetry =
-      httpStatus !== 400 &&
-      httpStatus !== 403 &&
-      httpStatus !== 404;
-
-    return (
-      <div className="mx-auto w-full max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-4 sm:p-6">
-        <p role="alert" className="mb-4 text-[13px] text-red-600">
-          {describeError(httpStatus)}
-        </p>
-
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => router.push(`/projects/${params.projectId}`)}
-            className="min-h-11 rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px]"
-          >
-            Back to Project
-          </button>
-
-          {canRetry && (
-            <button
-              type="button"
-              onClick={retry}
-              className="min-h-11 rounded-lg bg-[#222222] px-4 py-2 text-[12px] text-white"
-            >
-              Try again
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (status !== 'ready' || project === null) {
-    return (
-      <ProtectedState
-        status={status === 'ready' ? 'loading' : status}
-        onRetry={retry}
-      />
-    );
-  }
-
-  return <ProjectSettingsForm project={project} />;
-}
-
-function ProjectSettingsForm({ project }: { project: ProjectItem }) {
-  const router = useRouter();
-
-  // กำหนดค่าเริ่มต้นจาก Project โดยตรง ไม่ต้องใช้ Effect
-  const [form, setForm] = useState<ProjectForm>(() => ({
+function createProjectForm(project: ProjectItem): ProjectForm {
+  return {
     projectName: project.projectName ?? '',
     projectDescription: project.projectDescription ?? '',
     startDate: getDateInputValue(project.startDate),
     dueDate: getDateInputValue(project.dueDate),
-  }));
+  };
+}
+
+function isProjectForm(value: unknown): value is ProjectForm {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const form = value as Record<string, unknown>;
+
+  return (
+    typeof form.projectName === 'string' &&
+    typeof form.projectDescription === 'string' &&
+    typeof form.startDate === 'string' &&
+    typeof form.dueDate === 'string'
+  );
+}
+
+function readStoredDraft(
+  key: string,
+  initialForm: ProjectForm,
+): StoredProjectDraft {
+  if (typeof window === 'undefined') {
+    return {
+      baseline: initialForm,
+      form: initialForm,
+    };
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(key);
+
+    if (!raw) {
+      return {
+        baseline: initialForm,
+        form: initialForm,
+      };
+    }
+
+    const parsed: unknown = JSON.parse(raw);
+
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      !('baseline' in parsed) ||
+      !('form' in parsed) ||
+      !isProjectForm(parsed.baseline) ||
+      !isProjectForm(parsed.form)
+    ) {
+      window.sessionStorage.removeItem(key);
+
+      return {
+        baseline: initialForm,
+        form: initialForm,
+      };
+    }
+
+    return {
+      baseline: parsed.baseline,
+      form: parsed.form,
+    };
+  } catch {
+    return {
+      baseline: initialForm,
+      form: initialForm,
+    };
+  }
+}
+
+function removeStoredDraft(key: string) {
+  try {
+    window.sessionStorage.removeItem(key);
+  } catch {
+    // ไม่ให้ปัญหา sessionStorage ขัดขวางการทำงานของหน้า
+  }
+}
+
+function ProjectSettingsForm({
+  project,
+  draftKey,
+}: {
+  project: ProjectItem;
+  draftKey: string;
+}) {
+  const router = useRouter();
+
+  const [storedDraft] = useState<StoredProjectDraft>(() =>
+    readStoredDraft(draftKey, createProjectForm(project)),
+  );
+
+  // เก็บค่าเดิมที่ใช้เปิดฟอร์มไว้สำหรับเปรียบเทียบ PATCH
+  const [baseline] = useState<ProjectForm>(
+    () => storedDraft.baseline,
+  );
+
+  const [form, setForm] = useState<ProjectForm>(
+    () => storedDraft.form,
+  );
 
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [saveError, setSaveError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // เก็บ Draft แยกตามบัญชีและ Project
+  useEffect(() => {
+    if (project.myRole !== 'Owner') {
+      removeStoredDraft(draftKey);
+      return;
+    }
+
+    try {
+      window.sessionStorage.setItem(
+        draftKey,
+        JSON.stringify({
+          baseline,
+          form,
+        } satisfies StoredProjectDraft),
+      );
+    } catch {
+      // ฟอร์มยังใช้งานได้ แม้ browser ไม่อนุญาตให้เก็บ sessionStorage
+    }
+  }, [baseline, draftKey, form, project.myRole]);
 
   function updateField<K extends keyof ProjectForm>(
     field: K,
@@ -178,29 +236,72 @@ function ProjectSettingsForm({ project }: { project: ProjectItem }) {
     return Object.keys(errors).length === 0;
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  function buildUpdateInput(): UpdateProjectRequest {
+    const input: UpdateProjectRequest = {};
+
+    const nextName = form.projectName.trim();
+    const nextDescription = form.projectDescription.trim();
+    const nextDueDate = form.dueDate || null;
+
+    if (nextName !== baseline.projectName.trim()) {
+      input.projectName = nextName;
+    }
+
+    if (
+      nextDescription !== baseline.projectDescription.trim()
+    ) {
+      input.projectDescription = nextDescription || null;
+    }
+
+    if (form.startDate !== baseline.startDate) {
+      input.startDate = form.startDate;
+    }
+
+    if (nextDueDate !== (baseline.dueDate || null)) {
+      input.dueDate = nextDueDate;
+    }
+
+    return input;
+  }
+
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
 
-    if (!project || project.myRole !== 'Owner' || isSaving) return;
+    if (
+      !project ||
+      project.myRole !== 'Owner' ||
+      isSaving
+    ) {
+      return;
+    }
 
     setSaveError('');
 
-    if (!validateForm()) return;
+    if (!validateForm()) {
+      return;
+    }
+
+    const input = buildUpdateInput();
+
+    // ไม่มี field เปลี่ยน ไม่ต้องส่ง PATCH
+    if (Object.keys(input).length === 0) {
+      setSaveError('No changes to save.');
+      return;
+    }
 
     setIsSaving(true);
 
     try {
-      const projectId = project.projectId;
+      await projectApi.updateProject(
+        project.projectId,
+        input,
+      );
 
-      await projectApi.updateProject(projectId, {
-        projectName: form.projectName.trim(),
-        projectDescription: form.projectDescription.trim() || null,
-        startDate: form.startDate,
-        dueDate: form.dueDate || null,
-      });
+      removeStoredDraft(draftKey);
 
-      // Return to Project Detail after successful save.
-      router.push(`/projects/${projectId}`);
+      router.push(`/projects/${project.projectId}`);
       router.refresh();
     } catch (error) {
       if (error instanceof ApiRequestError) {
@@ -218,14 +319,17 @@ function ProjectSettingsForm({ project }: { project: ProjectItem }) {
             detail.field === 'dueDate' ||
             detail.field === 'projectDescription'
           ) {
-            nextErrors[detail.field] = detail.message ?? 'Invalid value.';
+            nextErrors[detail.field] =
+              detail.message ?? 'Invalid value.';
           }
         });
 
         if (Object.keys(nextErrors).length > 0) {
           setFieldErrors(nextErrors);
         } else if (error.status === 403) {
-          setSaveError('Only the project Owner can update project settings.');
+          setSaveError(
+            'Only the project Owner can update project settings.',
+          );
         } else {
           setSaveError(error.message);
         }
@@ -238,6 +342,41 @@ function ProjectSettingsForm({ project }: { project: ProjectItem }) {
   }
 
   const isOwner = project.myRole === 'Owner';
+
+  if (!isOwner) {
+    return (
+      <div className="mx-auto w-full min-w-0 max-w-3xl [overflow-wrap:anywhere]">
+        <Link
+          href={`/projects/${project.projectId}`}
+          className="mb-5 inline-flex min-h-11 items-center text-[13px] text-[#666666] hover:text-black"
+        >
+          ← Back to Project
+        </Link>
+
+        <div className="rounded-2xl border border-[#e0e0e0] bg-white p-4 sm:p-6 md:p-8">
+          <div className="mb-7">
+            <p className="mb-2 text-[12px] text-[#777777]">
+              Project management
+            </p>
+
+            <h1 className="text-2xl font-extrabold text-[#1f1f1f]">
+              Project Settings
+            </h1>
+          </div>
+
+          <div className="rounded-xl border border-[#eeeeee] bg-[#fafafa] p-4">
+            <p className="text-[14px] font-semibold text-[#333333]">
+              Owner permission required
+            </p>
+
+            <p className="mt-2 text-[13px] text-[#777777]">
+              Only the project Owner can edit these settings.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-3xl [overflow-wrap:anywhere]">
@@ -263,179 +402,313 @@ function ProjectSettingsForm({ project }: { project: ProjectItem }) {
           </p>
         </div>
 
-        {!isOwner ? (
-          <div className="rounded-xl border border-[#eeeeee] bg-[#fafafa] p-4">
-            <p className="text-[14px] font-semibold text-[#333333]">
-              Owner permission required
-            </p>
-            <p className="mt-2 text-[13px] text-[#777777]">
-              Only the project Owner can edit these settings.
-            </p>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} noValidate>
-            <div className="space-y-5">
+        <form onSubmit={handleSubmit} noValidate>
+          <div className="space-y-5">
+            <div>
+              <label
+                htmlFor="projectName"
+                className="mb-2 block text-[13px] font-semibold text-[#333333]"
+              >
+                Project name <span className="text-red-500">*</span>
+              </label>
+
+              <input
+                id="projectName"
+                type="text"
+                maxLength={150}
+                value={form.projectName}
+                onChange={(event) =>
+                  updateField('projectName', event.target.value)
+                }
+                disabled={isSaving}
+                className={`min-h-11 w-full rounded-lg border px-3 py-2 text-[13px] outline-none focus:border-[#555555] disabled:bg-[#f5f5f5] ${
+                  fieldErrors.projectName
+                    ? 'border-red-500'
+                    : 'border-[#dddddd]'
+                }`}
+                placeholder="Enter project name"
+                aria-invalid={Boolean(fieldErrors.projectName)}
+                aria-describedby={
+                  fieldErrors.projectName
+                    ? 'projectName-error'
+                    : undefined
+                }
+              />
+
+              {fieldErrors.projectName && (
+                <p
+                  id="projectName-error"
+                  className="mt-1 text-[12px] text-red-600"
+                >
+                  {fieldErrors.projectName}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label
+                htmlFor="projectDescription"
+                className="mb-2 block text-[13px] font-semibold text-[#333333]"
+              >
+                Description
+              </label>
+
+              <textarea
+                id="projectDescription"
+                rows={4}
+                value={form.projectDescription}
+                onChange={(event) =>
+                  updateField('projectDescription', event.target.value)
+                }
+                disabled={isSaving}
+                className={`w-full resize-y rounded-lg border px-3 py-3 text-[13px] outline-none focus:border-[#555555] disabled:bg-[#f5f5f5] ${
+                  fieldErrors.projectDescription
+                    ? 'border-red-500'
+                    : 'border-[#dddddd]'
+                }`}
+                placeholder="Describe your project"
+                aria-invalid={Boolean(fieldErrors.projectDescription)}
+              />
+
+              {fieldErrors.projectDescription && (
+                <p className="mt-1 text-[12px] text-red-600">
+                  {fieldErrors.projectDescription}
+                </p>
+              )}
+            </div>
+
+            <div className="grid gap-5 sm:grid-cols-2">
               <div>
                 <label
-                  htmlFor="projectName"
+                  htmlFor="startDate"
                   className="mb-2 block text-[13px] font-semibold text-[#333333]"
                 >
-                  Project name <span className="text-red-500">*</span>
+                  Start date <span className="text-red-500">*</span>
                 </label>
 
                 <input
-                  id="projectName"
-                  type="text"
-                  maxLength={150}
-                  value={form.projectName}
+                  id="startDate"
+                  type="date"
+                  value={form.startDate}
                   onChange={(event) =>
-                    updateField('projectName', event.target.value)
+                    updateField('startDate', event.target.value)
                   }
-                  className={`min-h-11 w-full rounded-lg border px-3 py-2 text-[13px] outline-none focus:border-[#555555] ${
-                    fieldErrors.projectName
+                  disabled={isSaving}
+                  className={`min-h-11 w-full rounded-lg border px-3 py-2 text-[13px] outline-none focus:border-[#555555] disabled:bg-[#f5f5f5] ${
+                    fieldErrors.startDate
                       ? 'border-red-500'
                       : 'border-[#dddddd]'
                   }`}
-                  placeholder="Enter project name"
-                  aria-invalid={Boolean(fieldErrors.projectName)}
-                  aria-describedby={
-                    fieldErrors.projectName ? 'projectName-error' : undefined
-                  }
+                  aria-invalid={Boolean(fieldErrors.startDate)}
                 />
 
-                {fieldErrors.projectName && (
-                  <p
-                    id="projectName-error"
-                    className="mt-1 text-[12px] text-red-600"
-                  >
-                    {fieldErrors.projectName}
+                {fieldErrors.startDate && (
+                  <p className="mt-1 text-[12px] text-red-600">
+                    {fieldErrors.startDate}
                   </p>
                 )}
               </div>
 
               <div>
                 <label
-                  htmlFor="projectDescription"
+                  htmlFor="dueDate"
                   className="mb-2 block text-[13px] font-semibold text-[#333333]"
                 >
-                  Description
+                  Due date
                 </label>
 
-                <textarea
-                  id="projectDescription"
-                  rows={4}
-                  value={form.projectDescription}
+                <input
+                  id="dueDate"
+                  type="date"
+                  min={getNextDate(form.startDate)}
+                  value={form.dueDate}
                   onChange={(event) =>
-                    updateField('projectDescription', event.target.value)
+                    updateField('dueDate', event.target.value)
                   }
-                  className={`w-full resize-y rounded-lg border px-3 py-3 text-[13px] outline-none focus:border-[#555555] ${
-                    fieldErrors.projectDescription
+                  disabled={isSaving}
+                  className={`min-h-11 w-full rounded-lg border px-3 py-2 text-[13px] outline-none focus:border-[#555555] disabled:bg-[#f5f5f5] ${
+                    fieldErrors.dueDate
                       ? 'border-red-500'
                       : 'border-[#dddddd]'
                   }`}
-                  placeholder="Describe your project"
-                  aria-invalid={Boolean(fieldErrors.projectDescription)}
+                  aria-invalid={Boolean(fieldErrors.dueDate)}
                 />
 
-                {fieldErrors.projectDescription && (
+                {fieldErrors.dueDate && (
                   <p className="mt-1 text-[12px] text-red-600">
-                    {fieldErrors.projectDescription}
+                    {fieldErrors.dueDate}
                   </p>
                 )}
               </div>
-
-              <div className="grid gap-5 sm:grid-cols-2">
-                <div>
-                  <label
-                    htmlFor="startDate"
-                    className="mb-2 block text-[13px] font-semibold text-[#333333]"
-                  >
-                    Start date <span className="text-red-500">*</span>
-                  </label>
-
-                  <input
-                    id="startDate"
-                    type="date"
-                    value={form.startDate}
-                    onChange={(event) =>
-                      updateField('startDate', event.target.value)
-                    }
-                    className={`min-h-11 w-full rounded-lg border px-3 py-2 text-[13px] outline-none focus:border-[#555555] ${
-                      fieldErrors.startDate
-                        ? 'border-red-500'
-                        : 'border-[#dddddd]'
-                    }`}
-                    aria-invalid={Boolean(fieldErrors.startDate)}
-                  />
-
-                  {fieldErrors.startDate && (
-                    <p className="mt-1 text-[12px] text-red-600">
-                      {fieldErrors.startDate}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="dueDate"
-                    className="mb-2 block text-[13px] font-semibold text-[#333333]"
-                  >
-                    Due date
-                  </label>
-
-                  <input
-                    id="dueDate"
-                    type="date"
-                    min={getNextDate(form.startDate)}
-                    value={form.dueDate}
-                    onChange={(event) =>
-                      updateField('dueDate', event.target.value)
-                    }
-                    className={`min-h-11 w-full rounded-lg border px-3 py-2 text-[13px] outline-none focus:border-[#555555] ${
-                      fieldErrors.dueDate
-                        ? 'border-red-500'
-                        : 'border-[#dddddd]'
-                    }`}
-                    aria-invalid={Boolean(fieldErrors.dueDate)}
-                  />
-
-                  {fieldErrors.dueDate && (
-                    <p className="mt-1 text-[12px] text-red-600">
-                      {fieldErrors.dueDate}
-                    </p>
-                  )}
-                </div>
-              </div>
             </div>
+          </div>
 
-            {saveError && (
-              <p
-                role="alert"
-                className="mt-5 rounded-lg bg-red-50 px-3 py-3 text-[13px] text-red-600"
-              >
-                {saveError}
-              </p>
-            )}
+          {saveError && (
+            <p
+              role="alert"
+              className="mt-5 rounded-lg bg-red-50 px-3 py-3 text-[13px] text-red-600"
+            >
+              {saveError}
+            </p>
+          )}
 
-            <div className="mt-7 flex flex-wrap justify-end gap-3 border-t border-[#eeeeee] pt-6">
-              <Link
-                href={`/projects/${project.projectId}`}
-                className="inline-flex min-h-11 items-center justify-center rounded-lg border border-[#dddddd] px-5 py-2 text-[13px] font-semibold text-[#444444] hover:bg-[#f7f7f7]"
-              >
-                Cancel
-              </Link>
+          <div className="mt-7 flex flex-wrap justify-end gap-3 border-t border-[#eeeeee] pt-6">
+            <Link
+              href={`/projects/${project.projectId}`}
+              onClick={() => removeStoredDraft(draftKey)}
+              aria-disabled={isSaving}
+              className={`inline-flex min-h-11 items-center justify-center rounded-lg border border-[#dddddd] px-5 py-2 text-[13px] font-semibold text-[#444444] hover:bg-[#f7f7f7] ${
+                isSaving ? 'pointer-events-none opacity-50' : ''
+              }`}
+            >
+              Cancel
+            </Link>
 
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="inline-flex min-h-11 items-center justify-center rounded-lg bg-[#222222] px-5 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isSaving ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </form>
-        )}
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="inline-flex min-h-11 items-center justify-center rounded-lg bg-[#222222] px-5 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSaving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
+  );
+}
+
+function ProjectSettingsLoader({
+  projectId,
+}: {
+  projectId: string;
+}) {
+  const router = useRouter();
+
+  const load = useCallback(async () => {
+    const parsedProjectId = Number(projectId);
+
+    if (
+      !Number.isSafeInteger(parsedProjectId) ||
+      parsedProjectId <= 0
+    ) {
+      throw new ApiRequestError('Invalid project ID.', 400);
+    }
+
+    return projectApi.getProjectById(parsedProjectId);
+  }, [projectId]);
+
+  const {
+    status,
+    data: project,
+    retained,
+    retainedUserId,
+    httpStatus,
+    retry,
+  } = useProtectedLoad(load, {
+    revalidateOnFocus: true,
+    hideDataWhileRefreshing: true,
+  });
+
+  const showContent =
+    status === 'ready' &&
+    project !== null;
+
+  // เก็บ Component เดิมไว้ระหว่างตรวจ Session
+  // เพื่อไม่ให้ Draft ถูก reset เมื่อกลับมาเปิดแท็บ
+  const retainedProject = retained ?? project;
+
+  const hasRetainedProject =
+    retainedProject !== null &&
+    retainedUserId !== null;
+
+  const draftKey =
+    hasRetainedProject && retainedProject
+      ? `mobg:project-settings:${retainedUserId}:${retainedProject.projectId}`
+      : '';
+
+  // เมื่อโหลดข้อมูลล่าสุดแล้วยืนยันว่าไม่ใช่ Owner
+  // ให้ล้าง Draft ของบัญชีและ Project นี้
+  useEffect(() => {
+    if (
+      status === 'ready' &&
+      project !== null &&
+      project.myRole !== 'Owner' &&
+      retainedUserId !== null
+    ) {
+      removeStoredDraft(
+        `mobg:project-settings:${retainedUserId}:${project.projectId}`,
+      );
+    }
+  }, [project, retainedUserId, status]);
+
+  if (status === 'error') {
+    const canRetry =
+      httpStatus !== 400 &&
+      httpStatus !== 403 &&
+      httpStatus !== 404;
+
+    return (
+      <div className="mx-auto w-full max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-4 sm:p-6">
+        <p role="alert" className="mb-4 text-[13px] text-red-600">
+          {describeError(httpStatus)}
+        </p>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => router.push(`/projects/${projectId}`)}
+            className="min-h-11 rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px]"
+          >
+            Back to Project
+          </button>
+
+          {canRetry && (
+            <button
+              type="button"
+              onClick={retry}
+              className="min-h-11 rounded-lg bg-[#222222] px-4 py-2 text-[12px] text-white"
+            >
+              Try again
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {hasRetainedProject && retainedProject && (
+        <div
+          hidden={!showContent}
+          inert={!showContent}
+        >
+          <ProjectSettingsForm
+            key={`${retainedUserId}-${retainedProject.projectId}`}
+            project={retainedProject}
+            draftKey={draftKey}
+          />
+        </div>
+      )}
+
+      {!showContent && (
+        <ProtectedState
+          status={status === 'ready' ? 'loading' : status}
+          onRetry={retry}
+        />
+      )}
+    </>
+  );
+}
+
+export default function ProjectSettingsPage() {
+  const params = useParams<{ projectId: string }>();
+
+  return (
+    <ProjectSettingsLoader
+      key={params.projectId}
+      projectId={params.projectId}
+    />
   );
 }

@@ -1,11 +1,8 @@
-
 'use client';
 
 import {
   useCallback,
-  useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 import Link from 'next/link';
@@ -15,6 +12,8 @@ import {
   ApiRequestError,
   projectApi,
 } from '@/lib/projectApi';
+import { useProtectedLoad } from '@/lib/useProtectedLoad';
+import { useSession } from '@/lib/SessionProvider';
 import ProtectedState from '@/components/ProtectedState';
 
 import type {
@@ -22,6 +21,12 @@ import type {
   ProjectMember,
   UserProfile,
 } from '@/types';
+
+type MembersData = {
+  project: ProjectItem;
+  members: ProjectMember[];
+  users: UserProfile[];
+};
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiRequestError) {
@@ -88,91 +93,26 @@ function getRemovalError(error: unknown) {
   };
 }
 
-export default function ProjectMembersPage() {
-  const params = useParams<{ projectId: string }>();
+function ProjectMembersContent({
+  projectId,
+  data,
+  retry,
+}: {
+  projectId: number;
+  data: MembersData;
+  retry: () => void;
+}) {
   const router = useRouter();
+  const { session, isCurrentSessionRevision } = useSession();
 
-  const projectId = Number(params.projectId);
+  const { project, members, users } = data;
 
-  const isValidProjectId =
-    Number.isSafeInteger(projectId) && projectId > 0;
-
-  const mountedRef = useRef(false);
-
-  const [project, setProject] = useState<ProjectItem | null>(null);
-  const [members, setMembers] = useState<ProjectMember[]>([]);
-  const [users, setUsers] = useState<UserProfile[]>([]);
-
-  const [status, setStatus] = useState<
-    'loading' | 'ready' | 'error'
-  >('loading');
-
-  const [loadError, setLoadError] = useState('');
   const [actionError, setActionError] = useState('');
   const [blockingTasks, setBlockingTasks] = useState<string[]>([]);
-
   const [selectedUserId, setSelectedUserId] = useState('');
   const [isMutating, setIsMutating] = useState(false);
 
-  const isOwner = project?.myRole === 'Owner';
-
-  const loadData = useCallback(async () => {
-    if (!mountedRef.current) return;
-
-    if (!isValidProjectId) {
-      setLoadError('Invalid project ID.');
-      setStatus('error');
-      return;
-    }
-
-    setStatus('loading');
-    setLoadError('');
-
-    try {
-      const projectData = await projectApi.getProjectById(projectId);
-
-      const [memberData, userData] = await Promise.all([
-        projectApi.getProjectMembers(projectId),
-        projectData.myRole === 'Owner'
-          ? projectApi.getUsers()
-          : Promise.resolve([]),
-      ]);
-
-      if (!mountedRef.current) return;
-
-      setProject(projectData);
-      setMembers(memberData);
-      setUsers(userData);
-      setStatus('ready');
-    } catch (error) {
-      if (!mountedRef.current) return;
-
-      if (
-        error instanceof ApiRequestError &&
-        error.status === 401
-      ) {
-        router.replace('/login');
-        return;
-      }
-
-      setLoadError(getErrorMessage(error));
-      setStatus('error');
-    }
-  }, [isValidProjectId, projectId, router]);
-
-  useEffect(() => {
-    mountedRef.current = true;
-
-    // เรียก loadData หลัง Effect ทำงานเสร็จ
-    const timeoutId = window.setTimeout(() => {
-      void loadData();
-    }, 0);
-
-    return () => {
-      mountedRef.current = false;
-      window.clearTimeout(timeoutId);
-    };
-  }, [loadData]);
+  const isOwner = project.myRole === 'Owner';
 
   const availableUsers = useMemo(() => {
     const memberIds = new Set(
@@ -184,6 +124,20 @@ export default function ProjectMembersPage() {
     );
   }, [members, users]);
 
+  const isRequestCurrent = useCallback(
+    (revision: number, userId: number | string | null) => {
+      return (
+        userId !== null &&
+        session.user?.userId === userId &&
+        isCurrentSessionRevision(revision)
+      );
+    },
+    [
+      isCurrentSessionRevision,
+      session.user?.userId,
+    ],
+  );
+
   async function handleAddMember() {
     const userId = Number(selectedUserId);
 
@@ -191,10 +145,15 @@ export default function ProjectMembersPage() {
       !Number.isSafeInteger(userId) ||
       userId <= 0 ||
       isMutating ||
-      !isOwner
+      !isOwner ||
+      session.status !== 'ready' ||
+      !session.user
     ) {
       return;
     }
+
+    const requestRevision = session.revision;
+    const requestUserId = session.user.userId;
 
     setIsMutating(true);
     setActionError('');
@@ -203,12 +162,19 @@ export default function ProjectMembersPage() {
     try {
       await projectApi.addProjectMember(projectId, { userId });
 
+      if (!isRequestCurrent(requestRevision, requestUserId)) {
+        return;
+      }
+
       setSelectedUserId('');
 
-      await loadData();
-
-      router.refresh();
+      // โหลดรายชื่อสมาชิกจาก API ใหม่หลังเพิ่มสำเร็จ
+      retry();
     } catch (error) {
+      if (!isRequestCurrent(requestRevision, requestUserId)) {
+        return;
+      }
+
       if (
         error instanceof ApiRequestError &&
         error.status === 401
@@ -219,27 +185,40 @@ export default function ProjectMembersPage() {
 
       setActionError(getErrorMessage(error));
 
+      // กรณีสมาชิกถูกเพิ่มไปแล้วจากอีกแท็บ ให้โหลดข้อมูลล่าสุด
       if (
         error instanceof ApiRequestError &&
         error.details?.some(
           (detail) => detail.reason === 'ALREADY_MEMBER',
         )
       ) {
-        await loadData();
+        retry();
       }
     } finally {
-      setIsMutating(false);
+      if (isRequestCurrent(requestRevision, requestUserId)) {
+        setIsMutating(false);
+      }
     }
   }
 
   async function handleRemoveMember(member: ProjectMember) {
-    if (isMutating || !isOwner) return;
+    if (
+      isMutating ||
+      !isOwner ||
+      session.status !== 'ready' ||
+      !session.user
+    ) {
+      return;
+    }
 
     const confirmed = window.confirm(
       `Remove ${member.userName} from this project?`,
     );
 
     if (!confirmed) return;
+
+    const requestRevision = session.revision;
+    const requestUserId = session.user.userId;
 
     setIsMutating(true);
     setActionError('');
@@ -251,10 +230,17 @@ export default function ProjectMembersPage() {
         member.userId,
       );
 
-      await loadData();
+      if (!isRequestCurrent(requestRevision, requestUserId)) {
+        return;
+      }
 
-      router.refresh();
+      // โหลดรายชื่อสมาชิกจาก API ใหม่หลังลบสำเร็จ
+      retry();
     } catch (error) {
+      if (!isRequestCurrent(requestRevision, requestUserId)) {
+        return;
+      }
+
       if (
         error instanceof ApiRequestError &&
         error.status === 401
@@ -268,47 +254,13 @@ export default function ProjectMembersPage() {
       setActionError(result.message);
       setBlockingTasks(result.taskNames);
 
-      await loadData();
+      // โหลดข้อมูลล่าสุดไว้ด้วย เผื่อสถานะสมาชิกเปลี่ยนจากอีกแท็บ
+      retry();
     } finally {
-      setIsMutating(false);
+      if (isRequestCurrent(requestRevision, requestUserId)) {
+        setIsMutating(false);
+      }
     }
-  }
-
-  if (status === 'error') {
-    return (
-      <div className="mx-auto w-full max-w-4xl rounded-xl border border-[#e0e0e0] bg-white p-5">
-        <p role="alert" className="mb-4 text-sm text-red-600">
-          {loadError}
-        </p>
-
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => router.push(`/projects/${projectId}`)}
-            className="min-h-11 rounded-lg border border-[#dddddd] px-4 text-sm"
-          >
-            Back to Project
-          </button>
-
-          <button
-            type="button"
-            onClick={() => void loadData()}
-            className="min-h-11 rounded-lg bg-[#222222] px-4 text-sm text-white"
-          >
-            Try again
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (status !== 'ready' || !project) {
-    return (
-      <ProtectedState
-        status="loading"
-        onRetry={() => void loadData()}
-      />
-    );
   }
 
   return (
@@ -469,5 +421,115 @@ export default function ProjectMembersPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function ProjectMembersLoader({
+  projectId,
+}: {
+  projectId: string;
+}) {
+  const router = useRouter();
+
+  const load = useCallback(async (): Promise<MembersData> => {
+    const parsedProjectId = Number(projectId);
+
+    if (
+      !Number.isSafeInteger(parsedProjectId) ||
+      parsedProjectId <= 0
+    ) {
+      throw new ApiRequestError('Invalid project ID.', 400);
+    }
+
+    const project = await projectApi.getProjectById(parsedProjectId);
+
+    const [members, users] = await Promise.all([
+      projectApi.getProjectMembers(parsedProjectId),
+      project.myRole === 'Owner'
+        ? projectApi.getUsers()
+        : Promise.resolve([]),
+    ]);
+
+    return {
+      project,
+      members,
+      users,
+    };
+  }, [projectId]);
+
+  const {
+    status,
+    data,
+    httpStatus,
+    retry,
+  } = useProtectedLoad(load, {
+    revalidateOnFocus: true,
+    hideDataWhileRefreshing: true,
+  });
+
+  if (status === 'error') {
+    return (
+      <div className="mx-auto w-full max-w-4xl rounded-xl border border-[#e0e0e0] bg-white p-5">
+        <p role="alert" className="mb-4 text-sm text-red-600">
+          {httpStatus === 400
+            ? 'Invalid project ID.'
+            : httpStatus === 403
+              ? 'You do not have permission to view this project.'
+              : httpStatus === 404
+                ? 'Project not found.'
+                : 'Unable to load project members. Please try again.'}
+        </p>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => router.push(`/projects/${projectId}`)}
+            className="min-h-11 rounded-lg border border-[#dddddd] px-4 text-sm"
+          >
+            Back to Project
+          </button>
+
+          {httpStatus !== 400 &&
+            httpStatus !== 403 &&
+            httpStatus !== 404 && (
+              <button
+                type="button"
+                onClick={retry}
+                className="min-h-11 rounded-lg bg-[#222222] px-4 text-sm text-white"
+              >
+                Try again
+              </button>
+            )}
+        </div>
+      </div>
+    );
+  }
+
+  if (status !== 'ready' || data === null) {
+    return (
+      <ProtectedState
+        status={status === 'ready' ? 'loading' : status}
+        onRetry={retry}
+      />
+    );
+  }
+
+  return (
+    <ProjectMembersContent
+      projectId={Number(projectId)}
+      data={data}
+      retry={retry}
+    />
+  );
+}
+
+export default function ProjectMembersPage() {
+  const params = useParams<{ projectId: string }>();
+
+  return (
+    <ProjectMembersLoader
+      key={params.projectId}
+      projectId={params.projectId}
+    />
   );
 }

@@ -148,10 +148,15 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority | ''>('');
 
+  // โหลดข้อมูลใหม่เมื่อ Project ID หรือ Status Filter เปลี่ยน
+  // ถ้าเลือก All จะไม่ส่ง status ไปยัง API
   const load = useCallback(async () => {
     const id = parseRouteId(projectId, 'project ID');
-    return taskApi.getTasks(id);
-  }, [projectId]);
+
+    return statusFilter
+      ? taskApi.getTasks(id, { status: statusFilter })
+      : taskApi.getTasks(id);
+  }, [projectId, statusFilter]);
 
   const {
     status,
@@ -165,6 +170,8 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
 
   const numericProjectId = Number(projectId);
 
+  // Search และ Priority ยังคงกรองข้อมูลฝั่ง Client
+  // ส่วน Status กรองจาก API แล้ว
   const filteredTasks = useMemo(() => {
     if (!tasks) return [];
 
@@ -174,15 +181,12 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
       const matchesSearch =
         !keyword || task.taskTitle.toLowerCase().includes(keyword);
 
-      const matchesStatus =
-        !statusFilter || task.status === statusFilter;
-
       const matchesPriority =
         priorityFilter === '' || task.priority === priorityFilter;
 
-      return matchesSearch && matchesStatus && matchesPriority;
+      return matchesSearch && matchesPriority;
     });
-  }, [tasks, search, statusFilter, priorityFilter]);
+  }, [tasks, search, priorityFilter]);
 
   const clearFilters = () => {
     setSearch('');
