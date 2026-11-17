@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+
 import { projectApi } from '@/lib/projectApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import ProtectedState from '@/components/ProtectedState';
@@ -10,11 +11,23 @@ import { StatusBadge } from '@/components/ui/Badge';
 
 export default function ProjectsPage() {
   const [page, setPage] = useState(1);
+
   const router = useRouter();
 
-  // เปลี่ยน page -> load เปลี่ยน identity -> hook โหลดใหม่และคงเนื้อหาเดิมไว้ระหว่างรอ
-  const load = useCallback(() => projectApi.getProjects({ page }), [page]);
-  const { status, data, isRefreshing, retry } = useProtectedLoad(load);
+  const load = useCallback(
+    () => projectApi.getProjects({ page }),
+    [page],
+  );
+
+  const {
+    status,
+    data,
+    isRefreshing,
+    retry,
+  } = useProtectedLoad(load, {
+    revalidateOnFocus: true,
+    hideDataWhileRefreshing: false,
+  });
 
   if (status !== 'ready' || data === null) {
     return (
@@ -25,7 +38,10 @@ export default function ProjectsPage() {
     );
   }
 
-  const { projects: projectsList, pagination } = data;
+  const {
+    projects: projectsList,
+    pagination,
+  } = data;
 
   return (
     <div className="min-w-0 [overflow-wrap:anywhere]">
@@ -33,6 +49,7 @@ export default function ProjectsPage() {
         <h1 className="text-[32px] font-extrabold text-[#1f1f1f] mb-1">
           Projects
         </h1>
+
         <p className="text-[14px] text-[#777777]">
           Manage all your projects here
         </p>
@@ -41,7 +58,10 @@ export default function ProjectsPage() {
       {/* FILTER BAR */}
       <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 mb-7">
         <div className="min-w-0 min-h-11 flex items-center gap-2 bg-white border border-[#dcdcdc] rounded-lg px-3.5 py-2 w-full sm:w-[240px] sm:flex-1">
-          <span className="text-[13px] text-[#888]">🔍</span>
+          <span className="text-[13px] text-[#888]">
+            🔍
+          </span>
+
           <input
             type="text"
             placeholder="Search projects..."
@@ -50,14 +70,20 @@ export default function ProjectsPage() {
           />
         </div>
 
-        <select aria-label="Project status" className="min-w-0 min-h-11 bg-white border border-[#dcdcdc] rounded-lg px-3.5 py-2 text-[13px] text-[#444] outline-none cursor-pointer">
+        <select
+          aria-label="Project status"
+          className="min-w-0 min-h-11 bg-white border border-[#dcdcdc] rounded-lg px-3.5 py-2 text-[13px] text-[#444] outline-none cursor-pointer"
+        >
           <option>All status</option>
           <option>To do</option>
           <option>In progress</option>
           <option>Done</option>
         </select>
 
-        <select aria-label="Sort projects" className="min-w-0 min-h-11 bg-white border border-[#dcdcdc] rounded-lg px-3.5 py-2 text-[13px] text-[#444] outline-none cursor-pointer">
+        <select
+          aria-label="Sort projects"
+          className="min-w-0 min-h-11 bg-white border border-[#dcdcdc] rounded-lg px-3.5 py-2 text-[13px] text-[#444] outline-none cursor-pointer"
+        >
           <option>Sort by</option>
           <option>Name</option>
           <option>Due date</option>
@@ -84,8 +110,10 @@ export default function ProjectsPage() {
           }`}
         >
           {projectsList.map((item) => {
-            // ใช้ค่าที่ backend คำนวณมาแล้ว ไม่คำนวณซ้ำฝั่ง frontend
-            const progress = Math.max(0, Math.min(100, item.progressPercent));
+            const progress = Math.max(
+              0,
+              Math.min(100, item.progressPercent),
+            );
 
             return (
               <article
@@ -114,7 +142,7 @@ export default function ProjectsPage() {
                   {item.projectDescription ?? 'No description'}
                 </p>
 
-                {/* Members & Dates */}
+                {/* MEMBERS & DATES */}
                 <div className="flex flex-col gap-4 mb-5">
                   <div className="flex items-center">
                     <div
@@ -131,11 +159,15 @@ export default function ProjectsPage() {
 
                   <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
                     <div className="flex items-center gap-2">
-                      <span className="text-[16px]">🚀</span>
+                      <span className="text-[16px]">
+                        🚀
+                      </span>
+
                       <div className="flex flex-col">
                         <span className="text-[10px] text-[#888]">
                           Start date
                         </span>
+
                         <strong className="text-[11px] font-bold text-[#333]">
                           {item.startDate}
                         </strong>
@@ -143,11 +175,15 @@ export default function ProjectsPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className="text-[16px]">📅</span>
+                      <span className="text-[16px]">
+                        📅
+                      </span>
+
                       <div className="flex flex-col">
                         <span className="text-[10px] text-[#888]">
                           Due date
                         </span>
+
                         <strong className="text-[11px] font-bold text-[#333]">
                           {item.dueDate ?? 'No due date'}
                         </strong>
@@ -156,11 +192,14 @@ export default function ProjectsPage() {
                   </div>
                 </div>
 
-                {/* Progress Bar */}
+                {/* PROGRESS BAR */}
                 <div className="mb-5">
                   <div className="flex justify-between text-[11px] text-[#555555] mb-1.5">
                     <span>Progress</span>
-                    <strong className="text-[#111111]">{progress}%</strong>
+
+                    <strong className="text-[#111111]">
+                      {progress}%
+                    </strong>
                   </div>
 
                   <div className="w-full h-[7px] bg-[#e5e5e5] rounded-full overflow-hidden">
@@ -171,7 +210,7 @@ export default function ProjectsPage() {
                   </div>
                 </div>
 
-                {/* Footer */}
+                {/* FOOTER */}
                 <div className="flex flex-wrap items-center gap-4 pt-4 border-t border-[#f0f0f0] mt-auto">
                   <div className="flex items-center gap-2">
                     <span className="w-7 h-7 bg-[#f4f4f4] rounded-md flex items-center justify-center text-[13px]">
@@ -182,6 +221,7 @@ export default function ProjectsPage() {
                       <strong className="text-[13px] text-[#1f1f1f]">
                         {item.totalTasks}
                       </strong>
+
                       <span className="text-[10px] text-[#777]">
                         Total tasks
                       </span>
@@ -196,7 +236,10 @@ export default function ProjectsPage() {
                     </span>
 
                     <div className="flex flex-col">
-                      <strong className="text-[13px] text-[#1f1f1f]">—</strong>
+                      <strong className="text-[13px] text-[#1f1f1f]">
+                        —
+                      </strong>
+
                       <span className="text-[10px] text-[#777]">
                         High priority
                       </span>
@@ -234,7 +277,10 @@ export default function ProjectsPage() {
 
           <button
             type="button"
-            disabled={isRefreshing || page >= pagination.totalPages}
+            disabled={
+              isRefreshing ||
+              page >= pagination.totalPages
+            }
             onClick={() => setPage(page + 1)}
             className="min-h-11 rounded-lg border border-[#dcdcdc] bg-white px-3.5 py-2 disabled:cursor-not-allowed disabled:opacity-50"
           >

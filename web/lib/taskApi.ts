@@ -1,4 +1,6 @@
+
 import { ApiRequestError, request } from '@/lib/projectApi';
+
 import type {
   CreateTaskRequest,
   MembersResponse,
@@ -30,6 +32,33 @@ export function parseRouteId(
 
 type Success<T> = Extract<T, { success: true }>;
 
+// สร้าง Query Parameter สำหรับกรองสถานะงาน
+function buildTaskQuery(query: TaskListQuery = {}): string {
+  const params = new URLSearchParams();
+
+  if (query.status) {
+    params.set('status', query.status);
+  }
+
+  const qs = params.toString();
+
+  return qs ? `?${qs}` : '';
+}
+
+// เรียก API รายการงานและตรวจสอบ Response ร่วมกัน
+async function fetchTaskList(
+  path: string,
+  errorMessage: string,
+): Promise<Task[]> {
+  const body = await request<Success<TasksResponse>>(path);
+
+  if (!Array.isArray(body.tasks)) {
+    throw new ApiRequestError(errorMessage, 200);
+  }
+
+  return body.tasks;
+}
+
 export const taskApi = {
   async getProjectMembers(projectId: number): Promise<ProjectMember[]> {
     const body = await request<Success<MembersResponse>>(
@@ -46,30 +75,23 @@ export const taskApi = {
     return body.members;
   },
 
+  // ดึงงานที่มอบหมายให้ผู้ใช้จาก session ปัจจุบัน
+  async getMyTasks(query: TaskListQuery = {}): Promise<Task[]> {
+    return fetchTaskList(
+      `/api/tasks/mine${buildTaskQuery(query)}`,
+      'The server returned an invalid My Tasks list.',
+    );
+  },
+
+  // ดึงงานทั้งหมดใน Project ที่ผู้ใช้มีสิทธิ์เข้าถึง
   async getTasks(
     projectId: number,
     query: TaskListQuery = {},
   ): Promise<Task[]> {
-    const params = new URLSearchParams();
-
-    if (query.status) {
-      params.set('status', query.status);
-    }
-
-    const qs = params.toString();
-
-    const body = await request<Success<TasksResponse>>(
-      `/api/projects/${projectId}/tasks${qs ? `?${qs}` : ''}`,
+    return fetchTaskList(
+      `/api/projects/${projectId}/tasks${buildTaskQuery(query)}`,
+      'The server returned an invalid tasks list.',
     );
-
-    if (!Array.isArray(body.tasks)) {
-      throw new ApiRequestError(
-        'The server returned an invalid tasks list.',
-        200,
-      );
-    }
-
-    return body.tasks;
   },
 
   async getTaskById(

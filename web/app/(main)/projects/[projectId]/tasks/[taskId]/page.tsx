@@ -81,7 +81,10 @@ function TaskDetailContent({
     data,
     httpStatus,
     retry,
-  } = useProtectedLoad(load);
+  } = useProtectedLoad(load, {
+  revalidateOnFocus: true,
+  hideDataWhileRefreshing: true,
+  });
 
   const handleDelete = async () => {
     if (!data || isDeleting) return;
