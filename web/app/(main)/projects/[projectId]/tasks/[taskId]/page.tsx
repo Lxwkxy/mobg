@@ -1,15 +1,21 @@
-
 'use client';
 
-import { useCallback, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 
 import ProtectedState from '@/components/ProtectedState';
+import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
 import {
   ApiRequestError,
   projectApi,
 } from '@/lib/projectApi';
+import { useSession } from '@/lib/SessionProvider';
 import { taskApi, parseRouteId } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import type { Project, Task } from '@/types';
@@ -52,6 +58,13 @@ type TaskDetailData = {
   project: Project;
 };
 
+type DeleteContext = {
+  revision: number;
+  userId: number | string;
+  projectId: number;
+  taskId: number;
+};
+
 function TaskDetailContent({
   projectId,
   taskId,
@@ -60,9 +73,15 @@ function TaskDetailContent({
   taskId: string;
 }) {
   const router = useRouter();
+  const { session, isCurrentSessionRevision } = useSession();
 
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+
+  const mountedRef = useRef(false);
+  const requestSequenceRef = useRef(0);
+  const deleteContextRef = useRef<DeleteContext | null>(null);
 
   const load = useCallback(async (): Promise<TaskDetailData> => {
     const numericProjectId = parseRouteId(projectId, 'project ID');
@@ -82,44 +101,191 @@ function TaskDetailContent({
     httpStatus,
     retry,
   } = useProtectedLoad(load, {
-  revalidateOnFocus: true,
-  hideDataWhileRefreshing: true,
+    revalidateOnFocus: true,
+    hideDataWhileRefreshing: true,
   });
 
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      requestSequenceRef.current += 1;
+      deleteContextRef.current = null;
+    };
+  }, []);
+
+  // ถ้า Session เปลี่ยนระหว่างเปิด Dialog หรือกำลังลบ
+  // ให้ปิด Dialog และยกเลิกสิทธิ์ของ Request เก่า
+  useEffect(() => {
+    const context = deleteContextRef.current;
+
+    if (!context) return;
+
+    const isSameSession =
+      session.status === 'ready' &&
+      session.user?.userId === context.userId &&
+      isCurrentSessionRevision(context.revision);
+
+    if (!isSameSession) {
+      requestSequenceRef.current += 1;
+      deleteContextRef.current = null;
+      setIsDeleteDialogOpen(false);
+      setIsDeleting(false);
+      setDeleteError('');
+    }
+  }, [
+    session.revision,
+    session.status,
+    session.user?.userId,
+    isCurrentSessionRevision,
+  ]);
+
+  // ตรวจข้อมูลที่โหลดใหม่ หาก Task เปลี่ยนหรือสิทธิ์ Owner หายไป
+  // Dialog ที่เปิดค้างอยู่จะต้องปิดและไม่เปิดกลับมาเอง
+  useEffect(() => {
+    if (!isDeleteDialogOpen || !deleteContextRef.current || !data) {
+      return;
+    }
+
+    const context = deleteContextRef.current;
+
+    const isSameItem =
+      data.project.projectId === context.projectId &&
+      data.task.taskId === context.taskId;
+
+    const stillOwner = data.project.myRole === 'Owner';
+
+    if (!isSameItem || !stillOwner) {
+      requestSequenceRef.current += 1;
+      deleteContextRef.current = null;
+      setIsDeleteDialogOpen(false);
+      setIsDeleting(false);
+      setDeleteError('');
+    }
+  }, [data, isDeleteDialogOpen]);
+
+  const openDeleteDialog = () => {
+    if (
+      !data ||
+      data.project.myRole !== 'Owner' ||
+      session.status !== 'ready' ||
+      !session.user
+    ) {
+      return;
+    }
+
+    const numericProjectId = parseRouteId(projectId, 'project ID');
+    const numericTaskId = parseRouteId(taskId, 'task ID');
+
+    deleteContextRef.current = {
+      revision: session.revision,
+      userId: session.user.userId,
+      projectId: numericProjectId,
+      taskId: numericTaskId,
+    };
+
+    setDeleteError('');
+    setIsDeleteDialogOpen(true);
+  };
+
+  const closeDeleteDialog = () => {
+    if (isDeleting) return;
+
+    requestSequenceRef.current += 1;
+    deleteContextRef.current = null;
+    setIsDeleteDialogOpen(false);
+    setDeleteError('');
+  };
+
   const handleDelete = async () => {
-    if (!data || isDeleting) return;
+    const context = deleteContextRef.current;
 
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${data.task.taskTitle}"? This action cannot be undone.`,
-    );
+    if (
+      !data ||
+      !context ||
+      isDeleting ||
+      !isDeleteDialogOpen ||
+      session.status !== 'ready' ||
+      !session.user ||
+      data.project.myRole !== 'Owner'
+    ) {
+      return;
+    }
 
-    if (!confirmed) return;
+    const numericProjectId = parseRouteId(projectId, 'project ID');
+    const numericTaskId = parseRouteId(taskId, 'task ID');
+
+    // ตรวจสอบบัญชี, Session revision, Project, Task และ Owner
+    // อีกครั้งทันที ก่อนส่ง DELETE
+    const canDelete =
+      context.revision === session.revision &&
+      context.userId === session.user.userId &&
+      context.projectId === numericProjectId &&
+      context.taskId === numericTaskId &&
+      data.project.projectId === numericProjectId &&
+      data.task.taskId === numericTaskId &&
+      data.project.myRole === 'Owner' &&
+      isCurrentSessionRevision(context.revision);
+
+    if (!canDelete) {
+      deleteContextRef.current = null;
+      setIsDeleteDialogOpen(false);
+      setDeleteError('');
+      return;
+    }
+
+    const requestRevision = context.revision;
+    const requestUserId = context.userId;
+    const requestProjectId = context.projectId;
+    const requestTaskId = context.taskId;
+    const requestToken = ++requestSequenceRef.current;
+
+    const isRequestCurrent = () => {
+      return (
+        mountedRef.current &&
+        requestSequenceRef.current === requestToken &&
+        deleteContextRef.current === context &&
+        session.user?.userId === requestUserId &&
+        isCurrentSessionRevision(requestRevision)
+      );
+    };
 
     setIsDeleting(true);
     setDeleteError('');
 
     try {
-      const numericProjectId = parseRouteId(projectId, 'project ID');
-      const numericTaskId = parseRouteId(taskId, 'task ID');
+      await taskApi.deleteTask(requestProjectId, requestTaskId);
 
-      await taskApi.deleteTask(numericProjectId, numericTaskId);
+      if (!isRequestCurrent()) return;
 
-      router.push(`/projects/${projectId}/tasks`);
+      deleteContextRef.current = null;
+      setIsDeleteDialogOpen(false);
+
+      router.push(`/projects/${requestProjectId}/tasks`);
       router.refresh();
     } catch (error) {
+      if (!isRequestCurrent()) return;
+
       if (error instanceof ApiRequestError) {
         if (error.status === 401) {
-          router.push('/login');
+          deleteContextRef.current = null;
+          setIsDeleteDialogOpen(false);
+          router.replace('/login');
           return;
         }
 
         if (error.status === 403) {
-          setDeleteError('You do not have permission to delete this task.');
+          setDeleteError(
+            'You do not have permission to delete this task.',
+          );
           return;
         }
 
         if (error.status === 404) {
-          setDeleteError('This task could not be found. It may have already been deleted.');
+          setDeleteError(
+            'This task could not be found. It may have already been deleted.',
+          );
           return;
         }
 
@@ -129,7 +295,9 @@ function TaskDetailContent({
 
       setDeleteError('Unable to delete this task. Please try again.');
     } finally {
-      setIsDeleting(false);
+      if (isRequestCurrent()) {
+        setIsDeleting(false);
+      }
     }
   };
 
@@ -175,20 +343,33 @@ function TaskDetailContent({
   }
 
   return (
-    <TaskDetailView
-      task={data.task}
-      projectId={projectId}
-      isOwner={data.project.myRole === 'Owner'}
-      isDeleting={isDeleting}
-      deleteError={deleteError}
-      onDelete={handleDelete}
-      onBack={() => router.push(`/projects/${projectId}/tasks`)}
-      onEdit={() =>
-        router.push(
-          `/projects/${projectId}/tasks/${data.task.taskId}/edit`,
-        )
-      }
-    />
+    <>
+      <TaskDetailView
+        task={data.task}
+        projectId={projectId}
+        isOwner={data.project.myRole === 'Owner'}
+        isDeleting={isDeleting}
+        onDelete={openDeleteDialog}
+        onBack={() => router.push(`/projects/${projectId}/tasks`)}
+        onEdit={() =>
+          router.push(
+            `/projects/${projectId}/tasks/${data.task.taskId}/edit`,
+          )
+        }
+      />
+
+      <ConfirmationDialog
+        open={isDeleteDialogOpen}
+        title="Delete Task?"
+        description="Are you sure you want to permanently delete this task?"
+        itemName={data.task.taskTitle}
+        confirmLabel="Delete Task"
+        isLoading={isDeleting}
+        error={deleteError}
+        onCancel={closeDeleteDialog}
+        onConfirm={() => void handleDelete()}
+      />
+    </>
   );
 }
 
@@ -197,7 +378,6 @@ function TaskDetailView({
   projectId,
   isOwner,
   isDeleting,
-  deleteError,
   onDelete,
   onBack,
   onEdit,
@@ -206,7 +386,6 @@ function TaskDetailView({
   projectId: string;
   isOwner: boolean;
   isDeleting: boolean;
-  deleteError: string;
   onDelete: () => void;
   onBack: () => void;
   onEdit: () => void;
@@ -238,20 +417,11 @@ function TaskDetailView({
               disabled={isDeleting}
               className="min-h-11 rounded-lg border border-red-300 px-5 py-2 text-[12px] font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {isDeleting ? 'Deleting...' : 'Delete Task'}
+              Delete Task
             </button>
           )}
         </div>
       </div>
-
-      {deleteError && (
-        <p
-          role="alert"
-          className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-[13px] text-red-600"
-        >
-          {deleteError}
-        </p>
-      )}
 
       <div className="rounded-2xl border border-[#e0e0e0] bg-white p-4 sm:p-6 md:p-8">
         <div className="mb-6 border-b border-[#eeeeee] pb-6">
