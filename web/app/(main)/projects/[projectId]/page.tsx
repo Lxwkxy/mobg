@@ -19,12 +19,11 @@ import ProtectedState from '@/components/ProtectedState';
 import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
 import type { ProjectItem } from '@/types';
 
-type DeleteContext = {
+type DeleteTarget = {
   scope: string;
   projectIdParam: string;
   userId: number | string;
   projectId: number;
-  projectName: string;
 };
 
 type ScopedPageNotice = {
@@ -68,8 +67,9 @@ export default function ProjectDetailPage() {
     refreshSession,
   } = useSession();
 
+  const [deleteTarget, setDeleteTarget] =
+    useState<DeleteTarget | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [deleteTargetName, setDeleteTargetName] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [permissionNotice, setPermissionNotice] =
@@ -83,7 +83,7 @@ export default function ProjectDetailPage() {
   const projectIdParamRef = useRef(params.projectId);
   const isDeletingRef = useRef(false);
   const requestSequenceRef = useRef(0);
-  const activeDeleteRef = useRef<DeleteContext | null>(null);
+  const activeDeleteRef = useRef<DeleteTarget | null>(null);
 
   const load = useCallback(async () => {
     const projectId = Number(params.projectId);
@@ -128,7 +128,7 @@ export default function ProjectDetailPage() {
     projectIdParamRef.current = params.projectId;
   }, [params.projectId]);
 
-  // ปิด Dialog และยกเลิก response เดิมเมื่อเปลี่ยน route เปลี่ยนบัญชี หรือออกจากระบบ
+  // ทิ้งการยืนยันเดิมเมื่อเปลี่ยน route เปลี่ยนบัญชี หรือออกจากระบบ
   useEffect(() => {
     const context = activeDeleteRef.current;
 
@@ -148,6 +148,7 @@ export default function ProjectDetailPage() {
       requestSequenceRef.current += 1;
       isDeletingRef.current = false;
       activeDeleteRef.current = null;
+      setDeleteTarget(null);
       setIsDeleteDialogOpen(false);
       setIsDeleting(false);
       setDeleteError('');
@@ -158,7 +159,7 @@ export default function ProjectDetailPage() {
     session.user?.userId,
   ]);
 
-  // ปิด Dialog หาก Project เปลี่ยน โหลดข้อมูลไม่ได้ หรือเสียสิทธิ์ Owner
+  // ทิ้งการยืนยันเดิมหาก Project เปลี่ยน โหลดข้อมูลไม่ได้ หรือเสียสิทธิ์ Owner
   // แต่จะไม่ยกเลิกคำขอระหว่างที่กำลังส่ง DELETE จนกว่าจะรู้ผลจริง
   useEffect(() => {
     const context = activeDeleteRef.current;
@@ -180,6 +181,7 @@ export default function ProjectDetailPage() {
 
       requestSequenceRef.current += 1;
       activeDeleteRef.current = null;
+      setDeleteTarget(null);
       setIsDeleteDialogOpen(false);
       setIsDeleting(false);
       setDeleteError('');
@@ -197,7 +199,7 @@ export default function ProjectDetailPage() {
   const isDeleteRequestCurrent = useCallback(
     async (
       requestId: number,
-      context: DeleteContext,
+      context: DeleteTarget,
     ): Promise<boolean> => {
       const activeContext = activeDeleteRef.current;
 
@@ -250,7 +252,8 @@ export default function ProjectDetailPage() {
       displayedProject.myRole !== 'Owner' ||
       session.status !== 'ready' ||
       !session.user ||
-      isDeleting
+      isDeleting ||
+      isDeletingRef.current
     ) {
       return;
     }
@@ -265,27 +268,28 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    activeDeleteRef.current = {
+    const nextTarget: DeleteTarget = {
       scope: currentScope,
       projectIdParam: params.projectId,
       userId: session.user.userId,
       projectId,
-      projectName: displayedProject.projectName,
     };
 
-    setDeleteTargetName(displayedProject.projectName);
+    activeDeleteRef.current = nextTarget;
+    setDeleteTarget(nextTarget);
     setDeleteError('');
     setPermissionNotice(null);
     setIsDeleteDialogOpen(true);
   };
 
   const closeDeleteDialog = () => {
-    if (isDeleting) return;
+    if (isDeleting || isDeletingRef.current) return;
 
     requestSequenceRef.current += 1;
     isDeletingRef.current = false;
     activeDeleteRef.current = null;
 
+    setDeleteTarget(null);
     setIsDeleteDialogOpen(false);
     setDeleteError('');
   };
@@ -295,6 +299,7 @@ export default function ProjectDetailPage() {
       !project ||
       !displayedProject ||
       isDeleting ||
+      isDeletingRef.current ||
       !isDeleteDialogOpen
     ) {
       return;
@@ -303,6 +308,7 @@ export default function ProjectDetailPage() {
     const context = activeDeleteRef.current;
 
     if (!context) {
+      setDeleteTarget(null);
       setIsDeleteDialogOpen(false);
       return;
     }
@@ -319,6 +325,7 @@ export default function ProjectDetailPage() {
       requestSequenceRef.current += 1;
       isDeletingRef.current = false;
       activeDeleteRef.current = null;
+      setDeleteTarget(null);
       setIsDeleteDialogOpen(false);
       setDeleteError('');
       return;
@@ -349,6 +356,7 @@ export default function ProjectDetailPage() {
       ) {
         isDeletingRef.current = false;
         activeDeleteRef.current = null;
+        setDeleteTarget(null);
         setIsDeleting(false);
         setIsDeleteDialogOpen(false);
         setDeleteError('');
@@ -384,6 +392,7 @@ export default function ProjectDetailPage() {
 
       isDeletingRef.current = false;
       activeDeleteRef.current = null;
+      setDeleteTarget(null);
       setIsDeleting(false);
       setIsDeleteDialogOpen(false);
 
@@ -398,6 +407,7 @@ export default function ProjectDetailPage() {
         if (error.status === 401) {
           isDeletingRef.current = false;
           activeDeleteRef.current = null;
+          setDeleteTarget(null);
           setIsDeleteDialogOpen(false);
           setIsDeleting(false);
           router.replace('/login');
@@ -407,6 +417,7 @@ export default function ProjectDetailPage() {
         if (error.status === 403) {
           isDeletingRef.current = false;
           activeDeleteRef.current = null;
+          setDeleteTarget(null);
           setIsDeleteDialogOpen(false);
           setIsDeleting(false);
           setDeleteError('');
@@ -449,8 +460,19 @@ export default function ProjectDetailPage() {
       ? permissionNotice.message
       : '';
 
-  const dialogItemName =
-    displayedProject?.projectName ?? deleteTargetName;
+  const isDeleteTargetVerified =
+    deleteTarget !== null &&
+    session.status === 'ready' &&
+    session.user !== null &&
+    session.user.userId === deleteTarget.userId &&
+    params.projectId === deleteTarget.projectIdParam &&
+    status === 'ready' &&
+    displayedProject !== null &&
+    displayedProject.projectId === deleteTarget.projectId &&
+    displayedProject.myRole === 'Owner';
+
+  const isDeleteDialogVisible =
+    isDeleteDialogOpen && isDeleteTargetVerified;
 
   if (status === 'error') {
     const canRetry = httpStatus !== 400 && httpStatus !== 404;
@@ -491,18 +513,6 @@ export default function ProjectDetailPage() {
             )}
           </div>
         </div>
-
-        <ConfirmationDialog
-          open={isDeleteDialogOpen}
-          title="Delete Project?"
-          description="Deleting this project will permanently delete all tasks in it, including their comments and assignments. All project memberships will also be deleted. This cannot be undone. Are you sure you want to continue?"
-          itemName={dialogItemName}
-          confirmLabel="Delete Project"
-          isLoading={isDeleting}
-          error={deleteError}
-          onCancel={closeDeleteDialog}
-          onConfirm={() => void handleDeleteProject()}
-        />
       </>
     );
   }
@@ -522,18 +532,6 @@ export default function ProjectDetailPage() {
         <ProtectedState
           status={status === 'ready' ? 'loading' : status}
           onRetry={retry}
-        />
-
-        <ConfirmationDialog
-          open={isDeleteDialogOpen}
-          title="Delete Project?"
-          description="Deleting this project will permanently delete all tasks in it, including their comments and assignments. All project memberships will also be deleted. This cannot be undone. Are you sure you want to continue?"
-          itemName={dialogItemName}
-          confirmLabel="Delete Project"
-          isLoading={isDeleting}
-          error={deleteError}
-          onCancel={closeDeleteDialog}
-          onConfirm={() => void handleDeleteProject()}
         />
       </>
     );
@@ -677,10 +675,12 @@ export default function ProjectDetailPage() {
       </div>
 
       <ConfirmationDialog
-        open={isDeleteDialogOpen}
+        open={isDeleteDialogVisible}
         title="Delete Project?"
         description="Deleting this project will permanently delete all tasks in it, including their comments and assignments. All project memberships will also be deleted. This cannot be undone. Are you sure you want to continue?"
-        itemName={dialogItemName}
+        itemName={
+          isDeleteDialogVisible ? displayedProject.projectName : ''
+        }
         confirmLabel="Delete Project"
         isLoading={isDeleting}
         error={deleteError}
