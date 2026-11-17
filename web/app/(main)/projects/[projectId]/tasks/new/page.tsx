@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -52,6 +51,13 @@ type SubmissionLock = {
   token: string;
 };
 
+type CreatedTaskReceipt = {
+  taskId: number;
+  userId: number;
+  projectId: string;
+  token: string;
+};
+
 type LockQueryResult = {
   held?: Array<{ name: string }>;
   pending?: Array<{ name: string }>;
@@ -67,6 +73,7 @@ type SubmissionAccountStatus =
 const DRAFT_STORAGE_PREFIX = 'mobg:create-task-draft:';
 const SUBMISSION_STORAGE_PREFIX = 'mobg:create-task-submission:';
 const SUBMISSION_LOCK_PREFIX = 'mobg:create-task-lock:';
+const CREATED_TASK_PREFIX = 'mobg:create-task-receipt:';
 
 function getDraftStorageKey(userId: number, projectId: string) {
   return `${DRAFT_STORAGE_PREFIX}${encodeURIComponent(String(userId))}:${encodeURIComponent(projectId)}`;
@@ -78,6 +85,10 @@ function getSubmissionStorageKey(userId: number, projectId: string) {
 
 function getSubmissionLockName(userId: number, projectId: string) {
   return `${SUBMISSION_LOCK_PREFIX}${encodeURIComponent(String(userId))}:${encodeURIComponent(projectId)}`;
+}
+
+function getCreatedTaskStorageKey(userId: number, projectId: string) {
+  return `${CREATED_TASK_PREFIX}${encodeURIComponent(String(userId))}:${encodeURIComponent(projectId)}`;
 }
 
 function safeGetStorage(key: string): string | null {
@@ -101,7 +112,7 @@ function safeRemoveStorage(key: string): void {
   try {
     window.localStorage.removeItem(key);
   } catch {
-    // Storage may be disabled. Submission must still be possible.
+    // Storage may be disabled.
   }
 }
 
@@ -132,10 +143,44 @@ function createSubmissionToken(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function parseCreatedTaskReceipt(
+  raw: string | null,
+  userId: number,
+  projectId: string,
+): CreatedTaskReceipt | null {
+  if (!raw) return null;
+
+  try {
+    const value = JSON.parse(raw) as Partial<CreatedTaskReceipt>;
+
+    if (
+      typeof value.taskId !== 'number' ||
+      !Number.isSafeInteger(value.taskId) ||
+      value.taskId <= 0 ||
+      value.userId !== userId ||
+      value.projectId !== projectId ||
+      typeof value.token !== 'string' ||
+      value.token.length === 0
+    ) {
+      return null;
+    }
+
+    return {
+      taskId: value.taskId,
+      userId,
+      projectId,
+      token: value.token,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * ตรวจสถานะ Web Lock ข้ามแท็บ
- * ถ้า Browser ไม่รองรับหรือ query ล้มเหลว จะถือว่าไม่ทราบสถานะ
- * และไม่บล็อกการ Submit
+ *
+ * ใช้เฉพาะ held เพราะ pending หมายถึงกำลังรอ Lock
+ * ไม่ได้หมายความว่ามีแท็บกำลังถือ Lock อยู่
  */
 async function hasActiveSubmission(
   lockName: string,
@@ -155,10 +200,9 @@ async function hasActiveSubmission(
 
     const state = await lockManager.query();
 
-    return [
-      ...(state.held ?? []),
-      ...(state.pending ?? []),
-    ].some((lock) => lock.name === lockName);
+    return (state.held ?? []).some(
+      (lock) => lock.name === lockName,
+    );
   } catch {
     return false;
   }
@@ -197,7 +241,6 @@ function CreateTaskForm({
     isCurrentSessionRevision,
   } = useSession();
 
-  // อ่าน Session ล่าสุดโดยไม่แก้ Ref ระหว่าง Render
   const sessionRef = useRef(session);
 
   useLayoutEffect(() => {
@@ -207,6 +250,7 @@ function CreateTaskForm({
   const draftKey = getDraftStorageKey(userId, projectId);
   const submissionStorageKey = getSubmissionStorageKey(userId, projectId);
   const submissionLockName = getSubmissionLockName(userId, projectId);
+  const createdTaskStorageKey = getCreatedTaskStorageKey(userId, projectId);
 
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
@@ -219,9 +263,13 @@ function CreateTaskForm({
   const [isOtherTabSaving, setIsOtherTabSaving] = useState(false);
   const [errors, setErrors] = useState<TaskFormErrors>({});
 
+  const [createdReceipt, setCreatedReceipt] =
+    useState<CreatedTaskReceipt | null>(null);
+
   const isMountedRef = useRef(false);
   const submittingRef = useRef(false);
   const activeSubmissionRef = useRef<object | null>(null);
+  const createdReceiptRef = useRef<CreatedTaskReceipt | null>(null);
 
   const isBusy = isSaving || isOtherTabSaving;
 
@@ -256,15 +304,6 @@ function CreateTaskForm({
     [projectId, userId],
   );
 
-  /**
-   * ใช้ Session ล่าสุดเป็นตัวตัดสิน เมื่อ Revision เปลี่ยน
-   *
-   * ห้ามใช้ผล getCurrentUser() ของ Request เก่าโดยตรง
-   * เพราะอาจเป็นผลของบัญชีก่อนเปลี่ยนบัญชี
-   *
-   * ถ้า Session ยัง loading จะรอ refreshSession()
-   * เพื่อให้ได้ผลตรวจสอบจาก Request ปัจจุบันก่อน
-   */
   const resolveLatestSession = useCallback(
     async (
       requestId: object,
@@ -275,8 +314,6 @@ function CreateTaskForm({
 
       let latestSession = sessionRef.current;
 
-      // ถ้า Ref ยังเป็น Revision เก่า หรือ Session กำลัง Loading
-      // ให้รอ Session Refresh ล่าสุดจาก Provider
       if (
         !isCurrentSessionRevision(latestSession.revision) ||
         latestSession.status === 'loading'
@@ -294,11 +331,7 @@ function CreateTaskForm({
         return 'stale';
       }
 
-      // ระหว่างรออาจมี Session ใหม่กว่าเข้ามาอีก
-      // ห้ามนำผลของ Revision ที่ไม่ใช่ปัจจุบันมาใช้
-      if (
-        !isCurrentSessionRevision(latestSession.revision)
-      ) {
+      if (!isCurrentSessionRevision(latestSession.revision)) {
         return 'stale';
       }
 
@@ -326,12 +359,6 @@ function CreateTaskForm({
     ],
   );
 
-  /**
-   * ตรวจสอบบัญชีปัจจุบันจาก Backend
-   *
-   * หาก Session Revision เปลี่ยนระหว่างรอ Request
-   * จะใช้ Session ล่าสุดจาก Provider แทนผล Request เก่า
-   */
   const verifySubmissionAccount = useCallback(
     async (
       requestId: object,
@@ -351,8 +378,6 @@ function CreateTaskForm({
           return 'stale';
         }
 
-        // ถ้า Revision เปลี่ยนแล้ว ต้องเชื่อ Session ล่าสุด
-        // ไม่ใช้ 401/403 จาก Request เก่ามาตัดสิน
         if (!isCurrentSessionRevision(expectedRevision)) {
           return resolveLatestSession(requestId);
         }
@@ -401,19 +426,14 @@ function CreateTaskForm({
         return 'stale';
       }
 
-      // ระหว่างรอ getCurrentUser อาจมีการเปลี่ยนบัญชี
-      // จึงต้องตรวจ Revision ก่อนใช้ผลที่ได้รับ
       if (!isCurrentSessionRevision(expectedRevision)) {
         return resolveLatestSession(requestId);
       }
 
-      // ตรวจสอบว่าผลจาก Backend ตรงกับบัญชีของ Form หรือไม่
       if (currentUser?.userId === userId) {
         return 'same-user';
       }
 
-      // ถ้าเป็นบัญชีอื่นหรือไม่ได้ Login
-      // อัปเดต Session โดยมี expectedRevision ป้องกัน Request แข่งกัน
       const updated = replaceSession(
         currentUser,
         currentUser ? 'ready' : 'login-required',
@@ -435,6 +455,143 @@ function CreateTaskForm({
     ],
   );
 
+  /**
+   * ตรวจสอบ Task ที่สร้างสำเร็จแล้ว
+   *
+   * ฟังก์ชันนี้ไม่มีการเรียก POST
+   * ใช้ refreshSession เพื่อตรวจบัญชีเท่านั้น
+   */
+  const verifyCreatedTaskReceipt = useCallback(
+    async (
+      requestId: object,
+      receipt: CreatedTaskReceipt,
+    ) => {
+      if (!isCurrentSubmission(requestId)) {
+        return;
+      }
+
+      try {
+        const latestSession = await refreshSession();
+
+        if (!isCurrentSubmission(requestId)) {
+          return;
+        }
+
+        if (
+          !isCurrentSessionRevision(latestSession.revision)
+        ) {
+          setErrors({
+            general:
+              'Unable to confirm your session. Please verify again.',
+          });
+          return;
+        }
+
+        if (
+          latestSession.status === 'ready' &&
+          latestSession.user?.userId === receipt.userId
+        ) {
+          // ลบ Receipt เฉพาะรายการที่ตรงกับ Token นี้
+          const raw = safeGetStorage(createdTaskStorageKey);
+
+          const storedReceipt = parseCreatedTaskReceipt(
+            raw,
+            userId,
+            projectId,
+          );
+
+          if (storedReceipt?.token === receipt.token) {
+            safeRemoveStorage(createdTaskStorageKey);
+          }
+
+          createdReceiptRef.current = null;
+          setCreatedReceipt(null);
+
+          router.push(
+            `/projects/${receipt.projectId}/tasks/${receipt.taskId}`,
+          );
+
+          return;
+        }
+
+        if (latestSession.status === 'login-required') {
+          router.replace('/login');
+          return;
+        }
+
+        if (
+          latestSession.status === 'ready' &&
+          latestSession.user?.userId !== receipt.userId
+        ) {
+          // บัญชีเปลี่ยนแล้ว ห้ามเปิด Task ของบัญชีเดิม
+          return;
+        }
+
+        setErrors({
+          general:
+            'The task was created, but your session could not be verified. Please try verifying again. Do not create the task again.',
+        });
+      } catch (error) {
+        console.error(
+          'Failed to verify session after task creation:',
+          error,
+        );
+
+        if (!isCurrentSubmission(requestId)) {
+          return;
+        }
+
+        setErrors({
+          general:
+            'The task was created, but your session could not be verified. Please try verifying again. Do not create the task again.',
+        });
+      }
+    },
+    [
+      createdTaskStorageKey,
+      isCurrentSubmission,
+      isCurrentSessionRevision,
+      projectId,
+      refreshSession,
+      router,
+      userId,
+    ],
+  );
+
+  /**
+   * Retry สำหรับกรณี POST สำเร็จแล้ว แต่ตรวจ Session ไม่สำเร็จ
+   *
+   * จะตรวจ Session อย่างเดียว ไม่เรียก createTask อีก
+   */
+  const resumeCreatedTask = useCallback(async () => {
+    const receipt = createdReceiptRef.current;
+
+    if (!receipt || submittingRef.current || isSaving) {
+      return;
+    }
+
+    submittingRef.current = true;
+
+    const requestId = {};
+    activeSubmissionRef.current = requestId;
+
+    setErrors({});
+    setIsSaving(true);
+
+    try {
+      await verifyCreatedTaskReceipt(requestId, receipt);
+    } finally {
+      if (activeSubmissionRef.current === requestId) {
+        activeSubmissionRef.current = null;
+        submittingRef.current = false;
+
+        if (isMountedRef.current) {
+          setIsSaving(false);
+        }
+      }
+    }
+  }, [isSaving, verifyCreatedTaskReceipt]);
+
   // ตรวจสถานะ Submission ข้ามแท็บ
   useEffect(() => {
     let cancelled = false;
@@ -447,8 +604,6 @@ function CreateTaskForm({
       }
     }
 
-    void refreshSubmissionState();
-
     function handleStorage(event: StorageEvent) {
       if (
         event.key === submissionStorageKey ||
@@ -456,22 +611,93 @@ function CreateTaskForm({
       ) {
         void refreshSubmissionState();
       }
+
+      if (
+        event.key === createdTaskStorageKey &&
+        event.newValue
+      ) {
+        const receipt = parseCreatedTaskReceipt(
+          event.newValue,
+          userId,
+          projectId,
+        );
+
+        if (receipt && !cancelled) {
+          createdReceiptRef.current = receipt;
+          setCreatedReceipt(receipt);
+          safeRemoveStorage(draftKey);
+        }
+      }
     }
 
+    function handleFocus() {
+      void refreshSubmissionState();
+    }
+
+    function handlePageShow() {
+      void refreshSubmissionState();
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible') {
+        void refreshSubmissionState();
+      }
+    }
+
+    void refreshSubmissionState();
+
     window.addEventListener('storage', handleStorage);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('pageshow', handlePageShow);
+
+    document.addEventListener(
+      'visibilitychange',
+      handleVisibilityChange,
+    );
 
     return () => {
       cancelled = true;
-      window.removeEventListener('storage', handleStorage);
-    };
-  }, [submissionStorageKey, submissionLockName]);
 
-  // โหลด Draft ของบัญชีและ Project นี้
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('pageshow', handlePageShow);
+
+      document.removeEventListener(
+        'visibilitychange',
+        handleVisibilityChange,
+      );
+    };
+  }, [
+    createdTaskStorageKey,
+    draftKey,
+    projectId,
+    submissionStorageKey,
+    submissionLockName,
+    userId,
+  ]);
+
+  // โหลด Receipt และ Draft ของบัญชีและ Project นี้
   useEffect(() => {
     let cancelled = false;
 
     const frameId = window.requestAnimationFrame(() => {
       try {
+        // ตรวจ Receipt ก่อน Draft เสมอ
+        // ถ้ามี Receipt แปลว่า POST สำเร็จแล้ว ห้ามคืน Draft เก่ากลับมา
+        const savedReceipt = parseCreatedTaskReceipt(
+          safeGetStorage(createdTaskStorageKey),
+          userId,
+          projectId,
+        );
+
+        if (savedReceipt) {
+          createdReceiptRef.current = savedReceipt;
+          setCreatedReceipt(savedReceipt);
+          safeRemoveStorage(draftKey);
+
+          return;
+        }
+
         const savedDraft = safeGetStorage(draftKey);
 
         if (savedDraft) {
@@ -528,11 +754,17 @@ function CreateTaskForm({
       cancelled = true;
       window.cancelAnimationFrame(frameId);
     };
-  }, [draftKey, currentMemberIds]);
+  }, [
+    createdTaskStorageKey,
+    currentMemberIds,
+    draftKey,
+    projectId,
+    userId,
+  ]);
 
   // บันทึก Draft หลังโหลดเสร็จ
   useEffect(() => {
-    if (!isDraftReady) return;
+    if (!isDraftReady || createdReceipt) return;
 
     const draft: TaskDraft = {
       taskTitle,
@@ -546,6 +778,7 @@ function CreateTaskForm({
   }, [
     draftKey,
     isDraftReady,
+    createdReceipt,
     taskTitle,
     taskDescription,
     priority,
@@ -576,6 +809,12 @@ function CreateTaskForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    // ถ้ามี Receipt แล้ว ห้าม POST ซ้ำ
+    if (createdReceiptRef.current) {
+      await resumeCreatedTask();
+      return;
+    }
 
     if (
       submittingRef.current ||
@@ -643,8 +882,49 @@ function CreateTaskForm({
       }
     };
 
+    const recordCreatedTask = (
+      taskId: number,
+    ): CreatedTaskReceipt => {
+      const receipt: CreatedTaskReceipt = {
+        taskId,
+        userId,
+        projectId,
+        token,
+      };
+
+      // บันทึก Receipt ก่อนตรวจ Session รอบหลัง
+      // localStorage เป็น best-effort เท่านั้น
+      createdReceiptRef.current = receipt;
+
+      safeSetStorage(
+        createdTaskStorageKey,
+        JSON.stringify(receipt),
+      );
+
+      // POST สำเร็จแล้ว ไม่ควรเหลือ Draft ให้ส่งซ้ำ
+      safeRemoveStorage(draftKey);
+
+      if (isCurrent()) {
+        setCreatedReceipt(receipt);
+        setIsDraftReady(true);
+      }
+
+      return receipt;
+    };
+
     const performSubmission = async () => {
       if (!isCurrent()) return;
+
+      // ป้องกัน POST ซ้ำ หากมี Receipt เกิดขึ้นแล้ว
+      const existingReceipt = createdReceiptRef.current;
+
+      if (existingReceipt) {
+        await verifyCreatedTaskReceipt(
+          requestId,
+          existingReceipt,
+        );
+        return;
+      }
 
       const accountBeforeSubmit =
         await verifySubmissionAccount(requestId);
@@ -677,40 +957,41 @@ function CreateTaskForm({
 
         const createdTask = await taskApi.createTask(id, input);
 
-        if (!isCurrent()) return;
-
-        const accountAfterSubmit =
-          await verifySubmissionAccount(requestId);
-
-        if (!isCurrent()) return;
-
-        if (accountAfterSubmit === 'stale') return;
-        if (accountAfterSubmit === 'different-user') return;
-
-        if (accountAfterSubmit === 'logged-out') {
-          router.replace('/login');
-          return;
+        // taskApi.createTask คืน Task
+        // ต้องตรวจ taskId ก่อนนำไปใช้เป็น Receipt
+        if (
+          !Number.isSafeInteger(createdTask.taskId) ||
+          createdTask.taskId <= 0
+        ) {
+          throw new Error(
+            'The server returned an invalid task ID after creation.',
+          );
         }
 
-        if (accountAfterSubmit === 'unavailable') {
-          setErrors({
-            general:
-              'The task may have been created, but your account could not be verified. Please refresh the page before trying again.',
-          });
-          return;
-        }
-
-        if (accountAfterSubmit !== 'same-user') return;
+        // บันทึก Receipt ทันทีหลัง POST สำเร็จ
+        // แม้ Component จะ stale หรือกำลังเปลี่ยนบัญชีก็ต้องเก็บผลนี้ไว้
+        const receipt = recordCreatedTask(createdTask.taskId);
 
         if (!isCurrent()) return;
 
-        safeRemoveStorage(draftKey);
-
-        router.push(`/projects/${id}/tasks/${createdTask.taskId}`);
+        // จากจุดนี้เป็นต้นไป ไม่มีการเรียก POST อีก
+        await verifyCreatedTaskReceipt(requestId, receipt);
       } catch (error) {
         console.error('Failed to create task:', error);
 
         if (!isCurrent()) return;
+
+        // หากมี Receipt แล้ว ให้ถือว่าสร้างสำเร็จ
+        // และห้ามนำ Error นี้ไปแสดงเป็นการสร้างไม่สำเร็จ
+        const existingReceipt = createdReceiptRef.current;
+
+        if (existingReceipt) {
+          await verifyCreatedTaskReceipt(
+            requestId,
+            existingReceipt,
+          );
+          return;
+        }
 
         const accountAfterFailure =
           await verifySubmissionAccount(requestId);
@@ -760,12 +1041,6 @@ function CreateTaskForm({
             general: 'An unexpected error occurred. Please try again.',
           });
         }
-      } finally {
-        removeSubmissionMarker();
-
-        if (isCurrent()) {
-          setIsOtherTabSaving(false);
-        }
       }
     };
 
@@ -804,6 +1079,8 @@ function CreateTaskForm({
         } catch (lockError) {
           console.error('Web Locks unavailable:', lockError);
 
+          // Fallback เฉพาะกรณีที่ Callback ยังไม่เริ่มทำงาน
+          // หาก Callback เริ่มแล้ว จะไม่เสี่ยงเรียก POST ซ้ำ
           if (!callbackStarted && isCurrent()) {
             await performSubmission();
           }
@@ -820,6 +1097,8 @@ function CreateTaskForm({
         });
       }
     } finally {
+      // navigator.locks.request() จบแล้ว
+      // Lock ถูกปล่อยก่อนลบ Marker และแจ้งแท็บอื่น
       removeSubmissionMarker();
 
       if (activeSubmissionRef.current === requestId) {
@@ -832,6 +1111,66 @@ function CreateTaskForm({
         }
       }
     }
+  }
+
+  /*
+   * สำคัญ:
+   * ต้องแสดง Receipt ก่อน Loading UI
+   *
+   * เพราะ POST อาจสำเร็จแล้ว แต่ refreshSession() ล้มเหลว
+   * ในกรณีนี้ต้องให้ผู้ใช้กดตรวจ Session ซ้ำได้
+   * โดยไม่เปิด Form และไม่เรียก POST ซ้ำ
+   */
+  if (createdReceipt) {
+    return (
+      <div className="mx-auto w-full max-w-3xl rounded-2xl border border-[#e0e0e0] bg-white p-6 shadow-sm sm:p-8">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-50 text-green-700">
+          <span className="text-xl">✓</span>
+        </div>
+
+        <h1 className="text-xl font-bold text-[#222222]">
+          Task created successfully
+        </h1>
+
+        <p className="mt-2 text-[13px] leading-6 text-[#666666]">
+          Your task has already been created. We need to verify your session
+          before opening it. Do not create this task again.
+        </p>
+
+        {errors.general && (
+          <div
+            role="alert"
+            className="mt-5 rounded-lg border border-red-300 bg-red-50 p-3.5 text-[13px] text-red-700"
+          >
+            {errors.general}
+          </div>
+        )}
+
+        <div className="mt-6">
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={() => void resumeCreatedTask()}
+            className="min-h-11 rounded-xl bg-[#222222] px-6 py-3 text-[13px] font-semibold text-white hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSaving
+              ? 'Verifying session...'
+              : 'Verify session and open task'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ระหว่างตรวจ Session ต้องซ่อนข้อมูลบัญชีเดิมทั้งหน้า
+  // แต่ Component ยัง mounted อยู่ จึงไม่สูญเสีย Form State
+  if (isRefreshing) {
+    return (
+      <ProtectedState
+        status="loading"
+        onRetry={onRetry}
+      />
+    );
   }
 
   if (!isDraftReady) {
@@ -866,193 +1205,173 @@ function CreateTaskForm({
         </p>
       </div>
 
-      <div className="relative">
-        <form
-          onSubmit={handleSubmit}
-          noValidate
-          aria-busy={isRefreshing || isSaving}
-          className="rounded-2xl border border-[#e0e0e0] bg-white p-4 shadow-sm sm:p-6 md:p-8"
+      <form
+        onSubmit={handleSubmit}
+        noValidate
+        aria-busy={isSaving}
+        className="rounded-2xl border border-[#e0e0e0] bg-white p-4 shadow-sm sm:p-6 md:p-8"
+      >
+        <fieldset
+          disabled={isSaving || isOtherTabSaving}
+          className="contents"
         >
-          <fieldset
-            disabled={isRefreshing || isSaving || isOtherTabSaving}
-            className="contents"
-          >
-            {errors.general && (
-              <div
-                role="alert"
-                className="mb-6 rounded-lg border border-red-300 bg-red-50 p-3.5 text-[13px] text-red-700"
-              >
-                {errors.general}
-              </div>
+          {errors.general && (
+            <div
+              role="alert"
+              className="mb-6 rounded-lg border border-red-300 bg-red-50 p-3.5 text-[13px] text-red-700"
+            >
+              {errors.general}
+            </div>
+          )}
+
+          <div className="mb-5">
+            <label
+              htmlFor="taskTitle"
+              className="mb-2 block text-[13px] font-semibold text-[#333333]"
+            >
+              Task title <span className="text-red-500">*</span>
+            </label>
+
+            <input
+              id="taskTitle"
+              type="text"
+              maxLength={200}
+              value={taskTitle}
+              onChange={(event) => {
+                setTaskTitle(event.target.value);
+                clearError('taskTitle');
+              }}
+              placeholder="e.g. Design login page"
+              className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] ${
+                errors.taskTitle ? 'border-red-500' : 'border-[#dcdcdc]'
+              }`}
+              aria-invalid={Boolean(errors.taskTitle)}
+            />
+
+            {errors.taskTitle && (
+              <p className="mt-1.5 text-[12px] text-red-600">
+                {errors.taskTitle}
+              </p>
             )}
 
-            <div className="mb-5">
+            <p className="mt-1.5 text-right text-[11px] text-[#999999]">
+              {taskTitle.length}/200
+            </p>
+          </div>
+
+          <div className="mb-5">
+            <label
+              htmlFor="taskDescription"
+              className="mb-2 block text-[13px] font-semibold text-[#333333]"
+            >
+              Description
+            </label>
+
+            <textarea
+              id="taskDescription"
+              rows={4}
+              value={taskDescription}
+              onChange={(event) => {
+                setTaskDescription(event.target.value);
+                clearError('taskDescription');
+              }}
+              placeholder="Describe what needs to be done..."
+              className="w-full resize-y rounded-xl border border-[#dcdcdc] px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
+            />
+          </div>
+
+          <div className="mb-6 grid gap-5 sm:grid-cols-2">
+            <div>
               <label
-                htmlFor="taskTitle"
+                htmlFor="priority"
                 className="mb-2 block text-[13px] font-semibold text-[#333333]"
               >
-                Task title <span className="text-red-500">*</span>
+                Priority <span className="text-red-500">*</span>
+              </label>
+
+              <select
+                id="priority"
+                value={priority}
+                onChange={(event) => {
+                  setPriority(Number(event.target.value) as TaskPriority);
+                  clearError('priority');
+                }}
+                className="w-full rounded-xl border border-[#dcdcdc] bg-white px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
+              >
+                <option value={1}>{getPriorityLabel(1)}</option>
+                <option value={2}>{getPriorityLabel(2)}</option>
+                <option value={3}>{getPriorityLabel(3)}</option>
+              </select>
+
+              {errors.priority && (
+                <p className="mt-1.5 text-[12px] text-red-600">
+                  {errors.priority}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label
+                htmlFor="dueDate"
+                className="mb-2 block text-[13px] font-semibold text-[#333333]"
+              >
+                Due date <span className="text-red-500">*</span>
               </label>
 
               <input
-                id="taskTitle"
-                type="text"
-                maxLength={200}
-                value={taskTitle}
+                id="dueDate"
+                type="date"
+                value={dueDate}
                 onChange={(event) => {
-                  setTaskTitle(event.target.value);
-                  clearError('taskTitle');
+                  setDueDate(event.target.value);
+                  clearError('dueDate');
                 }}
-                placeholder="e.g. Design login page"
                 className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] ${
-                  errors.taskTitle ? 'border-red-500' : 'border-[#dcdcdc]'
+                  errors.dueDate ? 'border-red-500' : 'border-[#dcdcdc]'
                 }`}
-                aria-invalid={Boolean(errors.taskTitle)}
+                aria-invalid={Boolean(errors.dueDate)}
               />
 
-              {errors.taskTitle && (
+              {errors.dueDate && (
                 <p className="mt-1.5 text-[12px] text-red-600">
-                  {errors.taskTitle}
+                  {errors.dueDate}
                 </p>
               )}
-
-              <p className="mt-1.5 text-right text-[11px] text-[#999999]">
-                {taskTitle.length}/200
-              </p>
-            </div>
-
-            <div className="mb-5">
-              <label
-                htmlFor="taskDescription"
-                className="mb-2 block text-[13px] font-semibold text-[#333333]"
-              >
-                Description
-              </label>
-
-              <textarea
-                id="taskDescription"
-                rows={4}
-                value={taskDescription}
-                onChange={(event) => {
-                  setTaskDescription(event.target.value);
-                  clearError('taskDescription');
-                }}
-                placeholder="Describe what needs to be done..."
-                className="w-full resize-y rounded-xl border border-[#dcdcdc] px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
-              />
-            </div>
-
-            <div className="mb-6 grid gap-5 sm:grid-cols-2">
-              <div>
-                <label
-                  htmlFor="priority"
-                  className="mb-2 block text-[13px] font-semibold text-[#333333]"
-                >
-                  Priority <span className="text-red-500">*</span>
-                </label>
-
-                <select
-                  id="priority"
-                  value={priority}
-                  onChange={(event) => {
-                    setPriority(Number(event.target.value) as TaskPriority);
-                    clearError('priority');
-                  }}
-                  className="w-full rounded-xl border border-[#dcdcdc] bg-white px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
-                >
-                  <option value={1}>{getPriorityLabel(1)}</option>
-                  <option value={2}>{getPriorityLabel(2)}</option>
-                  <option value={3}>{getPriorityLabel(3)}</option>
-                </select>
-
-                {errors.priority && (
-                  <p className="mt-1.5 text-[12px] text-red-600">
-                    {errors.priority}
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label
-                  htmlFor="dueDate"
-                  className="mb-2 block text-[13px] font-semibold text-[#333333]"
-                >
-                  Due date <span className="text-red-500">*</span>
-                </label>
-
-                <input
-                  id="dueDate"
-                  type="date"
-                  value={dueDate}
-                  onChange={(event) => {
-                    setDueDate(event.target.value);
-                    clearError('dueDate');
-                  }}
-                  className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] ${
-                    errors.dueDate ? 'border-red-500' : 'border-[#dcdcdc]'
-                  }`}
-                  aria-invalid={Boolean(errors.dueDate)}
-                />
-
-                {errors.dueDate && (
-                  <p className="mt-1.5 text-[12px] text-red-600">
-                    {errors.dueDate}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <AssigneeSelector
-              members={data.members}
-              selectedIds={validAssigneeIds}
-              error={errors.assigneeIds}
-              disabled={isBusy || isRefreshing}
-              onToggle={toggleAssignee}
-            />
-
-            <div className="flex flex-wrap justify-end gap-3 border-t border-[#eeeeee] pt-5">
-              <button
-                type="button"
-                disabled={isBusy || isRefreshing}
-                onClick={() => router.push(`/projects/${projectId}/tasks`)}
-                className="min-h-11 rounded-xl border border-[#dddddd] px-5 text-[13px] font-medium text-[#444444] hover:bg-[#f7f7f7] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Cancel
-              </button>
-
-              <button
-                type="submit"
-                disabled={isBusy || isRefreshing || !isDraftReady}
-                className="min-h-11 rounded-xl bg-[#222222] px-6 py-3 text-[13px] font-semibold text-white hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSaving
-                  ? 'Creating...'
-                  : isOtherTabSaving
-                    ? 'Creating in another tab...'
-                    : 'Create Task'}
-              </button>
-            </div>
-          </fieldset>
-        </form>
-
-        {isRefreshing && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl border border-[#e0e0e0] bg-white/95"
-          >
-            <div className="text-center">
-              <div className="mx-auto mb-3 h-7 w-7 animate-spin rounded-full border-2 border-[#dddddd] border-t-[#222222]" />
-              <p className="text-[13px] font-medium text-[#333333]">
-                Verifying your session...
-              </p>
-              <p className="mt-1 text-[12px] text-[#777777]">
-                Your form and draft are being kept safe.
-              </p>
             </div>
           </div>
-        )}
-      </div>
+
+          <AssigneeSelector
+            members={data.members}
+            selectedIds={validAssigneeIds}
+            error={errors.assigneeIds}
+            disabled={isBusy}
+            onToggle={toggleAssignee}
+          />
+
+          <div className="flex flex-wrap justify-end gap-3 border-t border-[#eeeeee] pt-5">
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={() => router.push(`/projects/${projectId}/tasks`)}
+              className="min-h-11 rounded-xl border border-[#dddddd] px-5 text-[13px] font-medium text-[#444444] hover:bg-[#f7f7f7] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="submit"
+              disabled={isBusy || !isDraftReady}
+              className="min-h-11 rounded-xl bg-[#222222] px-6 py-3 text-[13px] font-semibold text-white hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSaving
+                ? 'Creating...'
+                : isOtherTabSaving
+                  ? 'Creating in another tab...'
+                  : 'Create Task'}
+            </button>
+          </div>
+        </fieldset>
+      </form>
     </div>
   );
 }
@@ -1106,6 +1425,36 @@ function CreateTaskContent({
     lastAuthenticatedUserId.current = userId;
   }, [userId]);
 
+  /*
+   * สำคัญ:
+   * ต้องตรวจ retained ก่อน status === 'error'
+   *
+   * useProtectedLoad จะเก็บข้อมูลล่าสุดไว้ใน retained
+   * แม้ Session จะอยู่ในสถานะ error
+   *
+   * การ render CreateTaskForm ด้วย key เดิมจะทำให้ Form
+   * ไม่ถูก unmount และไม่สูญเสีย Draft หรือ Receipt ใน memory
+   *
+   * isRefreshing จะซ่อนชื่อ Project และข้อมูลบัญชีเดิมทั้งหมด
+   * จนกว่าจะตรวจ Session และโหลดข้อมูลใหม่สำเร็จ
+   */
+  if (
+    retained &&
+    retainedUserId !== null &&
+    (status === 'loading' || status === 'error')
+  ) {
+    return (
+      <CreateTaskForm
+        key={`${retainedUserId}:${projectId}`}
+        projectId={projectId}
+        userId={retainedUserId}
+        data={retained}
+        isRefreshing={true}
+        onRetry={retry}
+      />
+    );
+  }
+
   if (status === 'error') {
     return (
       <div className="mx-auto max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-5">
@@ -1140,23 +1489,6 @@ function CreateTaskContent({
           )}
         </div>
       </div>
-    );
-  }
-
-  if (
-    status === 'loading' &&
-    retained &&
-    retainedUserId !== null
-  ) {
-    return (
-      <CreateTaskForm
-        key={`${retainedUserId}:${projectId}`}
-        projectId={projectId}
-        userId={retainedUserId}
-        data={retained}
-        isRefreshing={true}
-        onRetry={retry}
-      />
     );
   }
 
