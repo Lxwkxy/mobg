@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -144,6 +143,40 @@ function isValidDraftId(value: string | null): value is string {
   );
 }
 
+/*
+ * สร้างหรือกู้คืน Draft ID ก่อนเริ่ม Render ฝั่ง Client
+ *
+ * ใช้ sessionStorage เพื่อแยกข้อมูลของแต่ละ Tab
+ * ฝั่ง Server จะคืน null เพราะไม่มี window
+ *
+ * Render ฝั่ง Server และ Client ยังคงแสดง Loading UI เหมือนกัน
+ * จึงไม่ทำให้ HTML ที่แสดงตอน Hydration แตกต่างกัน
+ */
+function getOrCreateDraftId(
+  activeDraftStorageKey: string,
+): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const savedDraftId = safeGetSessionStorage(
+    activeDraftStorageKey,
+  );
+
+  if (isValidDraftId(savedDraftId)) {
+    return savedDraftId;
+  }
+
+  const nextDraftId = createId();
+
+  safeSetSessionStorage(
+    activeDraftStorageKey,
+    nextDraftId,
+  );
+
+  return nextDraftId;
+}
+
 function createSubmissionToken(): string {
   return createId();
 }
@@ -228,7 +261,13 @@ function CreateTaskForm({
     projectId,
   );
 
-  const [draftId, setDraftId] = useState<string | null>(null);
+  /*
+   * ใช้ Lazy Initializer แทน useEffect + setDraftId
+   * เพื่อไม่ให้เกิด setState synchronously ภายใน Effect
+   */
+  const [draftId] = useState<string | null>(() =>
+    getOrCreateDraftId(activeDraftStorageKey),
+  );
 
   const draftKey = useMemo(
     () =>
@@ -254,6 +293,7 @@ function CreateTaskForm({
 
   const [isDraftReady, setIsDraftReady] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
   const [errors, setErrors] = useState<TaskFormErrors>({});
 
   const [createdReceipt, setCreatedReceipt] =
@@ -296,7 +336,10 @@ function CreateTaskForm({
         draftId &&
         createdTaskStorageKey
       ) {
-        safeRemoveSessionStorage(draftKey ?? '');
+        if (draftKey) {
+          safeRemoveSessionStorage(draftKey);
+        }
+
         safeRemoveSessionStorage(createdTaskStorageKey);
 
         const activeDraftId = safeGetSessionStorage(
@@ -314,31 +357,6 @@ function CreateTaskForm({
     draftId,
     draftKey,
   ]);
-
-  /*
-   * สร้างหรือกู้คืน Draft ID ของฟอร์มนี้
-   *
-   * sessionStorage แยกตาม Tab
-   * จึงไม่ใช้ Draft ID ร่วมกันระหว่างแท็บที่เปิดแยกกัน
-   */
-  useEffect(() => {
-    const savedDraftId = safeGetSessionStorage(
-      activeDraftStorageKey,
-    );
-
-    const nextDraftId = isValidDraftId(savedDraftId)
-      ? savedDraftId
-      : createId();
-
-    if (!isValidDraftId(savedDraftId)) {
-      safeSetSessionStorage(
-        activeDraftStorageKey,
-        nextDraftId,
-      );
-    }
-
-    setDraftId(nextDraftId);
-  }, [activeDraftStorageKey]);
 
   const isCurrentSubmission = useCallback(
     (requestId: object) => {
@@ -662,6 +680,9 @@ function CreateTaskForm({
    *
    * Receipt มีความสำคัญกว่า Draft เสมอ
    * หากพบ Receipt จะไม่คืนค่าฟอร์มเพื่อป้องกัน POST ซ้ำ
+   *
+   * ไม่เรียก setIsDraftReady(false) ใน Effect
+   * เพราะ State เริ่มต้นเป็น false อยู่แล้ว
    */
   useEffect(() => {
     if (!draftId || !draftKey || !createdTaskStorageKey) {
@@ -669,8 +690,6 @@ function CreateTaskForm({
     }
 
     let cancelled = false;
-
-    setIsDraftReady(false);
 
     const frameId = window.requestAnimationFrame(() => {
       try {
@@ -685,7 +704,9 @@ function CreateTaskForm({
           submittedRef.current = true;
           createdReceiptRef.current = savedReceipt;
 
+          setIsSubmitted(true);
           setCreatedReceipt(savedReceipt);
+
           safeRemoveSessionStorage(draftKey);
 
           return;
@@ -693,6 +714,9 @@ function CreateTaskForm({
 
         submittedRef.current = false;
         createdReceiptRef.current = null;
+
+        setIsSubmitted(false);
+        setCreatedReceipt(null);
 
         const savedDraft = safeGetSessionStorage(draftKey);
 
@@ -906,6 +930,11 @@ function CreateTaskForm({
       submittedRef.current = true;
       createdReceiptRef.current = receipt;
 
+      /*
+       * ใช้ State ควบคุม UI แทนการอ่าน Ref ระหว่าง Render
+       */
+      setIsSubmitted(true);
+
       const saved = safeSetSessionStorage(
         createdTaskStorageKey!,
         JSON.stringify(receipt),
@@ -985,7 +1014,10 @@ function CreateTaskForm({
       if (storedReceipt) {
         submittedRef.current = true;
         createdReceiptRef.current = storedReceipt;
+
+        setIsSubmitted(true);
         setCreatedReceipt(storedReceipt);
+
         safeRemoveSessionStorage(draftKey!);
 
         await verifyCreatedTaskReceipt(
@@ -1220,7 +1252,7 @@ function CreateTaskForm({
         className="rounded-2xl border border-[#e0e0e0] bg-white p-4 shadow-sm sm:p-6 md:p-8"
       >
         <fieldset
-          disabled={isSaving || submittedRef.current}
+          disabled={isSaving || isSubmitted}
           className="contents"
         >
           {errors.general && (
@@ -1358,14 +1390,14 @@ function CreateTaskForm({
             members={data.members}
             selectedIds={validAssigneeIds}
             error={errors.assigneeIds}
-            disabled={isBusy || submittedRef.current}
+            disabled={isBusy || isSubmitted}
             onToggle={toggleAssignee}
           />
 
           <div className="flex flex-wrap justify-end gap-3 border-t border-[#eeeeee] pt-5">
             <button
               type="button"
-              disabled={isBusy || submittedRef.current}
+              disabled={isBusy || isSubmitted}
               onClick={() =>
                 router.push(`/projects/${projectId}/tasks`)
               }
@@ -1378,7 +1410,7 @@ function CreateTaskForm({
               type="submit"
               disabled={
                 isBusy ||
-                submittedRef.current ||
+                isSubmitted ||
                 !isDraftReady
               }
               className="min-h-11 rounded-xl bg-[#222222] px-6 py-3 text-[13px] font-semibold text-white hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-60"
