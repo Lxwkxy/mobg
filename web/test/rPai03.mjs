@@ -262,6 +262,38 @@ test('Project Overview wraps long content and preserves progress and back naviga
   }
 });
 
+test('delete confirmation locks background scrolling until cancelled', async () => {
+  const page = await pageAt(320, 430);
+  try {
+    await page.goto(`${base}/projects/91`);
+    const trigger = page.getByRole('button', { name: 'Delete Project', exact: true });
+    await trigger.press('Enter');
+
+    const dialog = page.getByRole('dialog', { name: 'Delete Project?' });
+    const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true });
+    await reachable(cancel);
+    await reachable(dialog.getByRole('button', { name: 'Delete Project', exact: true }));
+
+    const backgroundScroll = () => page.evaluate(() => window.scrollY);
+    const wheelBackdrop = async () => {
+      await page.mouse.move(2, 215);
+      await page.mouse.wheel(0, (await backgroundScroll()) > 0 ? -350 : 350);
+    };
+
+    assert.ok(await page.evaluate(() => document.documentElement.scrollHeight > innerHeight));
+    const lockedPosition = await backgroundScroll();
+    await wheelBackdrop();
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await backgroundScroll(), lockedPosition, 'background scroll position stays fixed');
+
+    await cancel.click();
+    await dialog.waitFor({ state: 'hidden' });
+    const unlockedPosition = await backgroundScroll();
+    await wheelBackdrop();
+    await page.waitForFunction(position => window.scrollY !== position, unlockedPosition);
+  } finally { await page.close(); }
+});
+
 test('Login labels focus their fields and errors/buttons remain reachable on a short mobile viewport', async () => {
   for (const [width, height] of [...sizes, [390, 430]]) {
     const page = await pageAt(width, height);
