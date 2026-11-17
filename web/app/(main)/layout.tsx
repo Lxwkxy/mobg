@@ -1,4 +1,3 @@
-
 import { Suspense } from 'react';
 
 import Sidebar from '@/components/Sidebar';
@@ -12,25 +11,25 @@ export default function MainLayout({
 }) {
   return (
     <SessionProvider>
-      <div className="flex min-h-screen flex-col lg:flex-row bg-[#e8e8e8] text-[#2b2b2b]">
+      <div className="flex min-h-screen flex-col lg:flex-row bg-[#f3efff] text-[#2b2b2b]">
         <Suspense
           fallback={
-            <aside className="h-24 lg:h-auto lg:fixed lg:inset-y-0 lg:left-0 lg:w-[240px] border-r border-[#e0e0e0] bg-white" />
+            <aside className="h-20 lg:h-screen lg:sticky lg:top-0 lg:shrink-0 lg:w-[248px] lg:rounded-br-[32px] bg-white" />
           }
         >
           <Sidebar />
         </Suspense>
 
-        <div className="min-w-0 lg:ml-[240px] flex-1 flex flex-col min-h-screen">
+        <div className="min-w-0 flex-1 flex flex-col">
           <Suspense
             fallback={
-              <header className="h-16 bg-white border-b border-[#e0e0e0]" />
+              <header className="h-[72px] bg-white border-b border-[#e7e1ff]" />
             }
           >
             <Topbar />
           </Suspense>
 
-          <main className="min-w-0 p-4 sm:p-6 lg:p-[32px_36px] flex-1">
+          <main className="min-w-0 p-4 sm:p-6 lg:px-8 lg:py-6 flex-1">
             <Suspense
               fallback={
                 <p className="text-[13px] text-[#777777]">
