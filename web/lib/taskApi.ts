@@ -1,4 +1,3 @@
-
 import { ApiRequestError, request } from '@/lib/projectApi';
 
 import type {
@@ -28,6 +27,17 @@ export function parseRouteId(
   }
 
   return id;
+}
+
+export function tryParseRouteId(
+  value: string | undefined,
+  label = 'ID',
+): number | null {
+  try {
+    return parseRouteId(value, label);
+  } catch {
+    return null;
+  }
 }
 
 type Success<T> = Extract<T, { success: true }>;

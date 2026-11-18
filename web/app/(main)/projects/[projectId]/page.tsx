@@ -5,19 +5,27 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import {
+  notFound,
+  useParams,
+  useRouter,
+} from 'next/navigation';
 
 import {
   ApiRequestError,
   projectApi,
 } from '@/lib/projectApi';
+import { parseRouteId, tryParseRouteId } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import { useSession } from '@/lib/SessionProvider';
 import ProtectedState from '@/components/ProtectedState';
 import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
 import type { ProjectItem } from '@/types';
+
+const emptySubscribe = () => () => {};
 
 type DeleteTarget = {
   scope: string;
@@ -51,15 +59,16 @@ function formatDate(value: string | null | undefined) {
   }).format(date);
 }
 
-function describeError(httpStatus: number | undefined) {
-  if (httpStatus === 400) return 'Invalid project ID.';
-  if (httpStatus === 404) return 'Project not found.';
-  return 'Unable to load the project. Please try again.';
-}
-
 export default function ProjectDetailPage() {
   const params = useParams<{ projectId: string }>();
   const router = useRouter();
+  const isClient = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
+
+  const isInvalidId = tryParseRouteId(params.projectId, 'project ID') === null;
 
   const {
     session,
@@ -86,13 +95,8 @@ export default function ProjectDetailPage() {
   const activeDeleteRef = useRef<DeleteTarget | null>(null);
 
   const load = useCallback(async () => {
-    const projectId = Number(params.projectId);
-
-    if (!Number.isSafeInteger(projectId) || projectId <= 0) {
-      throw new ApiRequestError('Invalid project ID.', 400);
-    }
-
-    return projectApi.getProjectById(projectId);
+    const id = parseRouteId(params.projectId, 'project ID');
+    return projectApi.getProjectById(id);
   }, [params.projectId]);
 
   const {
@@ -104,6 +108,16 @@ export default function ProjectDetailPage() {
     revalidateOnFocus: true,
     hideDataWhileRefreshing: true,
   });
+
+  const isNotFound =
+    isInvalidId ||
+    (status === 'error' && (httpStatus === 400 || httpStatus === 404));
+
+  useEffect(() => {
+    if (isNotFound && isClient) {
+      notFound();
+    }
+  }, [isNotFound, isClient]);
 
   const displayedProject =
     project !== null &&
@@ -128,7 +142,6 @@ export default function ProjectDetailPage() {
     projectIdParamRef.current = params.projectId;
   }, [params.projectId]);
 
-  // ทิ้งการยืนยันเดิมเมื่อเปลี่ยน route เปลี่ยนบัญชี หรือออกจากระบบ
   useEffect(() => {
     const context = activeDeleteRef.current;
 
@@ -159,8 +172,6 @@ export default function ProjectDetailPage() {
     session.user?.userId,
   ]);
 
-  // ทิ้งการยืนยันเดิมหาก Project เปลี่ยน โหลดข้อมูลไม่ได้ หรือเสียสิทธิ์ Owner
-  // แต่จะไม่ยกเลิกคำขอระหว่างที่กำลังส่ง DELETE จนกว่าจะรู้ผลจริง
   useEffect(() => {
     const context = activeDeleteRef.current;
 
@@ -203,7 +214,6 @@ export default function ProjectDetailPage() {
     ): Promise<boolean> => {
       const activeContext = activeDeleteRef.current;
 
-      // ตรวจ route และคำขอก่อน เพราะช่วง session loading ค่า userId จะว่างชั่วคราว
       if (
         !mountedRef.current ||
         requestSequenceRef.current !== requestId ||
@@ -246,6 +256,10 @@ export default function ProjectDetailPage() {
     [getLatestSession, refreshSession],
   );
 
+  if (isNotFound) {
+    return null;
+  }
+
   const openDeleteDialog = () => {
     if (
       !displayedProject ||
@@ -258,11 +272,10 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    const projectId = Number(params.projectId);
+    const projectId = tryParseRouteId(params.projectId, 'project ID');
 
     if (
-      !Number.isSafeInteger(projectId) ||
-      projectId <= 0 ||
+      projectId === null ||
       displayedProject.projectId !== projectId
     ) {
       return;
@@ -313,7 +326,6 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    // ตรวจสอบข้อมูลก่อนเริ่มคำขอ
     if (
       session.status !== 'ready' ||
       !session.user ||
@@ -340,7 +352,6 @@ export default function ProjectDetailPage() {
     setPermissionNotice(null);
 
     try {
-      // โหลดข้อมูล Project ล่าสุดก่อน DELETE
       const latestProject = await projectApi.getProjectById(
         context.projectId,
       );
@@ -349,7 +360,6 @@ export default function ProjectDetailPage() {
         return;
       }
 
-      // หากข้อมูลล่าสุดไม่ใช่ Owner ห้ามส่ง DELETE
       if (
         latestProject.projectId !== context.projectId ||
         latestProject.myRole !== 'Owner'
@@ -373,13 +383,11 @@ export default function ProjectDetailPage() {
             'Your Owner permission has changed. You can no longer delete this project.',
         });
 
-        // โหลด Project ใหม่เพื่ออัปเดตข้อมูลให้ตรงกัน
         retry();
 
         return;
       }
 
-      // ตรวจ Session และสิทธิ์อีกครั้งก่อนส่ง DELETE
       if (!(await isDeleteRequestCurrent(requestId, context))) {
         return;
       }
@@ -475,8 +483,6 @@ export default function ProjectDetailPage() {
     isDeleteDialogOpen && isDeleteTargetVerified;
 
   if (status === 'error') {
-    const canRetry = httpStatus !== 400 && httpStatus !== 404;
-
     return (
       <>
         {visiblePermissionNotice && (
@@ -490,7 +496,7 @@ export default function ProjectDetailPage() {
 
         <div className="mx-auto min-w-0 max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-4 sm:p-6 [overflow-wrap:anywhere]">
           <p role="alert" className="mb-4 text-[13px] text-red-600">
-            {describeError(httpStatus)}
+            Unable to load the project. Please try again.
           </p>
 
           <div className="flex flex-wrap gap-3">
@@ -502,15 +508,13 @@ export default function ProjectDetailPage() {
               Back to Projects
             </button>
 
-            {canRetry && (
-              <button
-                type="button"
-                onClick={retry}
-                className="min-h-11 rounded-lg bg-[#222222] px-4 py-2 text-[12px] text-white"
-              >
-                Try again
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={retry}
+              className="min-h-11 rounded-lg bg-[#222222] px-4 py-2 text-[12px] text-white"
+            >
+              Try again
+            </button>
           </div>
         </div>
       </>

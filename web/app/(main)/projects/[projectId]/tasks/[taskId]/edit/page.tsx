@@ -1,140 +1,393 @@
-
 'use client';
 
 import {
   useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
   useState,
   type FormEvent,
 } from 'react';
-
 import Link from 'next/link';
-
-import {
-  useParams,
-  usePathname,
-  useRouter,
-} from 'next/navigation';
+import { notFound, useParams, useRouter } from 'next/navigation';
 
 import ProtectedState from '@/components/ProtectedState';
-
 import AssigneeSelector from '@/components/tasks/AssigneeSelector';
 
-import { ApiRequestError } from '@/lib/projectApi';
-
+import { getCurrentUser } from '@/lib/authService';
+import { useSession } from '@/lib/SessionProvider';
+import { ApiRequestError, projectApi } from '@/lib/projectApi';
 import {
   parseRouteId,
   taskApi,
+  tryParseRouteId,
 } from '@/lib/taskApi';
-
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 
 import {
   mapTaskServerErrors,
-  normalizeAssigneeIds,
   validateTaskForm,
   type TaskFormErrors,
 } from '@/lib/taskForm';
 
 import type {
+  Project,
+  ProjectMember,
   Task,
   TaskPriority,
   TaskStatus,
-  ProjectMember,
   UpdateTaskRequest,
+  User,
 } from '@/types';
 
 type EditTaskData = {
   task: Task;
+  project: Project;
   members: ProjectMember[];
 };
 
-const statusOptions: TaskStatus[] = [
+type SubmissionAccountStatus =
+  | 'same-user'
+  | 'different-user'
+  | 'logged-out'
+  | 'unavailable'
+  | 'stale';
+
+type InitialFormSnapshot = {
+  taskTitle: string;
+  taskDescription: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dueDate: string;
+  assigneeIds: number[];
+};
+
+const STATUS_OPTIONS: TaskStatus[] = [
   'To do',
   'In progress',
   'Done',
 ];
 
-function EditTaskContent({
+function getPriorityLabel(priority: TaskPriority): string {
+  switch (priority) {
+    case 1:
+      return 'High';
+    case 2:
+      return 'Medium';
+    case 3:
+      return 'Low';
+  }
+}
+
+function normalizeDateInput(value: string | null | undefined): string {
+  if (!value) return '';
+  return value.slice(0, 10);
+}
+
+function haveSameAssigneeSet(
+  left: readonly number[],
+  right: readonly number[],
+): boolean {
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+
+  if (leftSet.size !== rightSet.size) {
+    return false;
+  }
+
+  for (const id of leftSet) {
+    if (!rightSet.has(id)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function EditTaskForm({
   projectId,
   taskId,
+  userId,
   data,
+  isRefreshing,
+  loadFailed,
+  onRetry,
 }: {
   projectId: string;
   taskId: string;
+  userId: number;
   data: EditTaskData;
+  isRefreshing: boolean;
+  loadFailed: boolean;
+  onRetry: () => void;
 }) {
   const router = useRouter();
 
-  // เก็บข้อมูลต้นฉบับไว้ตลอดการแก้ไขครั้งนี้
-  // ไม่ให้ข้อมูลจากการ Refresh เขียนทับค่าที่ผู้ใช้กำลังแก้
-  const [baseline] = useState<Task>(() => data.task);
+  const {
+    session,
+    refreshSession,
+    replaceSession,
+    isCurrentSessionRevision,
+  } = useSession();
 
-  const [taskTitle, setTaskTitle] = useState(
-    baseline.taskTitle,
+  const sessionRef = useRef(session);
+
+  useLayoutEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
+  const currentMemberIds = useMemo(
+    () => new Set(data.members.map((member) => member.userId)),
+    [data.members],
   );
 
-  const [taskDescription, setTaskDescription] =
-    useState(
-      baseline.taskDescription ?? '',
-    );
-
-  const [priority, setPriority] =
-    useState<TaskPriority>(
-      baseline.priority,
-    );
-
-  const [dueDate, setDueDate] =
-    useState(baseline.dueDate);
-
-  const [taskStatus, setTaskStatus] =
-    useState<TaskStatus>(
-      baseline.status,
-    );
-
-  const [assigneeIds, setAssigneeIds] =
-    useState<number[]>(
-      baseline.assignees.map(
-        (assignee) => assignee.userId,
+  // เก็บค่าเริ่มต้นตอนเปิดฟอร์มครั้งแรกไว้เปรียบเทียบตอนส่ง PATCH
+  const [initialSnapshot] = useState<InitialFormSnapshot>(() => ({
+    taskTitle: data.task.taskTitle.trim(),
+    taskDescription: (data.task.taskDescription ?? '').trim() || null,
+    status: data.task.status,
+    priority: data.task.priority,
+    dueDate: normalizeDateInput(data.task.dueDate),
+    assigneeIds: Array.from(
+      new Set(
+        data.task.assignees
+          .map((assignee) => assignee.userId)
+          .filter((id) =>
+            data.members.some((member) => member.userId === id),
+          ),
       ),
-    );
+    ),
+  }));
 
-  const [isSaving, setIsSaving] =
-    useState(false);
+  const [taskTitle, setTaskTitle] = useState(data.task.taskTitle);
+  const [taskDescription, setTaskDescription] = useState(
+    data.task.taskDescription ?? '',
+  );
+  const [status, setStatus] = useState<TaskStatus>(data.task.status);
+  const [priority, setPriority] = useState<TaskPriority>(
+    data.task.priority,
+  );
+  const [dueDate, setDueDate] = useState(
+    normalizeDateInput(data.task.dueDate),
+  );
+  const [assigneeIds, setAssigneeIds] = useState<number[]>(
+    () => initialSnapshot.assigneeIds,
+  );
 
-  const [errors, setErrors] =
-    useState<TaskFormErrors>({});
+  const [isSaving, setIsSaving] = useState(false);
+  const [errors, setErrors] = useState<TaskFormErrors>({});
 
-  function clearError(
-    field: keyof TaskFormErrors,
-  ) {
+  const isMountedRef = useRef(false);
+  const submittingRef = useRef(false);
+  const activeSubmissionRef = useRef<object | null>(null);
+
+  const validAssigneeIds = useMemo(
+    () =>
+      Array.from(
+        new Set(assigneeIds.filter((id) => currentMemberIds.has(id))),
+      ),
+    [assigneeIds, currentMemberIds],
+  );
+
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+      activeSubmissionRef.current = null;
+    };
+  }, []);
+
+  const isCurrentSubmission = useCallback(
+    (requestId: object) => {
+      return (
+        isMountedRef.current &&
+        activeSubmissionRef.current === requestId &&
+        Number.isFinite(userId) &&
+        projectId.length > 0 &&
+        taskId.length > 0
+      );
+    },
+    [projectId, taskId, userId],
+  );
+
+  const resolveLatestSession = useCallback(
+    async (
+      requestId: object,
+    ): Promise<SubmissionAccountStatus> => {
+      if (!isCurrentSubmission(requestId)) {
+        return 'stale';
+      }
+
+      let latestSession = sessionRef.current;
+
+      if (
+        !isCurrentSessionRevision(latestSession.revision) ||
+        latestSession.status === 'loading'
+      ) {
+        try {
+          latestSession = await refreshSession();
+        } catch {
+          return isCurrentSubmission(requestId)
+            ? 'unavailable'
+            : 'stale';
+        }
+      }
+
+      if (!isCurrentSubmission(requestId)) {
+        return 'stale';
+      }
+
+      if (!isCurrentSessionRevision(latestSession.revision)) {
+        return 'stale';
+      }
+
+      if (latestSession.status === 'ready') {
+        if (!latestSession.user) {
+          return 'unavailable';
+        }
+
+        return latestSession.user.userId === userId
+          ? 'same-user'
+          : 'different-user';
+      }
+
+      if (latestSession.status === 'login-required') {
+        return 'logged-out';
+      }
+
+      return 'unavailable';
+    },
+    [
+      isCurrentSubmission,
+      isCurrentSessionRevision,
+      refreshSession,
+      userId,
+    ],
+  );
+
+  const verifySubmissionAccount = useCallback(
+    async (
+      requestId: object,
+    ): Promise<SubmissionAccountStatus> => {
+      if (!isCurrentSubmission(requestId)) {
+        return 'stale';
+      }
+
+      const expectedRevision = sessionRef.current.revision;
+
+      let currentUser: User | null;
+
+      try {
+        currentUser = await getCurrentUser();
+      } catch (error) {
+        if (!isCurrentSubmission(requestId)) {
+          return 'stale';
+        }
+
+        if (!isCurrentSessionRevision(expectedRevision)) {
+          return resolveLatestSession(requestId);
+        }
+
+        const httpStatus = (
+          error as { status?: number }
+        ).status;
+
+        if (httpStatus === 401) {
+          const updated = replaceSession(
+            null,
+            'login-required',
+            expectedRevision,
+          );
+
+          return updated
+            ? 'logged-out'
+            : resolveLatestSession(requestId);
+        }
+
+        if (httpStatus === 403) {
+          const updated = replaceSession(
+            null,
+            'no-profile',
+            expectedRevision,
+          );
+
+          return updated
+            ? 'unavailable'
+            : resolveLatestSession(requestId);
+        }
+
+        console.error(
+          'Failed to verify account during task update:',
+          error,
+        );
+
+        const updated = replaceSession(
+          null,
+          'error',
+          expectedRevision,
+        );
+
+        return updated
+          ? 'unavailable'
+          : resolveLatestSession(requestId);
+      }
+
+      if (!isCurrentSubmission(requestId)) {
+        return 'stale';
+      }
+
+      if (!isCurrentSessionRevision(expectedRevision)) {
+        return resolveLatestSession(requestId);
+      }
+
+      if (currentUser?.userId === userId) {
+        return 'same-user';
+      }
+
+      const updated = replaceSession(
+        currentUser,
+        currentUser ? 'ready' : 'login-required',
+        expectedRevision,
+      );
+
+      if (!updated) {
+        return resolveLatestSession(requestId);
+      }
+
+      return currentUser ? 'different-user' : 'logged-out';
+    },
+    [
+      isCurrentSubmission,
+      isCurrentSessionRevision,
+      replaceSession,
+      resolveLatestSession,
+      userId,
+    ],
+  );
+
+  function clearError(field: keyof TaskFormErrors) {
     setErrors((current) => {
       const next = { ...current };
-
       delete next[field];
       delete next.general;
-
       return next;
     });
   }
 
-  function toggleAssignee(userId: number) {
-    setAssigneeIds((current) =>
-      current.includes(userId)
-        ? current.filter((id) => id !== userId)
-        : [...current, userId],
-    );
-
-    clearError('assigneeIds');
-  }
-
-  function handleCancel() {
-    if (isSaving) {
+  function toggleAssignee(assigneeUserId: number) {
+    if (isSaving || !currentMemberIds.has(assigneeUserId)) {
       return;
     }
 
-    router.push(
-      `/projects/${projectId}/tasks/${taskId}`,
+    setAssigneeIds((current) =>
+      current.includes(assigneeUserId)
+        ? current.filter((id) => id !== assigneeUserId)
+        : [...current, assigneeUserId],
     );
+
+    clearError('assigneeIds');
   }
 
   async function handleSubmit(
@@ -142,114 +395,127 @@ function EditTaskContent({
   ) {
     event.preventDefault();
 
-    if (isSaving) {
+    if (
+      submittingRef.current ||
+      isSaving ||
+      isRefreshing ||
+      loadFailed
+    ) {
       return;
     }
 
     const trimmedTitle = taskTitle.trim();
-    const trimmedDescription =
-      taskDescription.trim();
+    const normalizedDescription = taskDescription.trim() || null;
 
     const validationErrors = validateTaskForm({
       taskTitle,
       dueDate,
-      assigneeIds,
+      assigneeIds: validAssigneeIds,
     });
 
-    if (
-      Object.keys(validationErrors).length > 0
-    ) {
+    if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
       return;
     }
 
-    const originalAssigneeIds =
-      normalizeAssigneeIds(
-        baseline.assignees.map(
-          (assignee) => assignee.userId,
-        ),
-      );
+    // สร้าง payload เฉพาะช่องที่เปลี่ยนจากค่าเริ่มต้น
+    const patchInput: UpdateTaskRequest = {};
 
-    const updatedAssigneeIds =
-      normalizeAssigneeIds(assigneeIds);
+    if (trimmedTitle !== initialSnapshot.taskTitle) {
+      patchInput.taskTitle = trimmedTitle;
+    }
 
-    const input: UpdateTaskRequest = {};
+    if (normalizedDescription !== initialSnapshot.taskDescription) {
+      patchInput.taskDescription = normalizedDescription;
+    }
 
-    // ส่งเฉพาะค่าที่ผู้ใช้เปลี่ยนจริง
-    if (trimmedTitle !== baseline.taskTitle) {
-      input.taskTitle = trimmedTitle;
+    if (status !== initialSnapshot.status) {
+      patchInput.status = status;
+    }
+
+    if (priority !== initialSnapshot.priority) {
+      patchInput.priority = priority;
+    }
+
+    if (dueDate !== initialSnapshot.dueDate) {
+      patchInput.dueDate = dueDate;
     }
 
     if (
-      trimmedDescription !==
-      (baseline.taskDescription ?? '')
+      !haveSameAssigneeSet(
+        validAssigneeIds,
+        initialSnapshot.assigneeIds,
+      )
     ) {
-      input.taskDescription =
-        trimmedDescription || null;
+      patchInput.assigneeIds = validAssigneeIds;
     }
 
-    if (priority !== baseline.priority) {
-      input.priority = priority;
-    }
-
-    if (dueDate !== baseline.dueDate) {
-      input.dueDate = dueDate;
-    }
-
-    if (taskStatus !== baseline.status) {
-      input.status = taskStatus;
-    }
-
-    const assigneesChanged =
-      originalAssigneeIds.length !==
-        updatedAssigneeIds.length ||
-      originalAssigneeIds.some(
-        (id, index) =>
-          id !== updatedAssigneeIds[index],
-      );
-
-    if (assigneesChanged) {
-      input.assigneeIds = updatedAssigneeIds;
-    }
-
-    if (Object.keys(input).length === 0) {
-      setErrors({
-        general: 'No changes to save.',
-      });
-
+    // ถ้าไม่มีฟิลด์ไหนเปลี่ยนเลย ไม่ต้องยิง PATCH
+    if (Object.keys(patchInput).length === 0) {
+      router.push(`/projects/${projectId}/tasks/${taskId}`);
       return;
     }
+
+    submittingRef.current = true;
+
+    const requestId = {};
+    activeSubmissionRef.current = requestId;
 
     setErrors({});
     setIsSaving(true);
 
+    const isCurrent = () => isCurrentSubmission(requestId);
+
     try {
-      const parsedProjectId = parseRouteId(
+      const accountBeforeSubmit =
+        await verifySubmissionAccount(requestId);
+
+      if (!isCurrent()) return;
+
+      if (
+        accountBeforeSubmit === 'stale' ||
+        accountBeforeSubmit === 'different-user'
+      ) {
+        return;
+      }
+
+      if (accountBeforeSubmit === 'logged-out') {
+        router.replace('/login');
+        return;
+      }
+
+      if (accountBeforeSubmit === 'unavailable') {
+        setErrors({
+          general:
+            'Unable to verify your account. Please try again.',
+        });
+        return;
+      }
+
+      if (accountBeforeSubmit !== 'same-user') return;
+
+      const numericProjectId = parseRouteId(
         projectId,
         'project ID',
       );
-
-      const parsedTaskId = parseRouteId(
-        taskId,
-        'task ID',
-      );
+      const numericTaskId = parseRouteId(taskId, 'task ID');
 
       await taskApi.updateTask(
-        parsedProjectId,
-        parsedTaskId,
-        input,
+        numericProjectId,
+        numericTaskId,
+        patchInput,
       );
+
+      if (!isCurrent()) return;
 
       router.push(
-        `/projects/${parsedProjectId}/tasks/${parsedTaskId}`,
+        `/projects/${numericProjectId}/tasks/${numericTaskId}`,
       );
-
       router.refresh();
     } catch (error) {
-      console.error(
-        'Failed to update task:',
-        error,
-      );
+      console.error('Failed to update task:', error);
+
+      if (!isCurrent()) return;
 
       if (error instanceof ApiRequestError) {
         if (error.status === 401) {
@@ -257,15 +523,17 @@ function EditTaskContent({
           return;
         }
 
-        const serverErrors =
-          mapTaskServerErrors(error.details);
+        const serverErrors = mapTaskServerErrors(
+          error.details,
+        );
 
         if (error.status === 403) {
           serverErrors.general =
             'You do not have permission to edit this task.';
-        } else if (
-          Object.keys(serverErrors).length > 0
-        ) {
+        } else if (error.status === 404) {
+          serverErrors.general =
+            'This task could not be found. It may have been deleted.';
+        } else if (Object.keys(serverErrors).length > 0) {
           serverErrors.general =
             error.message ||
             'Please check the highlighted fields.';
@@ -283,8 +551,34 @@ function EditTaskContent({
         });
       }
     } finally {
-      setIsSaving(false);
+      if (activeSubmissionRef.current === requestId) {
+        activeSubmissionRef.current = null;
+        submittingRef.current = false;
+
+        if (isMountedRef.current) {
+          setIsSaving(false);
+        }
+      }
     }
+  }
+
+  // เก็บ instance และค่าที่พิมพ์ไว้ใน Memory แต่ซ่อนไว้ระหว่าง error/refresh
+  if (session.status === 'error' || loadFailed) {
+    return (
+      <ProtectedState
+        status="error"
+        onRetry={onRetry}
+      />
+    );
+  }
+
+  if (isRefreshing) {
+    return (
+      <ProtectedState
+        status="loading"
+        onRetry={onRetry}
+      />
+    );
   }
 
   return (
@@ -298,7 +592,7 @@ function EditTaskContent({
 
       <div className="mb-6">
         <p className="mb-1 text-[13px] text-[#777777]">
-          {data.task.projectName}
+          {data.project.projectName}
         </p>
 
         <h1 className="text-[30px] font-extrabold text-[#1f1f1f]">
@@ -306,218 +600,210 @@ function EditTaskContent({
         </h1>
 
         <p className="mt-2 text-[13px] text-[#777777]">
-          Update task information, status, priority,
-          and assignees.
+          Update task details, status, priority, due date, or assignees.
         </p>
       </div>
 
       <form
         onSubmit={handleSubmit}
         noValidate
+        aria-busy={isSaving}
         className="rounded-2xl border border-[#e0e0e0] bg-white p-4 shadow-sm sm:p-6 md:p-8"
       >
-        {errors.general && (
-          <div
-            role="alert"
-            className="mb-6 rounded-lg border border-red-300 bg-red-50 p-3.5 text-[13px] text-red-700"
-          >
-            {errors.general}
-          </div>
-        )}
-
-        <div className="mb-5">
-          <label
-            htmlFor="taskTitle"
-            className="mb-2 block text-[13px] font-semibold text-[#333333]"
-          >
-            Task title{' '}
-            <span className="text-red-500">*</span>
-          </label>
-
-          <input
-            id="taskTitle"
-            type="text"
-            maxLength={200}
-            value={taskTitle}
-            onChange={(event) => {
-              setTaskTitle(event.target.value);
-              clearError('taskTitle');
-            }}
-            className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] ${
-              errors.taskTitle
-                ? 'border-red-500'
-                : 'border-[#dcdcdc]'
-            }`}
-            aria-invalid={Boolean(errors.taskTitle)}
-          />
-
-          {errors.taskTitle && (
-            <p className="mt-1.5 text-[12px] text-red-600">
-              {errors.taskTitle}
-            </p>
+        <fieldset disabled={isSaving} className="contents">
+          {errors.general && (
+            <div
+              role="alert"
+              className="mb-6 rounded-lg border border-red-300 bg-red-50 p-3.5 text-[13px] text-red-700"
+            >
+              {errors.general}
+            </div>
           )}
-        </div>
 
-        <div className="mb-5">
-          <label
-            htmlFor="taskDescription"
-            className="mb-2 block text-[13px] font-semibold text-[#333333]"
-          >
-            Description
-          </label>
-
-          <textarea
-            id="taskDescription"
-            rows={4}
-            value={taskDescription}
-            onChange={(event) => {
-              setTaskDescription(event.target.value);
-              clearError('taskDescription');
-            }}
-            placeholder="Describe what needs to be done..."
-            className="w-full resize-y rounded-xl border border-[#dcdcdc] px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
-          />
-        </div>
-
-        <div className="mb-5 grid gap-5 sm:grid-cols-2">
-          <div>
+          <div className="mb-5">
             <label
-              htmlFor="taskStatus"
+              htmlFor="taskTitle"
               className="mb-2 block text-[13px] font-semibold text-[#333333]"
             >
-              Status
+              Task title <span className="text-red-500">*</span>
             </label>
 
-            <select
-              id="taskStatus"
-              value={taskStatus}
+            <input
+              id="taskTitle"
+              type="text"
+              maxLength={200}
+              value={taskTitle}
               onChange={(event) => {
-                setTaskStatus(
-                  event.target.value as TaskStatus,
-                );
-
-                clearError('status');
+                setTaskTitle(event.target.value);
+                clearError('taskTitle');
               }}
-              className="w-full rounded-xl border border-[#dcdcdc] bg-white px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
-            >
-              {statusOptions.map((option) => (
-                <option
-                  key={option}
-                  value={option}
-                >
-                  {option}
-                </option>
-              ))}
-            </select>
+              placeholder="e.g. Design login page"
+              className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] ${
+                errors.taskTitle
+                  ? 'border-red-500'
+                  : 'border-[#dcdcdc]'
+              }`}
+              aria-invalid={Boolean(errors.taskTitle)}
+            />
 
-            {errors.status && (
+            {errors.taskTitle && (
               <p className="mt-1.5 text-[12px] text-red-600">
-                {errors.status}
+                {errors.taskTitle}
               </p>
             )}
+
+            <p className="mt-1.5 text-right text-[11px] text-[#999999]">
+              {taskTitle.length}/200
+            </p>
           </div>
 
-          <div>
+          <div className="mb-5">
             <label
-              htmlFor="priority"
+              htmlFor="taskDescription"
               className="mb-2 block text-[13px] font-semibold text-[#333333]"
             >
-              Priority
+              Description
             </label>
 
-            <select
-              id="priority"
-              value={priority}
+            <textarea
+              id="taskDescription"
+              rows={4}
+              value={taskDescription}
               onChange={(event) => {
-                setPriority(
-                  Number(
-                    event.target.value,
-                  ) as TaskPriority,
-                );
-
-                clearError('priority');
+                setTaskDescription(event.target.value);
+                clearError('taskDescription');
               }}
-              className="w-full rounded-xl border border-[#dcdcdc] bg-white px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
-            >
-              <option value={1}>High</option>
-              <option value={2}>Medium</option>
-              <option value={3}>Low</option>
-            </select>
-
-            {errors.priority && (
-              <p className="mt-1.5 text-[12px] text-red-600">
-                {errors.priority}
-              </p>
-            )}
+              placeholder="Describe what needs to be done..."
+              className="w-full resize-y rounded-xl border border-[#dcdcdc] px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
+            />
           </div>
-        </div>
 
-        <div className="mb-6">
-          <label
-            htmlFor="dueDate"
-            className="mb-2 block text-[13px] font-semibold text-[#333333]"
-          >
-            Due date{' '}
-            <span className="text-red-500">*</span>
-          </label>
+          <div className="mb-6 grid gap-5 sm:grid-cols-3">
+            <div>
+              <label
+                htmlFor="status"
+                className="mb-2 block text-[13px] font-semibold text-[#333333]"
+              >
+                Status <span className="text-red-500">*</span>
+              </label>
 
-          <input
-            id="dueDate"
-            type="date"
-            value={dueDate}
-            onChange={(event) => {
-              setDueDate(event.target.value);
-              clearError('dueDate');
-            }}
-            className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] sm:max-w-sm ${
-              errors.dueDate
-                ? 'border-red-500'
-                : 'border-[#dcdcdc]'
-            }`}
-            aria-invalid={Boolean(errors.dueDate)}
+              <select
+                id="status"
+                value={status}
+                onChange={(event) => {
+                  setStatus(event.target.value as TaskStatus);
+                  clearError('status');
+                }}
+                className="w-full rounded-xl border border-[#dcdcdc] bg-white px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
+              >
+                {STATUS_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label
+                htmlFor="priority"
+                className="mb-2 block text-[13px] font-semibold text-[#333333]"
+              >
+                Priority <span className="text-red-500">*</span>
+              </label>
+
+              <select
+                id="priority"
+                value={priority}
+                onChange={(event) => {
+                  setPriority(
+                    Number(event.target.value) as TaskPriority,
+                  );
+                  clearError('priority');
+                }}
+                className="w-full rounded-xl border border-[#dcdcdc] bg-white px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
+              >
+                <option value={1}>{getPriorityLabel(1)}</option>
+                <option value={2}>{getPriorityLabel(2)}</option>
+                <option value={3}>{getPriorityLabel(3)}</option>
+              </select>
+
+              {errors.priority && (
+                <p className="mt-1.5 text-[12px] text-red-600">
+                  {errors.priority}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label
+                htmlFor="dueDate"
+                className="mb-2 block text-[13px] font-semibold text-[#333333]"
+              >
+                Due date <span className="text-red-500">*</span>
+              </label>
+
+              <input
+                id="dueDate"
+                type="date"
+                value={dueDate}
+                onChange={(event) => {
+                  setDueDate(event.target.value);
+                  clearError('dueDate');
+                }}
+                className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] ${
+                  errors.dueDate
+                    ? 'border-red-500'
+                    : 'border-[#dcdcdc]'
+                }`}
+                aria-invalid={Boolean(errors.dueDate)}
+              />
+
+              {errors.dueDate && (
+                <p className="mt-1.5 text-[12px] text-red-600">
+                  {errors.dueDate}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <AssigneeSelector
+            members={data.members}
+            selectedIds={validAssigneeIds}
+            error={errors.assigneeIds}
+            disabled={isSaving}
+            onToggle={toggleAssignee}
           />
 
-          {errors.dueDate && (
-            <p className="mt-1.5 text-[12px] text-red-600">
-              {errors.dueDate}
-            </p>
-          )}
-        </div>
+          <div className="flex flex-wrap justify-end gap-3 border-t border-[#eeeeee] pt-5">
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={() =>
+                router.push(
+                  `/projects/${projectId}/tasks/${taskId}`,
+                )
+              }
+              className="min-h-11 rounded-xl border border-[#dddddd] px-5 text-[13px] font-medium text-[#444444] hover:bg-[#f7f7f7] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Cancel
+            </button>
 
-        <AssigneeSelector
-          members={data.members}
-          selectedIds={assigneeIds}
-          error={errors.assigneeIds}
-          disabled={isSaving}
-          onToggle={toggleAssignee}
-        />
-
-        <div className="flex flex-wrap justify-end gap-3 border-t border-[#eeeeee] pt-5">
-          <button
-            type="button"
-            disabled={isSaving}
-            onClick={handleCancel}
-            className="min-h-11 rounded-xl border border-[#dddddd] px-5 text-[13px] font-medium text-[#444444] hover:bg-[#f7f7f7] disabled:opacity-50"
-          >
-            Cancel
-          </button>
-
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="min-h-11 rounded-xl bg-[#222222] px-6 text-[13px] font-semibold text-white hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSaving
-              ? 'Saving...'
-              : 'Save Changes'}
-          </button>
-        </div>
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="min-h-11 rounded-xl bg-[#222222] px-6 py-3 text-[13px] font-semibold text-white hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSaving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </fieldset>
       </form>
     </div>
   );
 }
 
-function EditTaskLoader({
+function EditTaskContent({
   projectId,
   taskId,
 }: {
@@ -525,145 +811,203 @@ function EditTaskLoader({
   taskId: string;
 }) {
   const router = useRouter();
+  const { session, refreshSession } = useSession();
 
-  const load = useCallback(
-    async (): Promise<EditTaskData> => {
-      const parsedProjectId = parseRouteId(
-        projectId,
-        'project ID',
-      );
+  const isInvalidId =
+    tryParseRouteId(projectId, 'project ID') === null ||
+    tryParseRouteId(taskId, 'task ID') === null;
 
-      const parsedTaskId = parseRouteId(
-        taskId,
-        'task ID',
-      );
+  const load = useCallback(async (): Promise<EditTaskData> => {
+    const numericProjectId = parseRouteId(
+      projectId,
+      'project ID',
+    );
+    const numericTaskId = parseRouteId(taskId, 'task ID');
 
-      const [task, members] = await Promise.all([
-        taskApi.getTaskById(
-          parsedProjectId,
-          parsedTaskId,
-        ),
+    const [task, project, members] = await Promise.all([
+      taskApi.getTaskById(numericProjectId, numericTaskId),
+      projectApi.getProjectById(numericProjectId),
+      taskApi.getProjectMembers(numericProjectId),
+    ]);
 
-        taskApi.getProjectMembers(
-          parsedProjectId,
-        ),
-      ]);
-
-      return {
-        task,
-        members,
-      };
-    },
-    [projectId, taskId],
-  );
+    return { task, project, members };
+  }, [projectId, taskId]);
 
   const {
-    status: loadStatus,
+    status,
     data,
+    userId,
+    httpStatus,
+    isRefreshing,
     retained,
     retainedUserId,
-    httpStatus,
     retry,
   } = useProtectedLoad(load, {
     revalidateOnFocus: true,
-    hideDataWhileRefreshing: true,
+    hideDataWhileRefreshing: false,
   });
 
-  const showContent =
-    loadStatus === 'ready' &&
-    data !== null;
+  const isNotFound =
+    isInvalidId ||
+    (status === 'error' &&
+      (httpStatus === 400 || httpStatus === 404));
 
-  // ใช้ retained ระหว่างตรวจ Session
-  // เพื่อรักษา State ของ EditTaskContent
-  const retainedData = retained ?? data;
+  useEffect(() => {
+    if (isNotFound) {
+      notFound();
+    }
+  }, [isNotFound]);
 
-  const hasRetainedContent =
-    retainedData !== null &&
-    retainedUserId !== null;
+  const handleRetry = useCallback(async () => {
+    try {
+      await refreshSession();
+    } catch (error) {
+      console.error('Failed to refresh session:', error);
+    }
 
-  const errorContent = (
-    <div className="mx-auto max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-5">
-      <p
-        role="alert"
-        className="mb-4 text-[13px] text-red-600"
-      >
-        {httpStatus === 400
-          ? 'Invalid project or task ID.'
-          : httpStatus === 404
-            ? 'Task not found in this project.'
-            : 'Unable to load task information. Please try again.'}
-      </p>
+    await retry();
+  }, [refreshSession, retry]);
 
-      <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
-          onClick={() =>
-            router.push(
-              `/projects/${projectId}/tasks`,
-            )
-          }
-          className="min-h-11 rounded-lg border border-[#dddddd] px-4 text-[13px]"
-        >
-          Back to Tasks
-        </button>
+  if (isNotFound) {
+    return null;
+  }
 
-        {httpStatus !== 400 &&
-          httpStatus !== 404 && (
-            <button
-              type="button"
-              onClick={retry}
-              className="min-h-11 rounded-lg bg-[#222222] px-4 text-[13px] text-white"
-            >
-              Try again
-            </button>
-          )}
-      </div>
-    </div>
-  );
+  // เก็บ EditTaskForm instance เดิมไว้เมื่อบัญชีเดิมกำลังโหลดเบื้องหลังหรือโหลดพลาด (เช่น 500)
+  // แต่จะไม่ผ่านเงื่อนไขนี้ทันทีหากเปลี่ยนบัญชีหรือออกจากระบบ (ฟอร์มเก่าจะถูก unmount และล้างค่า)
+  const canKeepPreviousForm =
+    retained !== null &&
+    retainedUserId !== null &&
+    (session.status === 'loading' ||
+      session.status === 'error' ||
+      (session.status === 'ready' &&
+        session.user?.userId === retainedUserId &&
+        (status === 'loading' ||
+          status === 'error' ||
+          isRefreshing)));
 
-  // 400 และ 404 ต้องแสดง Error แม้มี retained form อยู่
-  const isNotFoundOrInvalid =
-    httpStatus === 400 ||
-    httpStatus === 404;
-
-  const shouldShowError =
-    loadStatus === 'error' &&
-    (
-      isNotFoundOrInvalid ||
-      !hasRetainedContent
+  if (canKeepPreviousForm) {
+    return (
+      <EditTaskForm
+        key={`${retainedUserId}:${projectId}:${taskId}`}
+        projectId={projectId}
+        taskId={taskId}
+        userId={retainedUserId}
+        data={retained}
+        isRefreshing={
+          session.status === 'loading' ||
+          (session.status === 'ready' && isRefreshing)
+        }
+        loadFailed={
+          session.status === 'ready' && status === 'error'
+        }
+        onRetry={handleRetry}
+      />
     );
+  }
+
+  if (session.status === 'loading') {
+    return (
+      <ProtectedState
+        status="loading"
+        onRetry={handleRetry}
+      />
+    );
+  }
+
+  if (
+    session.status === 'error' ||
+    session.status === 'no-profile'
+  ) {
+    return (
+      <ProtectedState
+        status="error"
+        onRetry={handleRetry}
+      />
+    );
+  }
+
+  if (session.status === 'login-required') {
+    return (
+      <ProtectedState
+        status="login-required"
+        onRetry={handleRetry}
+      />
+    );
+  }
+
+  if (status === 'error') {
+    return (
+      <div className="mx-auto max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-5">
+        <p
+          role="alert"
+          className="mb-4 text-[13px] text-red-600"
+        >
+          Unable to load the task edit form. Please try again.
+        </p>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() =>
+              router.push(
+                `/projects/${projectId}/tasks/${taskId}`,
+              )
+            }
+            className="min-h-11 rounded-lg border border-[#dddddd] px-4 text-[13px]"
+          >
+            Back to Task Detail
+          </button>
+
+          <button
+            type="button"
+            onClick={handleRetry}
+            className="min-h-11 rounded-lg bg-[#222222] px-4 text-[13px] text-white"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (
+    status !== 'ready' ||
+    !data ||
+    userId === null ||
+    userId === undefined
+  ) {
+    return (
+      <ProtectedState
+        status={status === 'ready' ? 'loading' : status}
+        onRetry={handleRetry}
+      />
+    );
+  }
+
+  if (
+    session.status !== 'ready' ||
+    !session.user ||
+    session.user.userId !== userId
+  ) {
+    return (
+      <ProtectedState
+        status="loading"
+        onRetry={handleRetry}
+      />
+    );
+  }
 
   return (
-    <>
-      {hasRetainedContent && retainedData && (
-        <div
-          hidden={!showContent || shouldShowError}
-          inert={!showContent || shouldShowError}
-        >
-          <EditTaskContent
-            key={`${projectId}-${taskId}-${retainedUserId}`}
-            projectId={projectId}
-            taskId={taskId}
-            data={retainedData}
-          />
-        </div>
-      )}
-
-      {!showContent && (
-        shouldShowError
-          ? errorContent
-          : (
-            <ProtectedState
-              status={
-                loadStatus === 'ready'
-                  ? 'loading'
-                  : loadStatus
-              }
-              onRetry={retry}
-            />
-          )
-      )}
-    </>
+    <EditTaskForm
+      key={`${userId}:${projectId}:${taskId}`}
+      projectId={projectId}
+      taskId={taskId}
+      userId={userId}
+      data={data}
+      isRefreshing={isRefreshing}
+      loadFailed={false}
+      onRetry={handleRetry}
+    />
   );
 }
 
@@ -673,13 +1017,14 @@ export default function EditTaskPage() {
     taskId: string;
   }>();
 
-  const pathname = usePathname();
+  const projectId = params.projectId;
+  const taskId = params.taskId;
 
   return (
-    <EditTaskLoader
-      key={pathname}
-      projectId={params.projectId}
-      taskId={params.taskId}
+    <EditTaskContent
+      key={`${projectId}-${taskId}`}
+      projectId={projectId}
+      taskId={taskId}
     />
   );
 }

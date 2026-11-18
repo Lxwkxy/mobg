@@ -1,10 +1,11 @@
-
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import ProtectedState from '@/components/ProtectedState';
 import { getCurrentUser } from '@/lib/authService';
 import { projectApi } from '@/lib/projectApi';
+import { useSession } from '@/lib/SessionProvider';
 import type { User } from '@/types';
 
 type FormErrors = {
@@ -77,6 +78,7 @@ function mapServerField(field: string): keyof FormErrors | null {
 
 export default function CreateProjectPage() {
   const router = useRouter();
+  const { clearSession, replaceSession } = useSession();
 
   const [projectName, setProjectName] = useState('');
   const [description, setDescription] = useState('');
@@ -89,11 +91,12 @@ export default function CreateProjectPage() {
   const [isMemberDropdownOpen, setIsMemberDropdownOpen] =
     useState(false);
 
-  const [isLoading, setIsLoading] = useState(true);
+  const [authStatus, setAuthStatus] = useState<
+    'loading' | 'ready' | 'login-required'
+  >('loading');
   const [isSaving, setIsSaving] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
 
-  // รีเซ็ตข้อมูลฟอร์มทั้งหมด
   function resetForm() {
     setProjectName('');
     setDescription('');
@@ -111,7 +114,6 @@ export default function CreateProjectPage() {
     async function initialize() {
       if (!active) return;
 
-      // กำหนดวันที่ใน Browser หลัง Component ทำงานแล้ว
       setStartDate(getBangkokToday());
 
       try {
@@ -120,9 +122,12 @@ export default function CreateProjectPage() {
         if (!active) return;
 
         if (!currentUser) {
-          router.replace('/login');
+          clearSession();
+          setAuthStatus('login-required');
           return;
         }
+
+        replaceSession(currentUser, 'ready');
 
         const availableUsers = await projectApi.getUsers();
 
@@ -134,6 +139,7 @@ export default function CreateProjectPage() {
               String(user.userId) !== String(currentUser.userId),
           ),
         );
+        setAuthStatus('ready');
       } catch (error) {
         console.error('Failed to initialize project form:', error);
 
@@ -141,7 +147,8 @@ export default function CreateProjectPage() {
           const requestError = error as RequestError;
 
           if (requestError.status === 401) {
-            router.replace('/login');
+            clearSession();
+            setAuthStatus('login-required');
             return;
           }
 
@@ -150,10 +157,7 @@ export default function CreateProjectPage() {
               requestError.message ||
               'Unable to load members. Please refresh and try again.',
           });
-        }
-      } finally {
-        if (active) {
-          setIsLoading(false);
+          setAuthStatus('ready');
         }
       }
     }
@@ -163,7 +167,7 @@ export default function CreateProjectPage() {
     return () => {
       active = false;
     };
-  }, [router]);
+  }, [clearSession, replaceSession]);
 
   function toggleMember(userId: number) {
     setMemberIds((current) =>
@@ -242,7 +246,6 @@ export default function CreateProjectPage() {
         memberIds,
       });
 
-      // ล้างข้อมูลหลังสร้าง Project สำเร็จ
       resetForm();
       router.push('/projects');
     } catch (error) {
@@ -262,7 +265,8 @@ export default function CreateProjectPage() {
       }
 
       if (requestError.status === 401) {
-        router.replace('/login');
+        clearSession();
+        setAuthStatus('login-required');
         return;
       }
 
@@ -285,13 +289,12 @@ export default function CreateProjectPage() {
     }
   }
 
-  if (isLoading) {
+  if (authStatus !== 'ready') {
     return (
-      <div className="flex min-h-[300px] w-full items-center justify-center">
-        <p className="text-[13px] text-[#888888]">
-          Loading project form...
-        </p>
-      </div>
+      <ProtectedState
+        status={authStatus}
+        onRetry={() => window.location.reload()}
+      />
     );
   }
 

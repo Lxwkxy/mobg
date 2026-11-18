@@ -2,11 +2,20 @@
 
 import { useRef, useState, type FormEvent } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import AuthCard from '@/components/AuthCard';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
-import { registerAccount, requestPasswordReset, resendVerification, resetAccountPassword } from '@/lib/accountService';
+import {
+  resendVerification,
+  resetAccountPassword,
+} from '@/lib/accountService';
+import {
+  normalizeAccountEmail,
+  usePasswordResetRequestAction,
+  useRegisterAction,
+  validateAccountEmail,
+  validateAccountPassword,
+} from '@/lib/useAccountActions';
 import { useHydrated } from '@/lib/useHydrated';
 
 type Mode = 'register' | 'forgot' | 'reset' | 'verify';
@@ -18,52 +27,98 @@ const copy = {
 };
 
 export default function AccountForm({ mode, token, linkError }: { mode: Mode; token?: string; linkError?: string }) {
-  const router = useRouter();
   const hydrated = useHydrated();
   const busy = useRef(false);
-  const [pending, setPending] = useState(false);
+  const [localPending, setLocalPending] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
-  const [error, setError] = useState('');
-  const [done, setDone] = useState(false);
+  const [localError, setLocalError] = useState('');
+  const [localDone, setLocalDone] = useState(false);
+
+  const registerAction = useRegisterAction();
+  const forgotAction = usePasswordResetRequestAction();
+
+  const pending =
+    mode === 'register'
+      ? registerAction.pending
+      : mode === 'forgot'
+        ? forgotAction.pending
+        : localPending;
+
+  const error =
+    mode === 'register'
+      ? registerAction.error
+      : mode === 'forgot'
+        ? forgotAction.error
+        : localError;
+
+  const done = mode === 'forgot' ? forgotAction.done : localDone;
+
   const hasPassword = mode === 'register' || mode === 'reset';
   const invalidReset = mode === 'reset' && !done && (!token || Boolean(linkError));
   const content = copy[mode];
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (mode === 'register') {
+      await registerAction.submitRegister({
+        name,
+        email,
+        password,
+        confirmation,
+      });
+      return;
+    }
+
+    if (mode === 'forgot') {
+      await forgotAction.submitPasswordResetRequest(email);
+      return;
+    }
+
     if (busy.current) return;
-    setError('');
-    const normalizedEmail = email.trim().toLowerCase();
-    if (mode === 'register' && (!name.trim() || name.trim().length > 100)) {
-      setError('Enter a name between 1 and 100 characters.'); return;
-    }
-    if (mode !== 'reset' && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || normalizedEmail.length > 255)) {
-      setError('Enter a valid email address.'); return;
-    }
-    if (hasPassword && (password.length < 8 || password.length > 128)) {
-      setError('Use a password between 8 and 128 characters.'); return;
-    }
-    if (hasPassword && password !== confirmation) { setError('Passwords do not match.'); return; }
-    if (invalidReset) return;
-    setDone(false);
-    busy.current = true; setPending(true);
-    try {
-      if (mode === 'register') {
-        await registerAccount(name.trim(), normalizedEmail, password);
-        router.replace('/verify-email');
-      } else {
-        if (mode === 'forgot') await requestPasswordReset(normalizedEmail);
-        if (mode === 'verify') await resendVerification(normalizedEmail);
-        if (mode === 'reset') await resetAccountPassword(token!, password);
-        setDone(true); setPassword(''); setConfirmation('');
-        if (mode === 'reset') window.history.replaceState(null, '', '/reset-password');
+    setLocalError('');
+
+    if (mode === 'verify') {
+      const emailError = validateAccountEmail(email);
+      if (emailError) {
+        setLocalError(emailError);
+        return;
       }
+    }
+
+    if (mode === 'reset') {
+      const passwordError = validateAccountPassword(password, confirmation);
+      if (passwordError) {
+        setLocalError(passwordError);
+        return;
+      }
+      if (invalidReset) return;
+    }
+
+    setLocalDone(false);
+    busy.current = true;
+    setLocalPending(true);
+
+    try {
+      if (mode === 'verify') {
+        await resendVerification(normalizeAccountEmail(email));
+      } else if (mode === 'reset') {
+        await resetAccountPassword(token!, password);
+      }
+
+      setLocalDone(true);
+      setPassword('');
+      setConfirmation('');
+      if (mode === 'reset') window.history.replaceState(null, '', '/reset-password');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to connect. Please try again.');
-    } finally { busy.current = false; setPending(false); }
+      setLocalError(cause instanceof Error ? cause.message : 'Unable to connect. Please try again.');
+    } finally {
+      busy.current = false;
+      setLocalPending(false);
+    }
   }
 
   return (

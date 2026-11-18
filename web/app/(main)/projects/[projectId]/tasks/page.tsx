@@ -1,13 +1,12 @@
-
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { notFound, useParams, useRouter } from 'next/navigation';
 
 import ProtectedState from '@/components/ProtectedState';
 import TaskFilters from '@/components/tasks/TaskFilters';
-import { parseRouteId, taskApi } from '@/lib/taskApi';
+import { parseRouteId, taskApi, tryParseRouteId } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import type { Task, TaskPriority, TaskStatus } from '@/types';
 
@@ -148,7 +147,8 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority | ''>('');
 
-  // ถ้าเลือก All จะไม่ส่ง status ไปยัง API
+  const isInvalidId = tryParseRouteId(projectId, 'project ID') === null;
+
   const load = useCallback(async () => {
     const id = parseRouteId(projectId, 'project ID');
 
@@ -167,10 +167,18 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
     hideDataWhileRefreshing: true,
   });
 
+  const isNotFound =
+    isInvalidId ||
+    (status === 'error' && (httpStatus === 400 || httpStatus === 404));
+
+  useEffect(() => {
+    if (isNotFound) {
+      notFound();
+    }
+  }, [isNotFound]);
+
   const numericProjectId = Number(projectId);
 
-  // Search และ Priority กรองข้อมูลฝั่ง Client
-  // Status กรองจาก API
   const filteredTasks = useMemo(() => {
     if (!tasks) return [];
 
@@ -193,18 +201,15 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
     setPriorityFilter('');
   };
 
-  if (status === 'error') {
-    const message =
-      httpStatus === 400
-        ? 'Invalid project ID.'
-        : httpStatus === 404
-          ? 'Project not found or you do not have access.'
-          : 'Unable to load project tasks. Please try again.';
+  if (isNotFound) {
+    return null;
+  }
 
+  if (status === 'error') {
     return (
       <div className="mx-auto max-w-4xl rounded-xl border border-[#e0e0e0] bg-white p-6">
         <p role="alert" className="mb-4 text-[13px] text-red-600">
-          {message}
+          Unable to load project tasks. Please try again.
         </p>
 
         <div className="flex flex-wrap gap-3">
@@ -216,15 +221,13 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
             Back to Project
           </button>
 
-          {httpStatus !== 400 && httpStatus !== 404 && (
-            <button
-              type="button"
-              onClick={retry}
-              className="min-h-11 rounded-lg bg-[#222222] px-4 text-[12px] text-white"
-            >
-              Try again
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={retry}
+            className="min-h-11 rounded-lg bg-[#222222] px-4 text-[12px] text-white"
+          >
+            Try again
+          </button>
         </div>
       </div>
     );

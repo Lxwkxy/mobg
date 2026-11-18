@@ -7,7 +7,7 @@ import {
   useState,
 } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { notFound, useParams, useRouter } from 'next/navigation';
 
 import ProtectedState from '@/components/ProtectedState';
 import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
@@ -16,7 +16,11 @@ import {
   projectApi,
 } from '@/lib/projectApi';
 import { useSession } from '@/lib/SessionProvider';
-import { taskApi, parseRouteId } from '@/lib/taskApi';
+import {
+  parseRouteId,
+  taskApi,
+  tryParseRouteId,
+} from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import type { Project, Task } from '@/types';
 
@@ -45,12 +49,6 @@ function getPriorityLabel(priority: Task['priority']) {
     default:
       return 'Unknown';
   }
-}
-
-function describeError(httpStatus: number | undefined) {
-  if (httpStatus === 400) return 'Invalid project ID or task ID.';
-  if (httpStatus === 404) return 'Task not found.';
-  return 'Unable to load task details. Please try again.';
 }
 
 type TaskDetailData = {
@@ -83,6 +81,10 @@ function TaskDetailContent({
   const requestSequenceRef = useRef(0);
   const deleteContextRef = useRef<DeleteContext | null>(null);
 
+  const isInvalidId =
+    tryParseRouteId(projectId, 'project ID') === null ||
+    tryParseRouteId(taskId, 'task ID') === null;
+
   const load = useCallback(async (): Promise<TaskDetailData> => {
     const numericProjectId = parseRouteId(projectId, 'project ID');
     const numericTaskId = parseRouteId(taskId, 'task ID');
@@ -105,6 +107,16 @@ function TaskDetailContent({
     hideDataWhileRefreshing: true,
   });
 
+  const isNotFound =
+    isInvalidId ||
+    (status === 'error' && (httpStatus === 400 || httpStatus === 404));
+
+  useEffect(() => {
+    if (isNotFound) {
+      notFound();
+    }
+  }, [isNotFound]);
+
   useEffect(() => {
     mountedRef.current = true;
 
@@ -115,8 +127,6 @@ function TaskDetailContent({
     };
   }, []);
 
-  // ถ้า Session เปลี่ยนระหว่างเปิด Dialog หรือกำลังลบ
-  // ให้ปิด Dialog และยกเลิกสิทธิ์ของ Request เก่า
   useEffect(() => {
     const context = deleteContextRef.current;
 
@@ -141,8 +151,6 @@ function TaskDetailContent({
     isCurrentSessionRevision,
   ]);
 
-  // ตรวจข้อมูลที่โหลดใหม่ หาก Task เปลี่ยนหรือสิทธิ์ Owner หายไป
-  // Dialog ที่เปิดค้างอยู่จะต้องปิดและไม่เปิดกลับมาเอง
   useEffect(() => {
     if (!isDeleteDialogOpen || !deleteContextRef.current || !data) {
       return;
@@ -216,8 +224,6 @@ function TaskDetailContent({
     const numericProjectId = parseRouteId(projectId, 'project ID');
     const numericTaskId = parseRouteId(taskId, 'task ID');
 
-    // ตรวจสอบบัญชี, Session revision, Project, Task และ Owner
-    // อีกครั้งทันที ก่อนส่ง DELETE
     const canDelete =
       context.revision === session.revision &&
       context.userId === session.user.userId &&
@@ -301,13 +307,15 @@ function TaskDetailContent({
     }
   };
 
-  if (status === 'error') {
-    const canRetry = httpStatus !== 400 && httpStatus !== 404;
+  if (isNotFound) {
+    return null;
+  }
 
+  if (status === 'error') {
     return (
       <div className="mx-auto min-w-0 w-full max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-4 sm:p-6">
         <p role="alert" className="mb-4 text-[13px] text-red-600">
-          {describeError(httpStatus)}
+          Unable to load task details. Please try again.
         </p>
 
         <div className="flex flex-wrap gap-3">
@@ -319,15 +327,13 @@ function TaskDetailContent({
             Back to Tasks
           </button>
 
-          {canRetry && (
-            <button
-              type="button"
-              onClick={retry}
-              className="min-h-11 rounded-lg bg-[#222222] px-4 py-2 text-[12px] text-white"
-            >
-              Try again
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={retry}
+            className="min-h-11 rounded-lg bg-[#222222] px-4 py-2 text-[12px] text-white"
+          >
+            Try again
+          </button>
         </div>
       </div>
     );
