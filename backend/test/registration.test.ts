@@ -5,9 +5,10 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { pool } from "../src/db.js";
 import { createEmailVerificationToken } from "better-auth/api";
+import { randomHttpPort } from "./helpers/httpPort.js";
 
 assert.match(process.env.POSTGRES_DB ?? "", /^mobg_w2_test_/);
-const port = Number(process.env.REGISTRATION_BACKEND_PORT) || 6100 + Math.floor(Math.random() * 700);
+const port = Number(process.env.REGISTRATION_BACKEND_PORT) || randomHttpPort();
 const base = `http://localhost:${port}`;
 const origin = process.env.ACCOUNT_WEB_URL || "http://localhost:4300";
 const password = randomBytes(24).toString("hex");
