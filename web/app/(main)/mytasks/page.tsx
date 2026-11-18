@@ -4,12 +4,18 @@ import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 
+import { projectApi } from '@/lib/projectApi';
 import { taskApi } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import ProtectedState from '@/components/ProtectedState';
 import TaskFilters from '@/components/tasks/TaskFilters';
 
-import type { Task, TaskPriority, TaskStatus } from '@/types';
+import type {
+  ProjectItem,
+  Task,
+  TaskPriority,
+  TaskStatus,
+} from '@/types';
 
 const STATUS_OPTIONS: TaskStatus[] = [
   'To do',
@@ -31,6 +37,41 @@ function parsePriorityParam(value: string | null): TaskPriority | '' {
   return '';
 }
 
+// ดึงงานทั้งหมดจากทุกโปรเจกต์ที่ผู้ใช้เป็นสมาชิก (ขอบเขตเดียวกับตัวเลขบน Dashboard)
+async function loadAllProjectTasks(
+  status?: TaskStatus,
+): Promise<Task[]> {
+  const allProjects: ProjectItem[] = [];
+  let page = 1;
+  const pageSize = 50;
+
+  while (true) {
+    const result = await projectApi.getProjects({ page, pageSize });
+    allProjects.push(...result.projects);
+
+    if (result.projects.length < pageSize) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  if (allProjects.length === 0) {
+    return [];
+  }
+
+  const tasksByProject = await Promise.all(
+    allProjects.map((project) =>
+      taskApi.getTasks(
+        project.projectId,
+        status ? { status } : {},
+      ),
+    ),
+  );
+
+  return tasksByProject.flat();
+}
+
 export default function MyTasksPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -39,18 +80,30 @@ export default function MyTasksPage() {
   const [updatingTaskId, setUpdatingTaskId] = useState<number | null>(null);
   const [actionError, setActionError] = useState('');
 
-  // อ่านค่าตัวกรองจาก URL query parameters โดยตรง (ไม่ต้องใช้ useEffect ซิงก์)
+  // อ่านค่าตัวกรองและขอบเขตข้อมูลจาก URL query parameters
+  const isProjectScope = searchParams.get('scope') === 'projects';
   const statusFilter = parseStatusParam(searchParams.get('status'));
   const priorityFilter = parsePriorityParam(searchParams.get('priority'));
   const overdueOnly = searchParams.get('overdue') === 'true';
+  const excludeDone = searchParams.get('excludeDone') === 'true';
 
   const updateQueryParams = useCallback(
     (updates: {
+      scope?: 'mine' | 'projects';
       status?: TaskStatus | '';
       priority?: TaskPriority | '';
       overdue?: boolean;
+      excludeDone?: boolean;
     }) => {
       const next = new URLSearchParams(searchParams.toString());
+
+      if (updates.scope !== undefined) {
+        if (updates.scope === 'projects') {
+          next.set('scope', 'projects');
+        } else {
+          next.delete('scope');
+        }
+      }
 
       if (updates.status !== undefined) {
         if (updates.status) {
@@ -76,23 +129,32 @@ export default function MyTasksPage() {
         }
       }
 
+      if (updates.excludeDone !== undefined) {
+        if (updates.excludeDone) {
+          next.set('excludeDone', 'true');
+        } else {
+          next.delete('excludeDone');
+        }
+      }
+
       const qs = next.toString();
       router.replace(qs ? `/mytasks?${qs}` : '/mytasks', { scroll: false });
     },
     [router, searchParams],
   );
 
-  // โหลดข้อมูลใหม่เมื่อ Status Filter เปลี่ยน
-  // ถ้าไม่ได้เลือก Status จะไม่ส่ง status ไปยัง API
-  const loadMyTasks = useCallback(
-    () =>
-      statusFilter
-        ? taskApi.getMyTasks({ status: statusFilter })
-        : taskApi.getMyTasks(),
-    [statusFilter],
-  );
+  // โหลดข้อมูลตามขอบเขต (งานทั้งหมดในโปรเจกต์ที่เป็นสมาชิก vs งานที่มอบหมายให้เรา)
+  const loadTasks = useCallback(() => {
+    if (isProjectScope) {
+      return loadAllProjectTasks(statusFilter || undefined);
+    }
 
-  const { status, data, retry } = useProtectedLoad(loadMyTasks, {
+    return statusFilter
+      ? taskApi.getMyTasks({ status: statusFilter })
+      : taskApi.getMyTasks();
+  }, [isProjectScope, statusFilter]);
+
+  const { status, data, retry } = useProtectedLoad(loadTasks, {
     revalidateOnFocus: true,
     hideDataWhileRefreshing: true,
     revalidateOnRoute: '/mytasks',
@@ -100,7 +162,7 @@ export default function MyTasksPage() {
 
   const tasksList = useMemo(() => data ?? [], [data]);
 
-  // Search, Priority และ Overdue กรองข้อมูลฝั่ง Client
+  // Search, Priority, Overdue และ ExcludeDone กรองข้อมูลฝั่ง Client
   const filteredTasks = useMemo(() => {
     const keyword = search.trim().toLowerCase();
 
@@ -113,9 +175,16 @@ export default function MyTasksPage() {
 
       const matchesOverdue = !overdueOnly || Boolean(task.isOverdue);
 
-      return matchesSearch && matchesPriority && matchesOverdue;
+      const matchesExcludeDone = !excludeDone || task.status !== 'Done';
+
+      return (
+        matchesSearch &&
+        matchesPriority &&
+        matchesOverdue &&
+        matchesExcludeDone
+      );
     });
-  }, [tasksList, search, priorityFilter, overdueOnly]);
+  }, [tasksList, search, priorityFilter, overdueOnly, excludeDone]);
 
   const handleStatusChange = async (
     task: Task,
@@ -152,8 +221,9 @@ export default function MyTasksPage() {
   const clearFilters = () => {
     setSearch('');
 
-    if (searchParams.toString()) {
-      router.replace('/mytasks', { scroll: false });
+    const targetUrl = isProjectScope ? '/mytasks?scope=projects' : '/mytasks';
+    if (`${window.location.pathname}${window.location.search}` !== targetUrl) {
+      router.replace(targetUrl, { scroll: false });
     }
   };
 
@@ -176,20 +246,23 @@ export default function MyTasksPage() {
     search !== '' ||
     statusFilter !== '' ||
     priorityFilter !== '' ||
-    overdueOnly;
+    overdueOnly ||
+    excludeDone;
 
-  const hasNoAssignedTasks =
+  const hasNoTasksInScope =
     tasksList.length === 0 && !hasActiveFilters;
 
   return (
     <div className="min-w-0">
       <div className="mb-6">
         <h1 className="mb-1 text-[32px] font-extrabold text-[#1f1f1f]">
-          My Tasks
+          {isProjectScope ? 'Project Tasks' : 'My Tasks'}
         </h1>
 
         <p className="text-[14px] text-[#777777]">
-          All your assigned tasks across projects
+          {isProjectScope
+            ? 'All tasks across projects you are a member of'
+            : 'All your assigned tasks across projects'}
         </p>
       </div>
 
@@ -199,13 +272,47 @@ export default function MyTasksPage() {
         priority={priorityFilter}
         onSearchChange={setSearch}
         onStatusChange={(nextStatus) =>
-          updateQueryParams({ status: nextStatus })
+          updateQueryParams({
+            status: nextStatus,
+            ...(nextStatus === 'Done' ? { excludeDone: false } : {}),
+          })
         }
         onPriorityChange={(nextPriority) =>
-          updateQueryParams({ priority: nextPriority })
+          updateQueryParams({
+            priority: nextPriority,
+            excludeDone: false,
+          })
         }
         onClear={clearFilters}
       />
+
+      {isProjectScope && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#dcd0ff] bg-[#f6f3ff] px-3.5 py-2.5 text-[12px] text-[#4a33a8]">
+          <span>
+            Showing all tasks across projects you are a member of
+          </span>
+          <button
+            type="button"
+            onClick={() => updateQueryParams({ scope: 'mine' })}
+            className="font-semibold underline hover:text-[#231942]"
+          >
+            Show my assigned tasks only
+          </button>
+        </div>
+      )}
+
+      {excludeDone && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12px] text-amber-800">
+          <span>Showing unfinished tasks only (Done tasks hidden)</span>
+          <button
+            type="button"
+            onClick={() => updateQueryParams({ excludeDone: false })}
+            className="font-semibold underline hover:text-amber-950"
+          >
+            Include Done tasks
+          </button>
+        </div>
+      )}
 
       {overdueOnly && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[12px] text-red-700">
@@ -232,7 +339,7 @@ export default function MyTasksPage() {
       <div className="min-w-0 rounded-xl border border-[#e0e0e0] bg-white p-4 sm:p-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-[14px] font-semibold text-[#333333]">
-            Assigned Tasks
+            {isProjectScope ? 'All Project Tasks' : 'Assigned Tasks'}
           </h2>
 
           <span className="text-[12px] text-[#888888]">
@@ -256,18 +363,22 @@ export default function MyTasksPage() {
           {filteredTasks.length === 0 ? (
             <div className="py-10 text-center">
               <p className="text-[14px] font-semibold text-[#555555]">
-                {hasNoAssignedTasks
-                  ? 'You have no assigned tasks.'
+                {hasNoTasksInScope
+                  ? isProjectScope
+                    ? 'No tasks in your projects.'
+                    : 'You have no assigned tasks.'
                   : 'No tasks found.'}
               </p>
 
               <p className="mt-1 text-[12px] text-[#999999]">
-                {hasNoAssignedTasks
-                  ? 'Tasks assigned to you will appear here.'
+                {hasNoTasksInScope
+                  ? isProjectScope
+                    ? 'Tasks created in your projects will appear here.'
+                    : 'Tasks assigned to you will appear here.'
                   : 'Try changing your search or filters.'}
               </p>
 
-              {!hasNoAssignedTasks && (
+              {!hasNoTasksInScope && (
                 <button
                   type="button"
                   onClick={clearFilters}

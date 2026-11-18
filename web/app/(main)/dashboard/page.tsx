@@ -109,7 +109,7 @@ function HeroWorkspaceCharacter() {
       viewBox="0 0 380 330"
       fill="none"
       aria-hidden="true"
-      className="w-[280px] sm:w-[330px] xl:w-[375px] h-auto select-none"
+      className="w-[260px] sm:w-[310px] xl:w-[290px] 2xl:w-[360px] h-auto select-none"
     >
       {/* แสงออร่าซ้อนด้านหลังตัวละคร */}
       <circle cx="205" cy="175" r="118" fill="#FFFFFF" fillOpacity="0.14" />
@@ -580,7 +580,7 @@ export default function DashboardPage() {
       key: 'tasks',
       label: 'Total tasks',
       value: summary.taskCount,
-      href: '/mytasks',
+      href: '/mytasks?scope=projects',
       badgeBgClass: 'bg-white',
       badgeColorClass: 'text-[#5B44BA]',
     },
@@ -588,7 +588,7 @@ export default function DashboardPage() {
       key: 'inProgress',
       label: 'Task in progress',
       value: summary.statusCounts.inProgress,
-      href: '/mytasks?status=In%20progress',
+      href: '/mytasks?scope=projects&status=In%20progress',
       badgeBgClass: 'bg-[#ebf3ff]',
       badgeColorClass: 'text-[#2563eb]',
     },
@@ -596,7 +596,7 @@ export default function DashboardPage() {
       key: 'done',
       label: 'Complete tasks',
       value: summary.statusCounts.done,
-      href: '/mytasks?status=Done',
+      href: '/mytasks?scope=projects&status=Done',
       badgeBgClass: 'bg-[#dcfce7]',
       badgeColorClass: 'text-[#15803d]',
     },
@@ -604,7 +604,7 @@ export default function DashboardPage() {
       key: 'overdue',
       label: 'Overdue tasks',
       value: summary.overdueCount,
-      href: '/mytasks?overdue=true',
+      href: '/mytasks?scope=projects&overdue=true',
       badgeBgClass: 'bg-[#fee2e2]',
       badgeColorClass: 'text-[#dc2626]',
     },
@@ -612,7 +612,7 @@ export default function DashboardPage() {
       key: 'highPriority',
       label: 'High priority',
       value: summary.highPriorityCount,
-      href: '/mytasks?priority=1',
+      href: '/mytasks?scope=projects&priority=1&excludeDone=true',
       badgeBgClass: 'bg-[#ffedd5]',
       badgeColorClass: 'text-[#ea580c]',
     },
@@ -634,7 +634,7 @@ export default function DashboardPage() {
       {/* HERO BANNER + HEAD POP-OUT CHARACTER + EMBEDDED 6 SUMMARY STATS */}
       <section
         aria-label="Dashboard summary"
-        className="relative z-[1] rounded-[28px] bg-gradient-to-r from-[#5B44BA] via-[#7A61D4] to-[#A490F5] px-5 py-6 sm:px-8 sm:py-7 text-white shadow-[0_14px_34px_rgba(91,68,186,0.22)]"
+        className="relative z-[1] rounded-[28px] bg-gradient-to-r from-[#5B44BA] via-[#7A61D4] to-[#A490F5] px-4 py-5 sm:px-8 sm:py-7 text-white shadow-[0_14px_34px_rgba(91,68,186,0.22)]"
       >
         {/* พื้นหลังโค้งและประกายระยิบระยับในกรอบ */}
         <div
@@ -648,11 +648,11 @@ export default function DashboardPage() {
           <span className="absolute bottom-6 left-[44%] h-1.5 w-1.5 rounded-full bg-white/40" />
         </div>
 
-        <div className="relative z-[1] flex flex-col xl:flex-row items-center justify-between gap-4">
+        <div className="relative z-[1] flex flex-col xl:flex-row items-center justify-between gap-5">
           {/* ฝั่งซ้าย: หัวข้อ Overview + การ์ดสรุป 6 อัน */}
           <div className="w-full min-w-0 flex-1 flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-[26px] sm:text-[32px] leading-tight font-extrabold tracking-tight text-white">
+              <h1 className="text-[24px] sm:text-[32px] leading-tight font-extrabold tracking-tight text-white">
                 Overview
               </h1>
               <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 border border-white/25 px-3 py-1 text-[11px] font-bold tracking-wider uppercase text-white/95">
@@ -661,7 +661,7 @@ export default function DashboardPage() {
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-3">
               {stats.map((item) => (
                 <Link
                   key={item.label}
@@ -676,7 +676,7 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="min-w-0 flex flex-col">
-                      <span className="text-[12px] font-medium text-white/85 truncate">
+                      <span className="text-[12px] font-medium leading-snug text-white/90">
                         {item.label}
                       </span>
                       <strong className="text-[22px] leading-tight font-extrabold tabular-nums text-white mt-0.5">
@@ -709,7 +709,7 @@ export default function DashboardPage() {
           </div>
 
           {/* ฝั่งขวา: หัวตัวการ์ตูนโผล่ทะลุขอบบนขึ้นไปเด่นๆ */}
-          <div className="shrink-0 -mt-10 -mb-6 sm:-mt-14 sm:-mb-6 xl:-mt-36 xl:-mb-7 xl:-mr-3 flex justify-center pointer-events-none">
+          <div className="shrink-0 -mt-10 -mb-5 sm:-mt-14 sm:-mb-6 xl:-mt-32 xl:-mb-7 xl:-mr-2 flex justify-center pointer-events-none">
             <HeroWorkspaceCharacter />
           </div>
         </div>
@@ -718,7 +718,7 @@ export default function DashboardPage() {
       {/* DASHBOARD CONTENT */}
       <div className="relative z-[1] grid grid-cols-1 xl:grid-cols-[minmax(0,1.12fr)_minmax(0,1fr)] gap-5 items-start">
         {/* YOUR PROJECT */}
-        <section className="min-w-0 bg-white rounded-[24px] border border-[#e2daff] p-5 sm:p-6 shadow-[0_8px_26px_rgba(91,68,186,0.06)]">
+        <section className="min-w-0 bg-white rounded-[24px] border border-[#e2daff] p-4 sm:p-6 shadow-[0_8px_26px_rgba(91,68,186,0.06)]">
           <div className="flex flex-wrap gap-2 items-center justify-between pb-4 border-b border-[#e5deff]">
             <div className="flex items-center gap-2.5">
               <span className="w-9 h-9 rounded-2xl bg-[#f1edff] text-[#5B44BA] flex items-center justify-center">
@@ -794,8 +794,8 @@ export default function DashboardPage() {
                       href={`/projects/${project.projectId}`}
                       className="group min-w-0 py-3 px-3 -mx-3 rounded-2xl flex flex-col gap-3 hover:bg-[#f6f3ff] transition-colors duration-150"
                     >
-                      <div className="min-w-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="min-w-0 flex-1 flex items-center gap-3.5">
+                      <div className="min-w-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
+                        <div className="min-w-0 flex-1 flex items-start gap-3.5">
                           {/* Project Workspace Layers Icon */}
                           <div className="shrink-0 w-10 h-10 rounded-2xl bg-gradient-to-br from-[#f3efff] to-[#e6deff] border border-[#dcd0ff] text-[#5B44BA] flex items-center justify-center group-hover:from-[#5B44BA] group-hover:to-[#795fe0] group-hover:text-white group-hover:border-[#5B44BA] transition-colors duration-150">
                             <svg
@@ -816,7 +816,7 @@ export default function DashboardPage() {
                           </div>
 
                           <div className="min-w-0 flex-1">
-                            <strong className="block text-[14px] font-bold text-[#1d1533] group-hover:text-[#5B44BA] transition-colors truncate">
+                            <strong className="block text-[14px] font-bold text-[#1d1533] group-hover:text-[#5B44BA] transition-colors break-words">
                               {project.projectName}
                             </strong>
 
@@ -826,7 +826,7 @@ export default function DashboardPage() {
                           </div>
                         </div>
 
-                        <div className="shrink-0 flex items-center justify-between sm:justify-end gap-3.5 pl-13 sm:pl-0">
+                        <div className="shrink-0 flex flex-wrap items-center justify-between sm:justify-end gap-2 sm:gap-3.5 pl-13 sm:pl-0">
                           <div className="flex flex-col sm:items-end gap-1 text-[11px] text-[#6e6487]">
                             <span className="inline-flex items-center gap-1.5 font-medium">
                               <svg
@@ -839,7 +839,7 @@ export default function DashboardPage() {
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                                 aria-hidden="true"
-                                className="text-[#5B44BA]"
+                                className="shrink-0 text-[#5B44BA]"
                               >
                                 <polyline points="9 11 12 14 22 4" />
                                 <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
@@ -861,6 +861,7 @@ export default function DashboardPage() {
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                                 aria-hidden="true"
+                                className="shrink-0"
                               >
                                 <rect
                                   x="3"
@@ -884,7 +885,7 @@ export default function DashboardPage() {
 
                           <span
                             aria-hidden="true"
-                            className="text-[#968cb3] group-hover:text-[#5B44BA] transition-colors"
+                            className="shrink-0 text-[#968cb3] group-hover:text-[#5B44BA] transition-colors"
                           >
                             <svg
                               width="16"
@@ -903,13 +904,13 @@ export default function DashboardPage() {
                       </div>
 
                       <div className="flex items-center gap-3 pl-13">
-                        <div className="flex-1 h-[6px] bg-[#ede8ff] rounded-full overflow-hidden">
+                        <div className="flex-1 h-[6px] bg-[#e5e7eb] rounded-full overflow-hidden">
                           <div
-                            className="h-full bg-gradient-to-r from-[#5B44BA] to-[#8c6ff7] rounded-full"
+                            className="h-full bg-[#65c300] rounded-full transition-[width] duration-300"
                             style={{ width: `${progress}%` }}
                           />
                         </div>
-                        <span className="shrink-0 text-[11px] font-bold tabular-nums text-[#5B44BA]">
+                        <span className="shrink-0 text-[11px] font-bold tabular-nums text-[#1d1533]">
                           {progress}%
                         </span>
                       </div>
@@ -922,7 +923,7 @@ export default function DashboardPage() {
         </section>
 
         {/* IMPORTANT TASKS */}
-        <section className="min-w-0 bg-white rounded-[24px] border border-[#e2daff] p-5 sm:p-6 shadow-[0_8px_26px_rgba(91,68,186,0.06)]">
+        <section className="min-w-0 bg-white rounded-[24px] border border-[#e2daff] p-4 sm:p-6 shadow-[0_8px_26px_rgba(91,68,186,0.06)]">
           <div className="flex flex-wrap gap-2 items-center justify-between pb-4 border-b border-[#e5deff]">
             <div className="flex items-center gap-2.5">
               {/* ไอคอนรูปดาวประกาย (ไม่ซ้ำกับธง High priority) */}
@@ -1001,7 +1002,7 @@ export default function DashboardPage() {
                   >
                     <Link
                       href={`/projects/${task.projectId}/tasks/${task.taskId}`}
-                      className="group relative min-w-0 py-3 px-3 -mx-3 rounded-2xl flex items-center justify-between gap-3 hover:bg-[#f6f3ff] transition-colors duration-150"
+                      className="group relative min-w-0 py-3 px-3 -mx-3 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 hover:bg-[#f6f3ff] transition-colors duration-150"
                     >
                       {/* ฝั่งซ้าย: Priority + ชื่อโปรเจกต์ + ชื่อ Task */}
                       <div className="min-w-0 flex-1 flex items-stretch gap-3">
@@ -1024,12 +1025,12 @@ export default function DashboardPage() {
                               {getPriorityText(task.priority)}
                             </span>
 
-                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#f3f0ff] text-[#5B44BA] truncate max-w-[180px]">
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#f3f0ff] text-[#5B44BA] break-words">
                               {task.projectName}
                             </span>
                           </div>
 
-                          <div className="min-w-0 flex items-center gap-2 text-[#1d1533]">
+                          <div className="min-w-0 flex items-start gap-2 text-[#1d1533]">
                             <svg
                               width="14"
                               height="14"
@@ -1040,24 +1041,24 @@ export default function DashboardPage() {
                               strokeLinecap="round"
                               strokeLinejoin="round"
                               aria-hidden="true"
-                              className="shrink-0 text-[#5B44BA]"
+                              className="shrink-0 mt-0.5 text-[#5B44BA]"
                             >
                               <rect x="2" y="4" width="20" height="5" rx="1" />
                               <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9" />
                               <path d="M10 13h4" />
                             </svg>
 
-                            <strong className="min-w-0 text-[13.5px] font-bold text-[#1d1533] group-hover:text-[#5B44BA] transition-colors truncate">
+                            <strong className="min-w-0 flex-1 text-[13.5px] font-bold text-[#1d1533] group-hover:text-[#5B44BA] transition-colors break-words">
                               {task.taskTitle}
                             </strong>
                           </div>
                         </div>
                       </div>
 
-                      {/* ฝั่งขวา: สถานะงานอยู่ด้านบน + วันที่ครบกำหนดอยู่ด้านล่าง */}
-                      <div className="shrink-0 flex items-center gap-2.5 text-[11px] text-[#6e6487]">
-                        <div className="flex flex-col items-end gap-1.5">
-                          {/* Status Pill อยู่ด้านบนวันที่ */}
+                      {/* บนมือถือ: แสดงใต้ชื่องาน | บนจอ sm ขึ้นไป: แสดงฝั่งขวา */}
+                      <div className="shrink-0 flex items-center justify-between sm:justify-end gap-2.5 pl-4 sm:pl-0 text-[11px] text-[#6e6487]">
+                        <div className="flex flex-wrap sm:flex-col items-center sm:items-end gap-1.5">
+                          {/* Status Pill */}
                           <span
                             className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold ${
                               isInProgress
@@ -1086,7 +1087,7 @@ export default function DashboardPage() {
                               strokeLinecap="round"
                               strokeLinejoin="round"
                               aria-hidden="true"
-                              className="text-[#7c6fa0]"
+                              className="shrink-0 text-[#7c6fa0]"
                             >
                               <rect
                                 x="3"
@@ -1112,7 +1113,7 @@ export default function DashboardPage() {
 
                         <span
                           aria-hidden="true"
-                          className="text-[#968cb3] group-hover:text-[#5B44BA] transition-colors"
+                          className="shrink-0 text-[#968cb3] group-hover:text-[#5B44BA] transition-colors"
                         >
                           <svg
                             width="16"
