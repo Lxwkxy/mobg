@@ -3,519 +3,67 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
-  type FormEvent,
 } from 'react';
 import Link from 'next/link';
-import {
-  notFound,
-  useParams,
-  usePathname,
-  useRouter,
-} from 'next/navigation';
+import { notFound, useParams, useRouter } from 'next/navigation';
 
 import ProtectedState from '@/components/ProtectedState';
-import AssigneeSelector from '@/components/tasks/AssigneeSelector';
-import { ApiRequestError } from '@/lib/projectApi';
+import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
+import {
+  ApiRequestError,
+  projectApi,
+} from '@/lib/projectApi';
+import { useSession } from '@/lib/SessionProvider';
 import {
   parseRouteId,
   taskApi,
+  tryParseRouteId,
 } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
-import {
-  mapTaskServerErrors,
-  normalizeAssigneeIds,
-  validateTaskForm,
-  type TaskFormErrors,
-} from '@/lib/taskForm';
-import type {
-  Task,
-  TaskPriority,
-  TaskStatus,
-  ProjectMember,
-  UpdateTaskRequest,
-} from '@/types';
+import type { Project, Task } from '@/types';
 
-type EditTaskData = {
+function formatDate(value: string | null | undefined) {
+  if (!value) return 'Not set';
+
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(date);
+}
+
+function getPriorityLabel(priority: Task['priority']) {
+  switch (priority) {
+    case 1:
+      return 'High';
+    case 2:
+      return 'Medium';
+    case 3:
+      return 'Low';
+    default:
+      return 'Unknown';
+  }
+}
+
+type TaskDetailData = {
   task: Task;
-  members: ProjectMember[];
+  project: Project;
 };
 
-const statusOptions: TaskStatus[] = [
-  'To do',
-  'In progress',
-  'Done',
-];
-
-function isPositiveIntString(value: string) {
-  return (
-    /^\d+$/.test(value) &&
-    Number.isSafeInteger(Number(value)) &&
-    Number(value) > 0
-  );
-}
-
-function EditTaskContent({
-  projectId,
-  taskId,
-  data,
-}: {
-  projectId: string;
-  taskId: string;
-  data: EditTaskData;
-}) {
-  const router = useRouter();
-
-  const [baseline] = useState<Task>(() => data.task);
-
-  const [taskTitle, setTaskTitle] = useState(
-    baseline.taskTitle,
-  );
-
-  const [taskDescription, setTaskDescription] =
-    useState(
-      baseline.taskDescription ?? '',
-    );
-
-  const [priority, setPriority] =
-    useState<TaskPriority>(
-      baseline.priority,
-    );
-
-  const [dueDate, setDueDate] =
-    useState(baseline.dueDate);
-
-  const [taskStatus, setTaskStatus] =
-    useState<TaskStatus>(
-      baseline.status,
-    );
-
-  const [assigneeIds, setAssigneeIds] =
-    useState<number[]>(
-      baseline.assignees.map(
-        (assignee) => assignee.userId,
-      ),
-    );
-
-  const [isSaving, setIsSaving] =
-    useState(false);
-
-  const [errors, setErrors] =
-    useState<TaskFormErrors>({});
-
-  function clearError(
-    field: keyof TaskFormErrors,
-  ) {
-    setErrors((current) => {
-      const next = { ...current };
-
-      delete next[field];
-      delete next.general;
-
-      return next;
-    });
-  }
-
-  function toggleAssignee(userId: number) {
-    setAssigneeIds((current) =>
-      current.includes(userId)
-        ? current.filter((id) => id !== userId)
-        : [...current, userId],
-    );
-
-    clearError('assigneeIds');
-  }
-
-  function handleCancel() {
-    if (isSaving) {
-      return;
-    }
-
-    router.push(
-      `/projects/${projectId}/tasks/${taskId}`,
-    );
-  }
-
-  async function handleSubmit(
-    event: FormEvent<HTMLFormElement>,
-  ) {
-    event.preventDefault();
-
-    if (isSaving) {
-      return;
-    }
-
-    const trimmedTitle = taskTitle.trim();
-    const trimmedDescription =
-      taskDescription.trim();
-
-    const validationErrors = validateTaskForm({
-      taskTitle,
-      dueDate,
-      assigneeIds,
-    });
-
-    if (
-      Object.keys(validationErrors).length > 0
-    ) {
-      setErrors(validationErrors);
-      return;
-    }
-
-    const originalAssigneeIds =
-      normalizeAssigneeIds(
-        baseline.assignees.map(
-          (assignee) => assignee.userId,
-        ),
-      );
-
-    const updatedAssigneeIds =
-      normalizeAssigneeIds(assigneeIds);
-
-    const input: UpdateTaskRequest = {};
-
-    if (trimmedTitle !== baseline.taskTitle) {
-      input.taskTitle = trimmedTitle;
-    }
-
-    if (
-      trimmedDescription !==
-      (baseline.taskDescription ?? '')
-    ) {
-      input.taskDescription =
-        trimmedDescription || null;
-    }
-
-    if (priority !== baseline.priority) {
-      input.priority = priority;
-    }
-
-    if (dueDate !== baseline.dueDate) {
-      input.dueDate = dueDate;
-    }
-
-    if (taskStatus !== baseline.status) {
-      input.status = taskStatus;
-    }
-
-    const assigneesChanged =
-      originalAssigneeIds.length !==
-        updatedAssigneeIds.length ||
-      originalAssigneeIds.some(
-        (id, index) =>
-          id !== updatedAssigneeIds[index],
-      );
-
-    if (assigneesChanged) {
-      input.assigneeIds = updatedAssigneeIds;
-    }
-
-    if (Object.keys(input).length === 0) {
-      setErrors({
-        general: 'No changes to save.',
-      });
-
-      return;
-    }
-
-    setErrors({});
-    setIsSaving(true);
-
-    try {
-      const parsedProjectId = parseRouteId(
-        projectId,
-        'project ID',
-      );
-
-      const parsedTaskId = parseRouteId(
-        taskId,
-        'task ID',
-      );
-
-      await taskApi.updateTask(
-        parsedProjectId,
-        parsedTaskId,
-        input,
-      );
-
-      router.push(
-        `/projects/${parsedProjectId}/tasks/${parsedTaskId}`,
-      );
-
-      router.refresh();
-    } catch (error) {
-      console.error(
-        'Failed to update task:',
-        error,
-      );
-
-      if (error instanceof ApiRequestError) {
-        if (error.status === 401) {
-          router.replace('/login');
-          return;
-        }
-
-        const serverErrors =
-          mapTaskServerErrors(error.details);
-
-        if (error.status === 403) {
-          serverErrors.general =
-            'You do not have permission to edit this task.';
-        } else if (
-          Object.keys(serverErrors).length > 0
-        ) {
-          serverErrors.general =
-            error.message ||
-            'Please check the highlighted fields.';
-        } else {
-          serverErrors.general =
-            error.message ||
-            'Unable to update task. Please try again.';
-        }
-
-        setErrors(serverErrors);
-      } else {
-        setErrors({
-          general:
-            'An unexpected error occurred. Please try again.',
-        });
-      }
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  return (
-    <div className="mx-auto w-full max-w-4xl min-w-0 [overflow-wrap:anywhere]">
-      <Link
-        href={`/projects/${projectId}/tasks/${taskId}`}
-        className="mb-5 inline-flex min-h-11 items-center text-[13px] text-[#666666] hover:text-black"
-      >
-        ← Back to Task Detail
-      </Link>
-
-      <div className="mb-6">
-        <p className="mb-1 text-[13px] text-[#777777]">
-          {data.task.projectName}
-        </p>
-
-        <h1 className="text-[30px] font-extrabold text-[#1f1f1f]">
-          Edit Task
-        </h1>
-
-        <p className="mt-2 text-[13px] text-[#777777]">
-          Update task information, status, priority,
-          and assignees.
-        </p>
-      </div>
-
-      <form
-        onSubmit={handleSubmit}
-        noValidate
-        className="rounded-2xl border border-[#e0e0e0] bg-white p-4 shadow-sm sm:p-6 md:p-8"
-      >
-        {errors.general && (
-          <div
-            role="alert"
-            className="mb-6 rounded-lg border border-red-300 bg-red-50 p-3.5 text-[13px] text-red-700"
-          >
-            {errors.general}
-          </div>
-        )}
-
-        <div className="mb-5">
-          <label
-            htmlFor="taskTitle"
-            className="mb-2 block text-[13px] font-semibold text-[#333333]"
-          >
-            Task title{' '}
-            <span className="text-red-500">*</span>
-          </label>
-
-          <input
-            id="taskTitle"
-            type="text"
-            maxLength={200}
-            value={taskTitle}
-            onChange={(event) => {
-              setTaskTitle(event.target.value);
-              clearError('taskTitle');
-            }}
-            className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] ${
-              errors.taskTitle
-                ? 'border-red-500'
-                : 'border-[#dcdcdc]'
-            }`}
-            aria-invalid={Boolean(errors.taskTitle)}
-          />
-
-          {errors.taskTitle && (
-            <p className="mt-1.5 text-[12px] text-red-600">
-              {errors.taskTitle}
-            </p>
-          )}
-        </div>
-
-        <div className="mb-5">
-          <label
-            htmlFor="taskDescription"
-            className="mb-2 block text-[13px] font-semibold text-[#333333]"
-          >
-            Description
-          </label>
-
-          <textarea
-            id="taskDescription"
-            rows={4}
-            value={taskDescription}
-            onChange={(event) => {
-              setTaskDescription(event.target.value);
-              clearError('taskDescription');
-            }}
-            placeholder="Describe what needs to be done..."
-            className="w-full resize-y rounded-xl border border-[#dcdcdc] px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
-          />
-        </div>
-
-        <div className="mb-5 grid gap-5 sm:grid-cols-2">
-          <div>
-            <label
-              htmlFor="taskStatus"
-              className="mb-2 block text-[13px] font-semibold text-[#333333]"
-            >
-              Status
-            </label>
-
-            <select
-              id="taskStatus"
-              value={taskStatus}
-              onChange={(event) => {
-                setTaskStatus(
-                  event.target.value as TaskStatus,
-                );
-
-                clearError('status');
-              }}
-              className="w-full rounded-xl border border-[#dcdcdc] bg-white px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
-            >
-              {statusOptions.map((option) => (
-                <option
-                  key={option}
-                  value={option}
-                >
-                  {option}
-                </option>
-              ))}
-            </select>
-
-            {errors.status && (
-              <p className="mt-1.5 text-[12px] text-red-600">
-                {errors.status}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label
-              htmlFor="priority"
-              className="mb-2 block text-[13px] font-semibold text-[#333333]"
-            >
-              Priority
-            </label>
-
-            <select
-              id="priority"
-              value={priority}
-              onChange={(event) => {
-                setPriority(
-                  Number(
-                    event.target.value,
-                  ) as TaskPriority,
-                );
-
-                clearError('priority');
-              }}
-              className="w-full rounded-xl border border-[#dcdcdc] bg-white px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
-            >
-              <option value={1}>High</option>
-              <option value={2}>Medium</option>
-              <option value={3}>Low</option>
-            </select>
-
-            {errors.priority && (
-              <p className="mt-1.5 text-[12px] text-red-600">
-                {errors.priority}
-              </p>
-            )}
-          </div>
-        </div>
-
-        <div className="mb-6">
-          <label
-            htmlFor="dueDate"
-            className="mb-2 block text-[13px] font-semibold text-[#333333]"
-          >
-            Due date{' '}
-            <span className="text-red-500">*</span>
-          </label>
-
-          <input
-            id="dueDate"
-            type="date"
-            value={dueDate}
-            onChange={(event) => {
-              setDueDate(event.target.value);
-              clearError('dueDate');
-            }}
-            className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] sm:max-w-sm ${
-              errors.dueDate
-                ? 'border-red-500'
-                : 'border-[#dcdcdc]'
-            }`}
-            aria-invalid={Boolean(errors.dueDate)}
-          />
-
-          {errors.dueDate && (
-            <p className="mt-1.5 text-[12px] text-red-600">
-              {errors.dueDate}
-            </p>
-          )}
-        </div>
-
-        <AssigneeSelector
-          members={data.members}
-          selectedIds={assigneeIds}
-          error={errors.assigneeIds}
-          disabled={isSaving}
-          onToggle={toggleAssignee}
-        />
-
-        <div className="flex flex-wrap justify-end gap-3 border-t border-[#eeeeee] pt-5">
-          <button
-            type="button"
-            disabled={isSaving}
-            onClick={handleCancel}
-            className="min-h-11 rounded-xl border border-[#dddddd] px-5 text-[13px] font-medium text-[#444444] hover:bg-[#f7f7f7] disabled:opacity-50"
-          >
-            Cancel
-          </button>
-
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="min-h-11 rounded-xl bg-[#222222] px-6 text-[13px] font-semibold text-white hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSaving
-              ? 'Saving...'
-              : 'Save Changes'}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-function EditTaskLoader({
+type DeleteContext = {
+  revision: number;
+  userId: number | string;
+  projectId: number;
+  taskId: number;
+};
+
+function TaskDetailContent({
   projectId,
   taskId,
 }: {
@@ -523,46 +71,35 @@ function EditTaskLoader({
   taskId: string;
 }) {
   const router = useRouter();
+  const { session, isCurrentSessionRevision } = useSession();
+
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  const mountedRef = useRef(false);
+  const requestSequenceRef = useRef(0);
+  const deleteContextRef = useRef<DeleteContext | null>(null);
 
   const isInvalidId =
-    !isPositiveIntString(projectId) || !isPositiveIntString(taskId);
+    tryParseRouteId(projectId, 'project ID') === null ||
+    tryParseRouteId(taskId, 'task ID') === null;
 
-  const load = useCallback(
-    async (): Promise<EditTaskData> => {
-      const parsedProjectId = parseRouteId(
-        projectId,
-        'project ID',
-      );
+  const load = useCallback(async (): Promise<TaskDetailData> => {
+    const numericProjectId = parseRouteId(projectId, 'project ID');
+    const numericTaskId = parseRouteId(taskId, 'task ID');
 
-      const parsedTaskId = parseRouteId(
-        taskId,
-        'task ID',
-      );
+    const [task, project] = await Promise.all([
+      taskApi.getTaskById(numericProjectId, numericTaskId),
+      projectApi.getProjectById(numericProjectId),
+    ]);
 
-      const [task, members] = await Promise.all([
-        taskApi.getTaskById(
-          parsedProjectId,
-          parsedTaskId,
-        ),
-
-        taskApi.getProjectMembers(
-          parsedProjectId,
-        ),
-      ]);
-
-      return {
-        task,
-        members,
-      };
-    },
-    [projectId, taskId],
-  );
+    return { task, project };
+  }, [projectId, taskId]);
 
   const {
-    status: loadStatus,
+    status,
     data,
-    retained,
-    retainedUserId,
     httpStatus,
     retry,
   } = useProtectedLoad(load, {
@@ -572,7 +109,7 @@ function EditTaskLoader({
 
   const isNotFound =
     isInvalidId ||
-    (loadStatus === 'error' && (httpStatus === 400 || httpStatus === 404));
+    (status === 'error' && (httpStatus === 400 || httpStatus === 404));
 
   useEffect(() => {
     if (isNotFound) {
@@ -580,103 +117,441 @@ function EditTaskLoader({
     }
   }, [isNotFound]);
 
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      requestSequenceRef.current += 1;
+      deleteContextRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const context = deleteContextRef.current;
+
+    if (!context) return;
+
+    const isSameSession =
+      session.status === 'ready' &&
+      session.user?.userId === context.userId &&
+      isCurrentSessionRevision(context.revision);
+
+    if (!isSameSession) {
+      requestSequenceRef.current += 1;
+      deleteContextRef.current = null;
+      setIsDeleteDialogOpen(false);
+      setIsDeleting(false);
+      setDeleteError('');
+    }
+  }, [
+    session.revision,
+    session.status,
+    session.user?.userId,
+    isCurrentSessionRevision,
+  ]);
+
+  useEffect(() => {
+    if (!isDeleteDialogOpen || !deleteContextRef.current || !data) {
+      return;
+    }
+
+    const context = deleteContextRef.current;
+
+    const isSameItem =
+      data.project.projectId === context.projectId &&
+      data.task.taskId === context.taskId;
+
+    const stillOwner = data.project.myRole === 'Owner';
+
+    if (!isSameItem || !stillOwner) {
+      requestSequenceRef.current += 1;
+      deleteContextRef.current = null;
+      setIsDeleteDialogOpen(false);
+      setIsDeleting(false);
+      setDeleteError('');
+    }
+  }, [data, isDeleteDialogOpen]);
+
+  const openDeleteDialog = () => {
+    if (
+      !data ||
+      data.project.myRole !== 'Owner' ||
+      session.status !== 'ready' ||
+      !session.user
+    ) {
+      return;
+    }
+
+    const numericProjectId = parseRouteId(projectId, 'project ID');
+    const numericTaskId = parseRouteId(taskId, 'task ID');
+
+    deleteContextRef.current = {
+      revision: session.revision,
+      userId: session.user.userId,
+      projectId: numericProjectId,
+      taskId: numericTaskId,
+    };
+
+    setDeleteError('');
+    setIsDeleteDialogOpen(true);
+  };
+
+  const closeDeleteDialog = () => {
+    if (isDeleting) return;
+
+    requestSequenceRef.current += 1;
+    deleteContextRef.current = null;
+    setIsDeleteDialogOpen(false);
+    setDeleteError('');
+  };
+
+  const handleDelete = async () => {
+    const context = deleteContextRef.current;
+
+    if (
+      !data ||
+      !context ||
+      isDeleting ||
+      !isDeleteDialogOpen ||
+      session.status !== 'ready' ||
+      !session.user ||
+      data.project.myRole !== 'Owner'
+    ) {
+      return;
+    }
+
+    const numericProjectId = parseRouteId(projectId, 'project ID');
+    const numericTaskId = parseRouteId(taskId, 'task ID');
+
+    const canDelete =
+      context.revision === session.revision &&
+      context.userId === session.user.userId &&
+      context.projectId === numericProjectId &&
+      context.taskId === numericTaskId &&
+      data.project.projectId === numericProjectId &&
+      data.task.taskId === numericTaskId &&
+      data.project.myRole === 'Owner' &&
+      isCurrentSessionRevision(context.revision);
+
+    if (!canDelete) {
+      deleteContextRef.current = null;
+      setIsDeleteDialogOpen(false);
+      setDeleteError('');
+      return;
+    }
+
+    const requestRevision = context.revision;
+    const requestUserId = context.userId;
+    const requestProjectId = context.projectId;
+    const requestTaskId = context.taskId;
+    const requestToken = ++requestSequenceRef.current;
+
+    const isRequestCurrent = () => {
+      return (
+        mountedRef.current &&
+        requestSequenceRef.current === requestToken &&
+        deleteContextRef.current === context &&
+        session.user?.userId === requestUserId &&
+        isCurrentSessionRevision(requestRevision)
+      );
+    };
+
+    setIsDeleting(true);
+    setDeleteError('');
+
+    try {
+      await taskApi.deleteTask(requestProjectId, requestTaskId);
+
+      if (!isRequestCurrent()) return;
+
+      deleteContextRef.current = null;
+      setIsDeleteDialogOpen(false);
+
+      router.push(`/projects/${requestProjectId}/tasks`);
+      router.refresh();
+    } catch (error) {
+      if (!isRequestCurrent()) return;
+
+      if (error instanceof ApiRequestError) {
+        if (error.status === 401) {
+          deleteContextRef.current = null;
+          setIsDeleteDialogOpen(false);
+          router.replace('/login');
+          return;
+        }
+
+        if (error.status === 403) {
+          setDeleteError(
+            'You do not have permission to delete this task.',
+          );
+          return;
+        }
+
+        if (error.status === 404) {
+          setDeleteError(
+            'This task could not be found. It may have already been deleted.',
+          );
+          return;
+        }
+
+        setDeleteError(error.message);
+        return;
+      }
+
+      setDeleteError('Unable to delete this task. Please try again.');
+    } finally {
+      if (isRequestCurrent()) {
+        setIsDeleting(false);
+      }
+    }
+  };
+
   if (isNotFound) {
     return null;
   }
 
-  const showContent =
-    loadStatus === 'ready' &&
-    data !== null;
+  if (status === 'error') {
+    return (
+      <div className="mx-auto min-w-0 w-full max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-4 sm:p-6">
+        <p role="alert" className="mb-4 text-[13px] text-red-600">
+          Unable to load task details. Please try again.
+        </p>
 
-  const retainedData = retained ?? data;
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => router.push(`/projects/${projectId}/tasks`)}
+            className="min-h-11 rounded-lg border border-[#e0e0e0] px-4 py-2 text-[12px]"
+          >
+            Back to Tasks
+          </button>
 
-  const hasRetainedContent =
-    retainedData !== null &&
-    retainedUserId !== null;
-
-  const errorContent = (
-    <div className="mx-auto max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-5">
-      <p
-        role="alert"
-        className="mb-4 text-[13px] text-red-600"
-      >
-        Unable to load task information. Please try again.
-      </p>
-
-      <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
-          onClick={() =>
-            router.push(
-              `/projects/${projectId}/tasks`,
-            )
-          }
-          className="min-h-11 rounded-lg border border-[#dddddd] px-4 text-[13px]"
-        >
-          Back to Tasks
-        </button>
-
-        <button
-          type="button"
-          onClick={retry}
-          className="min-h-11 rounded-lg bg-[#222222] px-4 text-[13px] text-white"
-        >
-          Try again
-        </button>
+          <button
+            type="button"
+            onClick={retry}
+            className="min-h-11 rounded-lg bg-[#222222] px-4 py-2 text-[12px] text-white"
+          >
+            Try again
+          </button>
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
 
-  const shouldShowError =
-    loadStatus === 'error' && !hasRetainedContent;
+  if (status !== 'ready' || data === null) {
+    return (
+      <ProtectedState
+        status={status === 'ready' ? 'loading' : status}
+        onRetry={retry}
+      />
+    );
+  }
 
   return (
     <>
-      {hasRetainedContent && retainedData && (
-        <div
-          hidden={!showContent || shouldShowError}
-          inert={!showContent || shouldShowError}
-        >
-          <EditTaskContent
-            key={`${projectId}-${taskId}-${retainedUserId}`}
-            projectId={projectId}
-            taskId={taskId}
-            data={retainedData}
-          />
-        </div>
-      )}
-
-      {!showContent && (
-        shouldShowError
-          ? errorContent
-          : (
-            <ProtectedState
-              status={
-                loadStatus === 'ready'
-                  ? 'loading'
-                  : loadStatus
-              }
-              onRetry={retry}
-            />
+      <TaskDetailView
+        task={data.task}
+        projectId={projectId}
+        isOwner={data.project.myRole === 'Owner'}
+        isDeleting={isDeleting}
+        onDelete={openDeleteDialog}
+        onBack={() => router.push(`/projects/${projectId}/tasks`)}
+        onEdit={() =>
+          router.push(
+            `/projects/${projectId}/tasks/${data.task.taskId}/edit`,
           )
-      )}
+        }
+      />
+
+      <ConfirmationDialog
+        open={isDeleteDialogOpen}
+        title="Delete Task?"
+        description="Are you sure you want to permanently delete this task?"
+        itemName={data.task.taskTitle}
+        confirmLabel="Delete Task"
+        isLoading={isDeleting}
+        error={deleteError}
+        onCancel={closeDeleteDialog}
+        onConfirm={() => void handleDelete()}
+      />
     </>
   );
 }
 
-export default function EditTaskPage() {
+function TaskDetailView({
+  task,
+  projectId,
+  isOwner,
+  isDeleting,
+  onDelete,
+  onBack,
+  onEdit,
+}: {
+  task: Task;
+  projectId: string;
+  isOwner: boolean;
+  isDeleting: boolean;
+  onDelete: () => void;
+  onBack: () => void;
+  onEdit: () => void;
+}) {
+  return (
+    <div className="mx-auto min-w-0 w-full max-w-4xl [overflow-wrap:anywhere]">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="min-h-11 text-[13px] text-[#666666] hover:text-black"
+        >
+          ← Back to Tasks
+        </button>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="min-h-11 rounded-lg bg-[#222222] px-5 py-2 text-[12px] font-medium text-white hover:bg-[#444444]"
+          >
+            Edit Task
+          </button>
+
+          {isOwner && (
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={isDeleting}
+              className="min-h-11 rounded-lg border border-red-300 px-5 py-2 text-[12px] font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Delete Task
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-[#e0e0e0] bg-white p-4 sm:p-6 md:p-8">
+        <div className="mb-6 border-b border-[#eeeeee] pb-6">
+          <p className="mb-2 text-[12px] text-[#888888]">
+            Task Detail
+          </p>
+
+          <h1 className="mb-3 text-2xl font-bold text-[#222222] sm:text-3xl">
+            {task.taskTitle}
+          </h1>
+
+          <p className="whitespace-pre-wrap text-[14px] leading-6 text-[#666666]">
+            {task.taskDescription || 'No description provided.'}
+          </p>
+        </div>
+
+        <div className="grid gap-6 sm:grid-cols-2">
+          <div>
+            <p className="mb-2 text-[11px] text-[#888888]">
+              Project
+            </p>
+            <Link
+              href={`/projects/${projectId}`}
+              className="text-[14px] font-semibold text-[#222222] underline underline-offset-4 hover:text-[#666666]"
+            >
+              {task.projectName}
+            </Link>
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] text-[#888888]">
+              Status
+            </p>
+            <p className="text-[14px] font-semibold text-[#222222]">
+              {task.status}
+            </p>
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] text-[#888888]">
+              Priority
+            </p>
+            <p className="text-[14px] font-semibold text-[#222222]">
+              {getPriorityLabel(task.priority)}
+            </p>
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] text-[#888888]">
+              Due Date
+            </p>
+            <p className="text-[14px] font-semibold text-[#222222]">
+              {formatDate(task.dueDate)}
+            </p>
+
+            {task.isOverdue && (
+              <p className="mt-1 text-[12px] font-medium text-red-600">
+                Overdue
+              </p>
+            )}
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] text-[#888888]">
+              Created By
+            </p>
+            <p className="text-[14px] font-semibold text-[#222222]">
+              {task.createdByName}
+            </p>
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] text-[#888888]">
+              Created At
+            </p>
+            <p className="text-[14px] font-semibold text-[#222222]">
+              {formatDate(task.createdAt)}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-7 border-t border-[#eeeeee] pt-6">
+          <h2 className="mb-4 text-[15px] font-semibold text-[#222222]">
+            Assignees
+          </h2>
+
+          {task.assignees.length === 0 ? (
+            <p className="text-[13px] text-[#888888]">
+              No assignees.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {task.assignees.map((assignee) => (
+                <div
+                  key={assignee.userId}
+                  className="rounded-lg border border-[#e5e5e5] bg-[#fafafa] px-3 py-2"
+                >
+                  <p className="text-[13px] font-medium text-[#333333]">
+                    {assignee.userName}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function TaskDetailPage() {
   const params = useParams<{
     projectId: string;
     taskId: string;
   }>();
 
-  const pathname = usePathname();
+  const projectId = params.projectId;
+  const taskId = params.taskId;
 
   return (
-    <EditTaskLoader
-      key={pathname}
-      projectId={params.projectId}
-      taskId={params.taskId}
+    <TaskDetailContent
+      key={`${projectId}-${taskId}`}
+      projectId={projectId}
+      taskId={taskId}
     />
   );
 }

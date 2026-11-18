@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import ProtectedState from '@/components/ProtectedState';
 import { getCurrentUser } from '@/lib/authService';
 import { projectApi } from '@/lib/projectApi';
+import { useSession } from '@/lib/SessionProvider';
 import type { User } from '@/types';
 
 type FormErrors = {
@@ -77,6 +78,7 @@ function mapServerField(field: string): keyof FormErrors | null {
 
 export default function CreateProjectPage() {
   const router = useRouter();
+  const { clearSession, replaceSession } = useSession();
 
   const [projectName, setProjectName] = useState('');
   const [description, setDescription] = useState('');
@@ -120,9 +122,12 @@ export default function CreateProjectPage() {
         if (!active) return;
 
         if (!currentUser) {
+          clearSession();
           setAuthStatus('login-required');
           return;
         }
+
+        replaceSession(currentUser, 'ready');
 
         const availableUsers = await projectApi.getUsers();
 
@@ -142,6 +147,7 @@ export default function CreateProjectPage() {
           const requestError = error as RequestError;
 
           if (requestError.status === 401) {
+            clearSession();
             setAuthStatus('login-required');
             return;
           }
@@ -161,7 +167,7 @@ export default function CreateProjectPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [clearSession, replaceSession]);
 
   function toggleMember(userId: number) {
     setMemberIds((current) =>
@@ -259,6 +265,7 @@ export default function CreateProjectPage() {
       }
 
       if (requestError.status === 401) {
+        clearSession();
         setAuthStatus('login-required');
         return;
       }

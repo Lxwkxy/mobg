@@ -6,7 +6,7 @@ import { notFound, useParams, useRouter } from 'next/navigation';
 
 import ProtectedState from '@/components/ProtectedState';
 import TaskFilters from '@/components/tasks/TaskFilters';
-import { parseRouteId, taskApi } from '@/lib/taskApi';
+import { parseRouteId, taskApi, tryParseRouteId } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import type { Task, TaskPriority, TaskStatus } from '@/types';
 
@@ -147,10 +147,7 @@ function ProjectTasksContent({ projectId }: { projectId: string }) {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority | ''>('');
 
-  const isInvalidId =
-    !/^\d+$/.test(projectId) ||
-    !Number.isSafeInteger(Number(projectId)) ||
-    Number(projectId) <= 0;
+  const isInvalidId = tryParseRouteId(projectId, 'project ID') === null;
 
   const load = useCallback(async () => {
     const id = parseRouteId(projectId, 'project ID');

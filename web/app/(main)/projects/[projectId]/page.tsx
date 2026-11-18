@@ -18,6 +18,7 @@ import {
   ApiRequestError,
   projectApi,
 } from '@/lib/projectApi';
+import { parseRouteId, tryParseRouteId } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import { useSession } from '@/lib/SessionProvider';
 import ProtectedState from '@/components/ProtectedState';
@@ -67,11 +68,7 @@ export default function ProjectDetailPage() {
     () => false,
   );
 
-  const parsedProjectId = Number(params.projectId);
-  const isValidProjectId =
-    /^\d+$/.test(params.projectId) &&
-    Number.isSafeInteger(parsedProjectId) &&
-    parsedProjectId > 0;
+  const isInvalidId = tryParseRouteId(params.projectId, 'project ID') === null;
 
   const {
     session,
@@ -98,12 +95,9 @@ export default function ProjectDetailPage() {
   const activeDeleteRef = useRef<DeleteTarget | null>(null);
 
   const load = useCallback(async () => {
-    if (!isValidProjectId) {
-      return null;
-    }
-
-    return projectApi.getProjectById(parsedProjectId);
-  }, [isValidProjectId, parsedProjectId]);
+    const id = parseRouteId(params.projectId, 'project ID');
+    return projectApi.getProjectById(id);
+  }, [params.projectId]);
 
   const {
     status,
@@ -116,7 +110,7 @@ export default function ProjectDetailPage() {
   });
 
   const isNotFound =
-    !isValidProjectId ||
+    isInvalidId ||
     (status === 'error' && (httpStatus === 400 || httpStatus === 404));
 
   useEffect(() => {
@@ -148,7 +142,6 @@ export default function ProjectDetailPage() {
     projectIdParamRef.current = params.projectId;
   }, [params.projectId]);
 
-  // ทิ้งการยืนยันเดิมเมื่อเปลี่ยน route เปลี่ยนบัญชี หรือออกจากระบบ
   useEffect(() => {
     const context = activeDeleteRef.current;
 
@@ -179,8 +172,6 @@ export default function ProjectDetailPage() {
     session.user?.userId,
   ]);
 
-  // ทิ้งการยืนยันเดิมหาก Project เปลี่ยน โหลดข้อมูลไม่ได้ หรือเสียสิทธิ์ Owner
-  // แต่จะไม่ยกเลิกคำขอระหว่างที่กำลังส่ง DELETE จนกว่าจะรู้ผลจริง
   useEffect(() => {
     const context = activeDeleteRef.current;
 
@@ -223,7 +214,6 @@ export default function ProjectDetailPage() {
     ): Promise<boolean> => {
       const activeContext = activeDeleteRef.current;
 
-      // ตรวจ route และคำขอก่อน เพราะช่วง session loading ค่า userId จะว่างชั่วคราว
       if (
         !mountedRef.current ||
         requestSequenceRef.current !== requestId ||
@@ -282,11 +272,10 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    const projectId = Number(params.projectId);
+    const projectId = tryParseRouteId(params.projectId, 'project ID');
 
     if (
-      !Number.isSafeInteger(projectId) ||
-      projectId <= 0 ||
+      projectId === null ||
       displayedProject.projectId !== projectId
     ) {
       return;
@@ -337,7 +326,6 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    // ตรวจสอบข้อมูลก่อนเริ่มคำขอ
     if (
       session.status !== 'ready' ||
       !session.user ||
@@ -364,7 +352,6 @@ export default function ProjectDetailPage() {
     setPermissionNotice(null);
 
     try {
-      // โหลดข้อมูล Project ล่าสุดก่อน DELETE
       const latestProject = await projectApi.getProjectById(
         context.projectId,
       );
@@ -373,7 +360,6 @@ export default function ProjectDetailPage() {
         return;
       }
 
-      // หากข้อมูลล่าสุดไม่ใช่ Owner ห้ามส่ง DELETE
       if (
         latestProject.projectId !== context.projectId ||
         latestProject.myRole !== 'Owner'
@@ -397,13 +383,11 @@ export default function ProjectDetailPage() {
             'Your Owner permission has changed. You can no longer delete this project.',
         });
 
-        // โหลด Project ใหม่เพื่ออัปเดตข้อมูลให้ตรงกัน
         retry();
 
         return;
       }
 
-      // ตรวจ Session และสิทธิ์อีกครั้งก่อนส่ง DELETE
       if (!(await isDeleteRequestCurrent(requestId, context))) {
         return;
       }

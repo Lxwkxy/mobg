@@ -5,7 +5,10 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useHydrated } from '@/lib/useHydrated';
 import { loginApi } from '@/lib/authService';
-import { registerAccount, requestPasswordReset } from '@/lib/accountService';
+import {
+  usePasswordResetRequestAction,
+  useRegisterAction,
+} from '@/lib/useAccountActions';
 import { Button } from '@/components/ui/Button';
 
 type AuthViewMode = 'register' | 'login' | 'forgot';
@@ -240,7 +243,7 @@ function CloudEdge() {
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-function validateEmail(value: string): string | null {
+function validateLoginEmail(value: string): string | null {
   const cleanedEmail = value.trim();
 
   if (!cleanedEmail) {
@@ -281,24 +284,29 @@ export default function LoginSplitView({
   const [emailAnnouncement, setEmailAnnouncement] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Forgot password state (mirrors AccountForm mode="forgot")
+  // Shared forgot password & register actions
   const [forgotEmail, setForgotEmail] = useState('');
-  const [forgotError, setForgotError] = useState('');
-  const [forgotDone, setForgotDone] = useState(false);
-  const [forgotPending, setForgotPending] = useState(false);
+  const {
+    pending: forgotPending,
+    error: forgotError,
+    done: forgotDone,
+    setError: setForgotError,
+    resetState: resetForgotState,
+    submitPasswordResetRequest,
+  } = usePasswordResetRequestAction();
 
-  // Register state (mirrors AccountForm mode="register")
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirm, setRegConfirm] = useState('');
-  const [regError, setRegError] = useState('');
-  const [regPending, setRegPending] = useState(false);
+  const {
+    pending: regPending,
+    error: regError,
+    setError: setRegError,
+    submitRegister,
+  } = useRegisterAction();
 
-  // Prevent duplicate requests before React updates loading states
   const isSubmitting = useRef(false);
-  const forgotBusy = useRef(false);
-  const regBusy = useRef(false);
 
   const emailInputRef = useRef<HTMLInputElement>(null);
   const forgotEmailInputRef = useRef<HTMLInputElement>(null);
@@ -323,8 +331,7 @@ export default function LoginSplitView({
       setActiveView(nextMode);
 
       if (nextMode === 'forgot') {
-        setForgotError('');
-        setForgotDone(false);
+        resetForgotState();
         setForgotEmail((prev) => prev || email.trim());
         if (updateHistory && window.location.pathname !== '/forgot-password') {
           window.history.pushState({ view: 'forgot' }, '', '/forgot-password');
@@ -354,7 +361,7 @@ export default function LoginSplitView({
         }
       }, 860);
     },
-    [email],
+    [email, resetForgotState, setRegError],
   );
 
   useEffect(() => {
@@ -386,7 +393,7 @@ export default function LoginSplitView({
     };
   }, []);
 
-  const emailValidationError = validateEmail(email);
+  const emailValidationError = validateLoginEmail(email);
   const showEmailError = emailTouched && emailValidationError !== null;
 
   function announceEmailError(message: string) {
@@ -410,7 +417,7 @@ export default function LoginSplitView({
     setFormError('');
     setEmailTouched(true);
 
-    const validationError = validateEmail(email);
+    const validationError = validateLoginEmail(email);
 
     if (validationError) {
       announceEmailError(validationError);
@@ -455,7 +462,7 @@ export default function LoginSplitView({
     setEmail(value);
     setFormError('');
 
-    const validationError = validateEmail(value);
+    const validationError = validateLoginEmail(value);
 
     if (!validationError) {
       setEmailTouched(false);
@@ -471,74 +478,17 @@ export default function LoginSplitView({
 
   async function handleForgotSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (forgotBusy.current) return;
-
-    setForgotError('');
-    const normalizedEmail = forgotEmail.trim().toLowerCase();
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || normalizedEmail.length > 255) {
-      setForgotError('Enter a valid email address.');
-      return;
-    }
-
-    setForgotDone(false);
-    forgotBusy.current = true;
-    setForgotPending(true);
-
-    try {
-      await requestPasswordReset(normalizedEmail);
-      setForgotDone(true);
-    } catch (cause) {
-      setForgotError(
-        cause instanceof Error ? cause.message : 'Unable to connect. Please try again.',
-      );
-    } finally {
-      forgotBusy.current = false;
-      setForgotPending(false);
-    }
+    await submitPasswordResetRequest(forgotEmail);
   }
 
   async function handleRegisterSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (regBusy.current) return;
-
-    setRegError('');
-    const normalizedEmail = regEmail.trim().toLowerCase();
-
-    if (!regName.trim() || regName.trim().length > 100) {
-      setRegError('Enter a name between 1 and 100 characters.');
-      return;
-    }
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || normalizedEmail.length > 255) {
-      setRegError('Enter a valid email address.');
-      return;
-    }
-
-    if (regPassword.length < 8 || regPassword.length > 128) {
-      setRegError('Use a password between 8 and 128 characters.');
-      return;
-    }
-
-    if (regPassword !== regConfirm) {
-      setRegError('Passwords do not match.');
-      return;
-    }
-
-    regBusy.current = true;
-    setRegPending(true);
-
-    try {
-      await registerAccount(regName.trim(), normalizedEmail, regPassword);
-      router.replace('/verify-email');
-    } catch (cause) {
-      setRegError(
-        cause instanceof Error ? cause.message : 'Unable to connect. Please try again.',
-      );
-    } finally {
-      regBusy.current = false;
-      setRegPending(false);
-    }
+    await submitRegister({
+      name: regName,
+      email: regEmail,
+      password: regPassword,
+      confirmation: regConfirm,
+    });
   }
 
   const trackTranslate =

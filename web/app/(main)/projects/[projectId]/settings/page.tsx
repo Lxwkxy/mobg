@@ -17,6 +17,7 @@ import {
   ApiRequestError,
   projectApi,
 } from '@/lib/projectApi';
+import { parseRouteId, tryParseRouteId } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import { useSession } from '@/lib/SessionProvider';
 import ProtectedState from '@/components/ProtectedState';
@@ -868,10 +869,7 @@ function ProjectSettingsLoader({
   const { session } = useSession();
   const activeLoaderTokenRef = useRef<object | null>(null);
 
-  const isInvalidId =
-    !/^\d+$/.test(projectId) ||
-    !Number.isSafeInteger(Number(projectId)) ||
-    Number(projectId) <= 0;
+  const isInvalidId = tryParseRouteId(projectId, 'project ID') === null;
 
   useEffect(() => {
     activeLoaderTokenRef.current = {};
@@ -882,15 +880,7 @@ function ProjectSettingsLoader({
   }, []);
 
   const load = useCallback(async () => {
-    const parsedProjectId = Number(projectId);
-
-    if (
-      !Number.isSafeInteger(parsedProjectId) ||
-      parsedProjectId <= 0
-    ) {
-      throw new ApiRequestError('Invalid project ID.', 400);
-    }
-
+    const parsedProjectId = parseRouteId(projectId, 'project ID');
     return projectApi.getProjectById(parsedProjectId);
   }, [projectId]);
 
