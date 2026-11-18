@@ -163,7 +163,7 @@ export default function Topbar() {
   const isLoading = status === 'loading';
 
   return (
-    <header className="min-h-[72px] rounded-none bg-white/95 backdrop-blur-sm border-b border-[#e6e0ff] shadow-[0_4px_20px_rgba(91,68,186,0.04)] grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-[minmax(0,1fr)_minmax(0,540px)_minmax(0,1fr)] items-center gap-3 px-4 py-3 sm:px-6 lg:px-[28px] relative z-10">
+    <header className="min-h-[72px] rounded-none bg-white border-b border-[#d4c8ff] shadow-[0_4px_18px_rgba(91,68,186,0.08)] grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-[minmax(0,1fr)_minmax(0,540px)_minmax(0,1fr)] items-center gap-3 px-4 py-3 sm:px-6 lg:px-[28px] relative z-20">
       <div aria-hidden="true" className="hidden xl:block" />
 
       <div className="w-full min-w-0 md:col-start-1 xl:col-start-2 flex justify-center">
