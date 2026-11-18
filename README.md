@@ -7,7 +7,7 @@ Team project for managing projects, tasks, members and comments.
 | Part | Technology / status |
 |---|---|
 | Frontend | Next.js, TypeScript, Tailwind. Login, account flows and project list/create/overview use APIs; Dashboard and My Tasks still use mocks |
-| Backend | Express 5, TypeScript, ESM. Session guards, `GET /api/me`, `GET /api/users` and project CRUD + member list are database-backed. Project task routes (list/detail/create/edit/status/delete) are implemented and covered by HTTP tests; comments, activity, dashboard and My Tasks are contract-only |
+| Backend | Express 5, TypeScript, ESM. Session guards, `GET /api/me`, `GET /api/users`, project CRUD/members, project tasks, My Tasks, Dashboard and task comment GET/POST are implemented and database-backed; activity is contract-only |
 | Authentication | Better Auth 1.7.7. Public registration, email verification and password reset; existing provisioned accounts remain supported |
 | Database | PostgreSQL 17 in Docker. Migrations 001-005 for core/auth, 006 for W5 seed metadata, 007 for public registration; each developer applies missing migrations to their own database |
 | Identity | Better Auth string IDs link to numeric MobG users through `users.auth_user_id` |
@@ -75,6 +75,7 @@ reports results; enforcing them requires that GitHub setting.
 - [W2 account provisioning](docs/w2-account-provisioning.md)
 - [W3 API verification and handoff](docs/w3-verification.md)
 - [API contract and permissions](backend/API-CONTRACT.md)
+- [Task comments and verification](docs/comments-verification.md)
 - [Database setup](database/README.md)
 - [Schema mapping](database/schema-mapping.md)
 - [W5 demo, backup/restore and verification evidence](docs/w5-db-verification.md)

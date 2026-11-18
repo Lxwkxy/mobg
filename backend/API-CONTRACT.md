@@ -7,7 +7,7 @@ The previous bcrypt/custom-session agreement from Book's PR #5 is superseded for
 authentication. This update records Pai's requested implementation direction; it
 does not claim renewed confirmation from Bar and Book. Existing confirmed business
 rules in sections 5-11 are retained. Dashboard scope and priority rules were resolved for W4 on 2026-11-08 (see section 10.9).
-As of W2-Book-01/02: /api/me, /api/users, project CRUD and the project member list are database-backed behind session guards. As of W3-Book-01/02: the project task endpoints (section 10.6, except `GET /api/tasks/mine`) are implemented behind the same guards and covered by automated HTTP tests; they have not been checked from the web UI yet. As of W4-Book: `GET /api/tasks/mine`, member add/remove and `GET /api/dashboard` are implemented over Pai's W4 DB functions and covered by automated HTTP tests; they have not been checked from the web UI yet. Comments and activity remain contract-only. See docs/w2-verification.md, docs/w3-verification.md, docs/w4-pai-verification.md and docs/w4-verification.md.
+As of W2-Book-01/02: /api/me, /api/users, project CRUD and the project member list are database-backed behind session guards. As of W3-Book-01/02: the project task endpoints (section 10.6, except `GET /api/tasks/mine`) are implemented behind the same guards and covered by automated HTTP tests; they have not been checked from the web UI yet. As of W4-Book: `GET /api/tasks/mine`, member add/remove and `GET /api/dashboard` are implemented over Pai's W4 DB functions and covered by automated HTTP tests; they have not been checked from the web UI yet. Task comments (section 10.7) are now implemented and verified through the web UI, HTTP API and an isolated PostgreSQL database; see [comments verification](../docs/comments-verification.md). Activity remains contract-only. See docs/w2-verification.md, docs/w3-verification.md, docs/w4-pai-verification.md and docs/w4-verification.md.
 As of W5-Book-01 (2026-11-16): every W1–W4 endpoint was audited against Pai's W5 seed with `npm run test:api-audit` (170/170 checks: success, invalid input, unknown ID, empty result, no permission, logout, expired session) and this document was checked against the code. Projects/tasks/members/search/`/api/me` were also walked from the web UI; Dashboard and My Tasks pages still use mock data. Results: docs/w5-backend-report.md and docs/w5-api-audit-results.md.
 
 ## 0. Running the Backend
@@ -408,7 +408,7 @@ For validation errors the top-level message may be generic ("Request validation 
 
 ## 10. Endpoint Contracts (business rules confirmed previously; auth revised by Pai)
 
-Status: implemented in W2: 10.3 users, 10.4 projects, GET 10.5 member list, and GET /api/me. Implemented in W3: the project task endpoints of 10.6. Implemented in W4: `GET /api/tasks/mine`, POST/DELETE in 10.5, and 10.9 Dashboard (definitions resolved for this W4 task). Comments and activity HTTP endpoints remain contracts.
+Status: implemented in W2: 10.3 users, 10.4 projects, GET 10.5 member list, and GET /api/me. Implemented in W3: the project task endpoints of 10.6. Implemented in W4: `GET /api/tasks/mine`, POST/DELETE in 10.5, and 10.9 Dashboard (definitions resolved for this W4 task). Comment HTTP endpoints are now implemented; activity HTTP endpoints remain contracts.
 
 **Conventions**
 - Base path `/api`. Requests and responses are JSON.
@@ -646,6 +646,15 @@ Comment object: `{ "commentId": 5, "commentText": "Looks good", "createdAt": "20
 
 `commentText` is required and must not be empty after trimming. The author is the session user.
 
+Both endpoints are implemented. Any current project `Owner` or `Member` can read and add comments,
+including on tasks created by or assigned to someone else. The task must belong to the project in
+the URL. Anonymous or expired sessions receive `401`; non-members, missing tasks and cross-project
+task IDs receive `404`. Unknown body fields (including a forged `userId`) receive `400`.
+Comments are ordered by creation time, then comment ID ascending. Creation rechecks membership
+under the project lock so removal while waiting cannot result in a new comment.
+The task detail page displays persisted comments, author names and timestamps and includes a comment form.
+See [comments verification](../docs/comments-verification.md) for HTTP and browser evidence.
+
 ### 10.8 Activity
 
 Scope is task creation and comments only [Confirmed in `schema-mapping.md`].
@@ -783,7 +792,7 @@ Member add/remove implementations live in `projectDb.ts`; rejection task lists a
 | Function | Input | Output |
 |---|---|---|
 | `listCommentsByTask(task_id)` | task id | `[{ comment_id, comment_text, comment_created_at, user_id, user_name }]` oldest first |
-| `createComment({ task_id, user_id, comment_text })` | `user_id` from the session | the created comment row (same shape) |
+| `createComment({ project_id, task_id, user_id, comment_text })` | `user_id` from the session; project/task scope and membership rechecked under the project lock | the created comment row (same shape), or `null` if access/task was lost |
 | `listActivityByProject(project_id, limit)` | ids and limit | `[activity]` |
 | `listActivityByTask(task_id, limit)` | ids and limit | `[activity]` |
 | `getDashboardSummary(user_id)` | session user | `{ project_count, task_count, todo_count, in_progress_count, done_count, overdue_count, high_priority_count }` over the user's projects, each task counted once |
@@ -803,4 +812,5 @@ Member add/remove implementations live in `projectDb.ts`; rejection task lists a
    | `GET /api/projects`, `POST /api/projects`, `GET/PATCH/DELETE /api/projects/:projectId`, `GET /api/projects/:projectId/members` | Implemented, database-backed, Owner/Member guards; W5 audit PASS; list/detail walked from the web UI |
    | Project task endpoints in section 10.6 (`GET` list/detail, `POST`, `PATCH`, `DELETE` under `/api/projects/:projectId/tasks`) | Implemented, database-backed, Owner/Member guards; automated HTTP tests (docs/w3-verification.md) and W5 audit PASS; list/detail/edit walked from the web UI |
    | `GET /api/tasks/mine`, `POST/DELETE /api/projects/:projectId/members`, `GET /api/dashboard` | Implemented (W4), database-backed, session guards; automated HTTP tests (docs/w4-verification.md) and W5 audit PASS. Dashboard numbers equal Pai's DB table. Web Dashboard/My Tasks pages still use mock data |
-   | All other endpoints in section 10 (comments, activity) | Contract defined; no endpoint implementation yet |
+   | `GET/POST /api/projects/:projectId/tasks/:taskId/comments` | Implemented and database-backed; Owner/Member guards; verified with HTTP tests, browser tests and a real browser-to-PostgreSQL flow. See [comments verification](../docs/comments-verification.md) |
+   | Activity endpoints in section 10.8 | Contract defined; no endpoint implementation yet |

@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { pool } from "../src/db.js";
 import { provisionAccount, seedAuth } from "../src/provisioning/accounts.js";
 import { seedDemoProjects } from "../src/provisioning/demoProjects.js";
+import { withProjectLockHeld } from "./helpers/projectLock.js";
 
 assert.match(process.env.POSTGRES_DB ?? "", /^mobg_w2_test_/);
 const port = 5100 + Math.floor(Math.random() * 800);
@@ -56,7 +57,7 @@ async function callWith(cookie: string, method: string, path: string, body?: unk
 // Simulates a database failure inside the real server by installing a trigger in the isolated test
 // database. Every value interpolated into SQL is a constant from this file, never request data.
 const LEAK = "SECRET_PROBE password=hunter2 INSERT INTO tasks";
-async function withFailingTrigger(table: "tasks" | "task_assignees", event: "INSERT" | "UPDATE",
+async function withFailingTrigger(table: "tasks" | "task_assignees" | "comments", event: "INSERT" | "UPDATE",
   failure: { errcode: string; constraint?: string }, run: () => Promise<void>): Promise<void> {
   const using = `ERRCODE = '${failure.errcode}'${failure.constraint ? `, CONSTRAINT = '${failure.constraint}'` : ""}`;
   await pool.query(`CREATE FUNCTION w3_probe_fail() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -121,6 +122,145 @@ test("authentication, membership and ID validation come first", async () => {
   assert.equal((await api("owner", "GET", tasksUrl(999999))).status, 404);
   assert.equal((await api("owner", "GET", "/api/projects/1abc/tasks")).status, 400);
   assert.equal((await api("owner", "GET", `${tasksUrl(shared)}/1abc`)).status, 400);
+});
+
+test("owners and unassigned members can persist comments on another person's task", async () => {
+  const task = await api("owner", "POST", tasksUrl(shared), valid([ids.owner]));
+  assert.equal(task.status, 201);
+  const taskId = task.body.task.taskId;
+  const url = `${tasksUrl(shared)}/${taskId}/comments`;
+  assert.deepEqual((await api("member", "GET", url)).body, { success: true, comments: [] });
+
+  const content = "ตรวจงานแล้ว\n<script>alert('safe text')</script>";
+  const member = await api("member", "POST", url, { commentText: `  ${content}  ` });
+  assert.equal(member.status, 201);
+  assert.deepEqual(member.body.comment, {
+    commentId: member.body.comment.commentId, commentText: content,
+    createdAt: member.body.comment.createdAt, userId: ids.member, userName: "W3 member",
+  });
+  assert.ok(Number.isSafeInteger(member.body.comment.commentId));
+  assert.ok(Number.isFinite(Date.parse(member.body.comment.createdAt)));
+  const owner = await api("owner", "POST", url, { commentText: "Thanks!" });
+  assert.equal(owner.status, 201);
+  assert.equal(owner.body.comment.userId, ids.owner);
+  // Equal timestamps still have a stable order by comment ID.
+  await pool.query("UPDATE comments SET comment_created_at = '2026-01-01' WHERE task_id = $1", [taskId]);
+  const list = await api("member", "GET", url);
+  assert.equal(list.status, 200);
+  assert.deepEqual(list.body.comments.map((c: any) => c.commentId),
+    [member.body.comment.commentId, owner.body.comment.commentId]);
+  const stored = (await pool.query("SELECT comment_text, user_id FROM comments WHERE comment_id = $1",
+    [member.body.comment.commentId])).rows[0];
+  assert.equal(stored.comment_text, content);
+  assert.equal(Number(stored.user_id), ids.member);
+  assert.equal((await api("owner", "DELETE", `${tasksUrl(shared)}/${taskId}`)).status, 200);
+  assert.equal((await api("member", "GET", url)).status, 404);
+  assert.equal((await pool.query("SELECT 1 FROM comments WHERE task_id = $1", [taskId])).rowCount, 0);
+});
+
+test("comments reject outsiders, wrong project tasks, missing tasks, invalid input and forged authors", async () => {
+  const created = await api("owner", "POST", tasksUrl(shared), valid([ids.owner]));
+  const taskId = created.body.task.taskId;
+  const url = `${tasksUrl(shared)}/${taskId}/comments`;
+  for (const method of ["GET", "POST"]) {
+    const body = method === "POST" ? { commentText: "Denied" } : undefined;
+    assert.equal((await api(null, method, url, body)).status, 401);
+    assert.equal((await api("outsider", method, url, body)).status, 404);
+    assert.equal((await api("owner", method, `${tasksUrl(privateId)}/${taskId}/comments`, body)).status, 404);
+    assert.equal((await api("owner", method, `${tasksUrl(shared)}/999999999/comments`, body)).status, 404);
+    assert.equal((await api("owner", method, `${tasksUrl(shared)}/bad/comments`, body)).status, 400);
+  }
+  for (const body of [{}, { commentText: " \n\t " }, { commentText: 123 }, { commentText: null },
+    { commentText: "Forged", userId: ids.owner }, { commentText: "Forged", taskId }]) {
+    assert.equal((await api("member", "POST", url, body)).status, 400);
+  }
+  assert.equal((await pool.query("SELECT 1 FROM comments WHERE task_id = $1", [taskId])).rowCount, 0);
+  assert.equal((await api("owner", "DELETE", `${tasksUrl(shared)}/${taskId}`)).status, 200);
+});
+
+test("removed members lose read and write comment access", async () => {
+  const project = await api("owner", "POST", "/api/projects", {
+    projectName: "Comment access", startDate: "2026-01-01", memberIds: [ids.member],
+  });
+  const projectId = project.body.project.projectId;
+  const task = await api("owner", "POST", tasksUrl(projectId), valid([ids.owner]));
+  const url = `${tasksUrl(projectId)}/${task.body.task.taskId}/comments`;
+  assert.equal((await api("member", "POST", url, { commentText: "Before removal" })).status, 201);
+  assert.equal((await api("owner", "DELETE", `/api/projects/${projectId}/members/${ids.member}`)).status, 200);
+  assert.equal((await api("member", "GET", url)).status, 404);
+  assert.equal((await api("member", "POST", url, { commentText: "After removal" })).status, 404);
+  assert.equal((await api("owner", "GET", url)).body.comments.length, 1);
+});
+
+test("a comment waiting for the project lock cannot write after its author is removed", async () => {
+  const project = await api("owner", "POST", "/api/projects", {
+    projectName: "Comment removal race", startDate: "2026-01-01", memberIds: [ids.member],
+  });
+  const projectId = project.body.project.projectId;
+  const task = await api("owner", "POST", tasksUrl(projectId), valid([ids.owner]));
+  const taskId = task.body.task.taskId;
+  const url = `${tasksUrl(projectId)}/${taskId}/comments`;
+  const result = await withProjectLockHeld(projectId,
+    () => api("member", "POST", url, { commentText: "Cannot write after removal" }),
+    async (gate) => {
+      await gate.query("DELETE FROM project_members WHERE project_id = $1 AND user_id = $2", [projectId, ids.member]);
+    });
+  assert.equal(result.status, 404);
+  assert.equal((await pool.query("SELECT 1 FROM comments WHERE task_id = $1", [taskId])).rowCount, 0);
+});
+
+test("comment database failures return safe errors without saving a partial comment", async () => {
+  const task = await api("owner", "POST", tasksUrl(shared), valid([ids.owner]));
+  const taskId = task.body.task.taskId;
+  const url = `${tasksUrl(shared)}/${taskId}/comments`;
+  await withFailingTrigger("comments", "INSERT", { errcode: "P0001" }, async () => {
+    assertSafeInternalError(await api("member", "POST", url, { commentText: "Try again" }));
+  });
+  assert.deepEqual((await api("owner", "GET", url)).body.comments, []);
+  assert.equal((await api("member", "POST", url, { commentText: "Recovered" })).status, 201);
+  assert.equal((await api("owner", "DELETE", `${tasksUrl(shared)}/${taskId}`)).status, 200);
+});
+
+test("browser comments persist through the real API and database", {
+  skip: !process.env.COMMENTS_WEB_URL,
+}, async () => {
+  // Browser coverage is optional; ordinary backend CI does not install root dependencies.
+  const playwrightModule = "playwright";
+  const { chromium } = await import(playwrightModule);
+  const browser = await chromium.launch({ channel: "chrome", headless: true });
+  const task = await api("owner", "POST", tasksUrl(shared), valid([ids.owner]));
+  const taskId = task.body.task.taskId;
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    const web = process.env.COMMENTS_WEB_URL!;
+    // Forward browser requests to this test's isolated API, with a real member session.
+    // Responses and persisted data come from the running backend, not fixtures.
+    await page.route("**/api/**", async (route: any) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      const headers = { "Access-Control-Allow-Origin": new URL(web).origin,
+        "Access-Control-Allow-Credentials": "true", "Access-Control-Allow-Headers": "content-type" };
+      if (request.method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+      const response = await route.fetch({ url: base + url.pathname + url.search,
+        headers: { ...request.headers(), Origin: origin, Cookie: cookies.member } });
+      await route.fulfill({ response, headers: { ...response.headers(), ...headers } });
+    });
+    await page.goto(`${web}/projects/${shared}/tasks/${taskId}`);
+    const section = page.getByRole("region", { name: "Comments" });
+    const content = "Browser to PostgreSQL: ตรวจงานของคนอื่นแล้ว";
+    await section.getByLabel("Add a comment").fill(content);
+    await section.getByRole("button", { name: "Post comment", exact: true }).click();
+    await section.getByRole("listitem").getByText(content, { exact: true }).waitFor();
+    const saved = (await pool.query("SELECT comment_text, user_id FROM comments WHERE task_id = $1", [taskId])).rows;
+    assert.deepEqual(saved, [{ comment_text: content, user_id: String(ids.member) }]);
+    await page.reload();
+    await section.getByRole("listitem").getByText(content, { exact: true }).waitFor();
+    assert.equal(await section.getByRole("listitem").count(), 1);
+    await page.screenshot({ path: "../web/.next/task-comments-smoke.png", fullPage: true });
+  } finally {
+    await browser.close();
+    await api("owner", "DELETE", `${tasksUrl(shared)}/${taskId}`);
+  }
 });
 
 test("topbar search matches literal names and titles in current project memberships", async () => {
@@ -428,7 +568,8 @@ test("anonymous requests, garbage cookies and an expired session get 401 on deta
   const expired = await pool.query("UPDATE auth_sessions SET expires_at = '2000-01-01 00:00:00+00' WHERE user_id = $1", [expiring.auth_user_id]);
   assert.equal(expired.rowCount, 1);
   for (const [method, path, body] of [["GET", "/api/me", undefined], ["GET", tasksUrl(shared), undefined],
-    ["GET", url, undefined], ["PATCH", url, { priority: 3 }], ["DELETE", url, undefined]] as const) {
+    ["GET", url, undefined], ["PATCH", url, { priority: 3 }], ["DELETE", url, undefined],
+    ["GET", `${url}/comments`, undefined], ["POST", `${url}/comments`, { commentText: "Expired" }]] as const) {
     const res = await callWith(cookie, method, path, body);
     assert.equal(res.status, 401, `${method} ${path}`);
     assert.equal(res.body.error.code, "UNAUTHENTICATED");
@@ -447,7 +588,8 @@ test("a valid session without a linked MobG profile gets 403 on every task route
   const before = (await api("owner", "GET", url)).body.task;
   for (const [method, path, body] of [["GET", "/api/me", undefined], ["GET", tasksUrl(shared), undefined],
     ["GET", url, undefined], ["POST", tasksUrl(shared), valid([ids.owner])],
-    ["PATCH", url, { priority: 3 }], ["DELETE", url, undefined]] as const) {
+    ["PATCH", url, { priority: 3 }], ["DELETE", url, undefined],
+    ["GET", `${url}/comments`, undefined], ["POST", `${url}/comments`, { commentText: "Unlinked" }]] as const) {
     const res = await callWith(cookie, method, path, body);
     assert.equal(res.status, 403, `${method} ${path}`);
     assert.equal(res.body.error.code, "FORBIDDEN");

@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { notFound, useParams, useRouter } from 'next/navigation';
 
 import ProtectedState from '@/components/ProtectedState';
+import TaskComments from '@/components/tasks/TaskComments';
 import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
 import {
   ApiRequestError,
@@ -76,6 +77,18 @@ function TaskDetailContent({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  // Keep the draft while focus verification temporarily unmounts the protected view.
+  // The route keys this component by task; user ownership prevents cross-account display.
+  const [commentDraft, setCommentDraft] = useState<{
+    userId: number | string;
+    text: string;
+  } | null>(null);
+  const [commentPost, setCommentPost] = useState<{
+    userId: number | string;
+    status: 'posting' | 'saved' | 'error';
+    message: string;
+  } | null>(null);
+  const commentPostingRef = useRef(false);
 
   const mountedRef = useRef(false);
   const requestSequenceRef = useRef(0);
@@ -106,6 +119,31 @@ function TaskDetailContent({
     revalidateOnFocus: true,
     hideDataWhileRefreshing: true,
   });
+
+  // Posting belongs to the route, which survives focus/session verification.
+  // Reconcile only the exact submitted draft, even if its form has unmounted.
+  const handleCommentSubmit = async () => {
+    const submittedDraft = commentDraft;
+    if (commentPostingRef.current || !data || session.status !== 'ready' || !session.user ||
+      !submittedDraft?.text.trim() || submittedDraft.userId !== session.user.userId) return;
+    const userId = session.user.userId;
+    commentPostingRef.current = true;
+    setCommentPost({ userId, status: 'posting', message: '' });
+    try {
+      await taskApi.addComment(data.project.projectId, data.task.taskId, { commentText: submittedDraft.text.trim() });
+      if (!mountedRef.current) return;
+      setCommentDraft((current) => current === submittedDraft ? null : current);
+      setCommentPost({ userId, status: 'saved', message: 'Comment posted.' });
+      retry();
+    } catch (cause) {
+      if (!mountedRef.current) return;
+      setCommentPost({ userId, status: 'error',
+        message: cause instanceof Error ? cause.message : 'Unable to post your comment. Please try again.' });
+      if (cause instanceof ApiRequestError && [401, 403, 404].includes(cause.status)) retry();
+    } finally {
+      commentPostingRef.current = false;
+    }
+  };
 
   const isNotFound =
     isInvalidId ||
@@ -362,6 +400,21 @@ function TaskDetailContent({
             `/projects/${projectId}/tasks/${data.task.taskId}/edit`,
           )
         }
+      />
+
+      <TaskComments
+        projectId={data.project.projectId}
+        taskId={data.task.taskId}
+        draft={commentDraft?.userId === session.user?.userId ? commentDraft?.text ?? '' : ''}
+        onDraftChange={(text) => {
+          if (session.status === 'ready' && session.user) {
+            setCommentDraft({ userId: session.user.userId, text });
+          }
+        }}
+        onSubmit={() => void handleCommentSubmit()}
+        isPosting={commentPost?.status === 'posting'}
+        error={commentPost?.userId === session.user?.userId && commentPost?.status === 'error' ? commentPost.message : ''}
+        notice={commentPost?.userId === session.user?.userId && commentPost?.status === 'saved' ? commentPost.message : ''}
       />
 
       <ConfirmationDialog
