@@ -15,7 +15,7 @@ async function setup(width) {
     status: 'To do', dueDate: '2026-12-01', createdAt: '2026-01-01T09:00:00Z',
     createdById: 1, createdByName: 'Owner', assignees: [{ userId: 1, userName: 'Owner' }] };
   const state = { comments: [], posts: 0, failPost: false, failLoad: false,
-    userId: 2, holdNextSession: false, releaseSession: null };
+    userId: 2, holdNextSession: false, releaseSession: null, holdNextPost: false, releasePost: null };
   await page.route('**/api/**', async (route) => {
     const req = route.request();
     const path = new URL(req.url()).pathname;
@@ -35,6 +35,10 @@ async function setup(width) {
     else if (path === '/api/projects/91/tasks/92/comments') {
       if (req.method() === 'POST') {
         state.posts++;
+        if (state.holdNextPost) {
+          state.holdNextPost = false;
+          await new Promise((resolve) => { state.releasePost = resolve; });
+        }
         await new Promise((resolve) => setTimeout(resolve, 150));
         if (state.failPost) return route.fulfill({ status: 500, headers,
           json: { success: false, error: { code: 'INTERNAL_ERROR', message: 'Please try again.' } } });
@@ -134,6 +138,37 @@ test('focus verification preserves a same-account draft and hides it from anothe
     assert.equal(state.posts, 0);
   } finally {
     state.releaseSession?.();
+    await page.close();
+  }
+});
+
+test('a pending post survives focus verification and clears only the saved draft', async () => {
+  const { page, state } = await setup(375);
+  try {
+    await page.goto(`${base}/projects/91/tasks/92`);
+    const section = page.getByRole('region', { name: 'Comments' });
+    const input = section.getByLabel('Add a comment');
+    await input.fill('Saved while returning to the tab');
+    state.holdNextPost = true;
+    const posted = page.waitForRequest((req) => req.method() === 'POST' && req.url().endsWith('/comments'));
+    await section.getByRole('button', { name: 'Post comment', exact: true }).click();
+    await posted;
+    await page.waitForTimeout(600);
+    state.holdNextSession = true;
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await section.waitFor({ state: 'detached' });
+    state.releaseSession();
+    await input.waitFor();
+    assert.equal(await input.isDisabled(), true, 'pending submission remains disabled after remount');
+    state.releasePost();
+    await section.getByRole('listitem').getByText('Saved while returning to the tab', { exact: true }).waitFor();
+    assert.equal(await input.inputValue(), '');
+    assert.equal(await section.getByRole('button', { name: 'Post comment', exact: true }).isDisabled(), true);
+    assert.equal(state.posts, 1);
+    assert.equal(state.comments.length, 1);
+  } finally {
+    state.releaseSession?.();
+    state.releasePost?.();
     await page.close();
   }
 });

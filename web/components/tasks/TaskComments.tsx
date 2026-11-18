@@ -1,61 +1,23 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { ApiRequestError } from '@/lib/projectApi';
-import { useSession } from '@/lib/SessionProvider';
+import { useCallback } from 'react';
 import { taskApi } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 
-export default function TaskComments({ projectId, taskId, draft, onDraftChange, onAccessLost }: {
+export default function TaskComments({ projectId, taskId, draft, onDraftChange, onSubmit, isPosting, error, notice }: {
   projectId: number;
   taskId: number;
   draft: string;
   onDraftChange: (value: string) => void;
-  onAccessLost: () => void;
+  onSubmit: () => void;
+  isPosting: boolean;
+  error: string;
+  notice: string;
 }) {
-  const { session, isCurrentSessionRevision } = useSession();
   const load = useCallback(() => taskApi.getComments(projectId, taskId), [projectId, taskId]);
   // TaskDetailContent owns session/focus verification. Refreshing the session here
   // would hide the parent, unmount this component, and restart that cycle on mount.
   const { status, data: comments, retry } = useProtectedLoad(load);
-  const [isPosting, setIsPosting] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const mountedRef = useRef(false);
-  const postingRef = useRef(false);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const commentText = draft.trim();
-    if (!commentText || postingRef.current || status !== 'ready' || session.status !== 'ready') return;
-    const revision = session.revision;
-    const isCurrent = () => mountedRef.current && isCurrentSessionRevision(revision);
-    postingRef.current = true;
-    setIsPosting(true);
-    setError('');
-    setNotice('');
-    try {
-      await taskApi.addComment(projectId, taskId, { commentText });
-      if (!isCurrent()) return;
-      onDraftChange('');
-      setNotice('Comment posted.');
-      retry();
-    } catch (cause) {
-      if (!isCurrent()) return;
-      if (cause instanceof ApiRequestError && [401, 403, 404].includes(cause.status)) {
-        onAccessLost();
-      }
-      setError(cause instanceof Error ? cause.message : 'Unable to post your comment. Please try again.');
-    } finally {
-      postingRef.current = false;
-      if (isCurrent()) setIsPosting(false);
-    }
-  }
 
   return (
     <section aria-labelledby="task-comments-heading" className="mx-auto mt-6 w-full min-w-0 max-w-4xl rounded-2xl border border-[#e0e0e0] bg-white p-4 [overflow-wrap:anywhere] sm:p-6 md:p-8">
@@ -86,7 +48,7 @@ export default function TaskComments({ projectId, taskId, draft, onDraftChange, 
               ))}
             </ol>
           )}
-          <form onSubmit={submit} className="mt-6 border-t border-[#eeeeee] pt-5">
+          <form onSubmit={(event) => { event.preventDefault(); onSubmit(); }} className="mt-6 border-t border-[#eeeeee] pt-5">
             <label htmlFor="task-comment" className="mb-2 block text-[13px] font-medium text-[#333333]">Add a comment</label>
             <textarea id="task-comment" value={draft} onChange={(event) => onDraftChange(event.target.value)}
               rows={3} required disabled={isPosting} placeholder="Write a comment…"

@@ -27,7 +27,7 @@ All checks below passed:
 | Backend typecheck and test typecheck | PASS |
 | Frontend typecheck and lint | PASS |
 | `taskRoutes.test.ts` with the optional browser test enabled | 21/21 PASS |
-| Comment UI tests at 375px and 1440px, including error recovery and session revalidation | 4/4 PASS |
+| Comment UI tests at 375px and 1440px, including error recovery and session revalidation | 5/5 PASS |
 | Browser → real HTTP API → PostgreSQL, then page reload | PASS |
 
 The integration suite used PostgreSQL 18 in a temporary local cluster and a fresh
@@ -61,7 +61,8 @@ Without `COMMENTS_WEB_URL`, only that browser case is skipped.
 
 The separate UI tests use intercepted API fixtures to exercise layout, blank input,
 plain-text rendering, load retry, preservation of a draft after a failed POST and
-after same-account focus verification, and draft isolation when the account changes:
+after same-account focus verification, draft isolation when the account changes, and
+successful pending-POST reconciliation after the form unmounts during verification:
 
 ```powershell
 # From the repository root, with the web dev server running:
