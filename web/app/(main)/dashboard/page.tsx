@@ -1025,7 +1025,7 @@ export default function DashboardPage() {
                               {getPriorityText(task.priority)}
                             </span>
 
-                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#f3f0ff] text-[#5B44BA] break-words">
+                            <span className="min-w-0 max-w-full px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#f3f0ff] text-[#5B44BA] break-words">
                               {task.projectName}
                             </span>
                           </div>
