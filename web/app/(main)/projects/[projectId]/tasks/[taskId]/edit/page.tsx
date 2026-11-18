@@ -54,6 +54,15 @@ type SubmissionAccountStatus =
   | 'unavailable'
   | 'stale';
 
+type InitialFormSnapshot = {
+  taskTitle: string;
+  taskDescription: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dueDate: string;
+  assigneeIds: number[];
+};
+
 const STATUS_OPTIONS: TaskStatus[] = [
   'To do',
   'In progress',
@@ -76,12 +85,33 @@ function normalizeDateInput(value: string | null | undefined): string {
   return value.slice(0, 10);
 }
 
+function haveSameAssigneeSet(
+  left: readonly number[],
+  right: readonly number[],
+): boolean {
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+
+  if (leftSet.size !== rightSet.size) {
+    return false;
+  }
+
+  for (const id of leftSet) {
+    if (!rightSet.has(id)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function EditTaskForm({
   projectId,
   taskId,
   userId,
   data,
   isRefreshing,
+  loadFailed,
   onRetry,
 }: {
   projectId: string;
@@ -89,6 +119,7 @@ function EditTaskForm({
   userId: number;
   data: EditTaskData;
   isRefreshing: boolean;
+  loadFailed: boolean;
   onRetry: () => void;
 }) {
   const router = useRouter();
@@ -111,6 +142,24 @@ function EditTaskForm({
     [data.members],
   );
 
+  // เก็บค่าเริ่มต้นตอนเปิดฟอร์มครั้งแรกไว้เปรียบเทียบตอนส่ง PATCH
+  const [initialSnapshot] = useState<InitialFormSnapshot>(() => ({
+    taskTitle: data.task.taskTitle.trim(),
+    taskDescription: (data.task.taskDescription ?? '').trim() || null,
+    status: data.task.status,
+    priority: data.task.priority,
+    dueDate: normalizeDateInput(data.task.dueDate),
+    assigneeIds: Array.from(
+      new Set(
+        data.task.assignees
+          .map((assignee) => assignee.userId)
+          .filter((id) =>
+            data.members.some((member) => member.userId === id),
+          ),
+      ),
+    ),
+  }));
+
   const [taskTitle, setTaskTitle] = useState(data.task.taskTitle);
   const [taskDescription, setTaskDescription] = useState(
     data.task.taskDescription ?? '',
@@ -122,10 +171,8 @@ function EditTaskForm({
   const [dueDate, setDueDate] = useState(
     normalizeDateInput(data.task.dueDate),
   );
-  const [assigneeIds, setAssigneeIds] = useState<number[]>(() =>
-    data.task.assignees
-      .map((assignee) => assignee.userId)
-      .filter((id) => currentMemberIds.has(id)),
+  const [assigneeIds, setAssigneeIds] = useState<number[]>(
+    () => initialSnapshot.assigneeIds,
   );
 
   const [isSaving, setIsSaving] = useState(false);
@@ -136,7 +183,10 @@ function EditTaskForm({
   const activeSubmissionRef = useRef<object | null>(null);
 
   const validAssigneeIds = useMemo(
-    () => assigneeIds.filter((id) => currentMemberIds.has(id)),
+    () =>
+      Array.from(
+        new Set(assigneeIds.filter((id) => currentMemberIds.has(id))),
+      ),
     [assigneeIds, currentMemberIds],
   );
 
@@ -345,11 +395,17 @@ function EditTaskForm({
   ) {
     event.preventDefault();
 
-    if (submittingRef.current || isSaving || isRefreshing) {
+    if (
+      submittingRef.current ||
+      isSaving ||
+      isRefreshing ||
+      loadFailed
+    ) {
       return;
     }
 
     const trimmedTitle = taskTitle.trim();
+    const normalizedDescription = taskDescription.trim() || null;
 
     const validationErrors = validateTaskForm({
       taskTitle,
@@ -362,6 +418,44 @@ function EditTaskForm({
       return;
     }
 
+    // สร้าง payload เฉพาะช่องที่เปลี่ยนจากค่าเริ่มต้น
+    const patchInput: UpdateTaskRequest = {};
+
+    if (trimmedTitle !== initialSnapshot.taskTitle) {
+      patchInput.taskTitle = trimmedTitle;
+    }
+
+    if (normalizedDescription !== initialSnapshot.taskDescription) {
+      patchInput.taskDescription = normalizedDescription;
+    }
+
+    if (status !== initialSnapshot.status) {
+      patchInput.status = status;
+    }
+
+    if (priority !== initialSnapshot.priority) {
+      patchInput.priority = priority;
+    }
+
+    if (dueDate !== initialSnapshot.dueDate) {
+      patchInput.dueDate = dueDate;
+    }
+
+    if (
+      !haveSameAssigneeSet(
+        validAssigneeIds,
+        initialSnapshot.assigneeIds,
+      )
+    ) {
+      patchInput.assigneeIds = validAssigneeIds;
+    }
+
+    // ถ้าไม่มีฟิลด์ไหนเปลี่ยนเลย ไม่ต้องยิง PATCH
+    if (Object.keys(patchInput).length === 0) {
+      router.push(`/projects/${projectId}/tasks/${taskId}`);
+      return;
+    }
+
     submittingRef.current = true;
 
     const requestId = {};
@@ -369,15 +463,6 @@ function EditTaskForm({
 
     setErrors({});
     setIsSaving(true);
-
-    const input: UpdateTaskRequest = {
-      taskTitle: trimmedTitle,
-      taskDescription: taskDescription.trim() || null,
-      status,
-      priority,
-      dueDate,
-      assigneeIds: validAssigneeIds,
-    };
 
     const isCurrent = () => isCurrentSubmission(requestId);
 
@@ -418,7 +503,7 @@ function EditTaskForm({
       await taskApi.updateTask(
         numericProjectId,
         numericTaskId,
-        input,
+        patchInput,
       );
 
       if (!isCurrent()) return;
@@ -477,7 +562,8 @@ function EditTaskForm({
     }
   }
 
-  if (session.status === 'error') {
+  // เก็บ instance และค่าที่พิมพ์ไว้ใน Memory แต่ซ่อนไว้ระหว่าง error/refresh
+  if (session.status === 'error' || loadFailed) {
     return (
       <ProtectedState
         status="error"
@@ -786,6 +872,8 @@ function EditTaskContent({
     return null;
   }
 
+  // เก็บ EditTaskForm instance เดิมไว้เมื่อบัญชีเดิมกำลังโหลดเบื้องหลังหรือโหลดพลาด (เช่น 500)
+  // แต่จะไม่ผ่านเงื่อนไขนี้ทันทีหากเปลี่ยนบัญชีหรือออกจากระบบ (ฟอร์มเก่าจะถูก unmount และล้างค่า)
   const canKeepPreviousForm =
     retained !== null &&
     retainedUserId !== null &&
@@ -793,7 +881,9 @@ function EditTaskContent({
       session.status === 'error' ||
       (session.status === 'ready' &&
         session.user?.userId === retainedUserId &&
-        (status === 'loading' || isRefreshing)));
+        (status === 'loading' ||
+          status === 'error' ||
+          isRefreshing)));
 
   if (canKeepPreviousForm) {
     return (
@@ -806,6 +896,9 @@ function EditTaskContent({
         isRefreshing={
           session.status === 'loading' ||
           (session.status === 'ready' && isRefreshing)
+        }
+        loadFailed={
+          session.status === 'ready' && status === 'error'
         }
         onRetry={handleRetry}
       />
@@ -912,6 +1005,7 @@ function EditTaskContent({
       userId={userId}
       data={data}
       isRefreshing={isRefreshing}
+      loadFailed={false}
       onRetry={handleRetry}
     />
   );
