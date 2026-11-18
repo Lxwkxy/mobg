@@ -70,6 +70,34 @@ const DRAFT_STORAGE_PREFIX = 'mobg:create-task-draft:';
 const ACTIVE_DRAFT_PREFIX = 'mobg:create-task-active-draft:';
 const CREATED_TASK_PREFIX = 'mobg:create-task-receipt:';
 
+const WORKSPACE_PATTERN_BG = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cg fill='none' stroke='%235B44BA' stroke-opacity='0.1' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M24 18V30M18 24H30' stroke-width='1.7'/%3E%3Crect x='76' y='14' width='10' height='10' rx='2.5' transform='rotate(45 81 19)' stroke-width='1.6'/%3E%3Ccircle cx='122' cy='30' r='5' stroke-width='1.6'/%3E%3Cg transform='translate(14 70)'%3E%3Crect x='0' y='0' width='15' height='15' rx='4' stroke-width='1.6'/%3E%3Cpath d='M4.5 7.5L6.8 9.8L10.8 5.5' stroke-width='1.6'/%3E%3C/g%3E%3Cpath d='M70 58L72.2 64.8L79 67L72.2 69.2L70 76L67.8 69.2L61 67L67.8 64.8L70 58Z' stroke-width='1.5'/%3E%3Crect x='110' y='78' width='16' height='7' rx='3.5' transform='rotate(-28 118 81.5)' stroke-width='1.6'/%3E%3Cpath d='M82 113V123M77 118H87' stroke-width='1.7'/%3E%3C/g%3E%3Cg fill='%235B44BA' fill-opacity='0.1'%3E%3Ccircle cx='28' cy='118' r='2'/%3E%3Ccircle cx='36' cy='114' r='2'/%3E%3Ccircle cx='35' cy='123' r='2'/%3E%3Ccircle cx='124' cy='122' r='2.2'/%3E%3C/g%3E%3C/svg%3E")`;
+
+const PRIORITY_OPTIONS: {
+  value: TaskPriority;
+  label: string;
+  badgeClass: string;
+  dotClass: string;
+}[] = [
+  {
+    value: 1,
+    label: 'High',
+    badgeClass: 'bg-red-50 text-red-600 border-red-200',
+    dotClass: 'bg-red-500',
+  },
+  {
+    value: 2,
+    label: 'Medium',
+    badgeClass: 'bg-amber-50 text-amber-700 border-amber-200',
+    dotClass: 'bg-amber-500',
+  },
+  {
+    value: 3,
+    label: 'Low',
+    badgeClass: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+    dotClass: 'bg-cyan-500',
+  },
+];
+
 function getAccountProjectKey(
   userId: number,
   projectId: string,
@@ -147,15 +175,6 @@ function isValidDraftId(value: string | null): value is string {
   );
 }
 
-/*
- * สร้างหรือกู้คืน Draft ID ก่อนเริ่ม Render ฝั่ง Client
- *
- * ใช้ sessionStorage เพื่อแยกข้อมูลของแต่ละ Tab
- * ฝั่ง Server จะคืน null เพราะไม่มี window
- *
- * Render ฝั่ง Server และ Client ยังคงแสดง Loading UI เหมือนกัน
- * จึงไม่ทำให้ HTML ที่แสดงตอน Hydration แตกต่างกัน
- */
 function getOrCreateDraftId(
   activeDraftStorageKey: string,
 ): string | null {
@@ -221,17 +240,6 @@ function parseCreatedTaskReceipt(
   }
 }
 
-function getPriorityLabel(priority: TaskPriority): string {
-  switch (priority) {
-    case 1:
-      return 'High';
-    case 2:
-      return 'Medium';
-    case 3:
-      return 'Low';
-  }
-}
-
 function CreateTaskForm({
   projectId,
   userId,
@@ -265,10 +273,6 @@ function CreateTaskForm({
     projectId,
   );
 
-  /*
-   * ใช้ Lazy Initializer แทน useEffect + setDraftId
-   * เพื่อไม่ให้เกิด setState synchronously ภายใน Effect
-   */
   const [draftId] = useState<string | null>(() =>
     getOrCreateDraftId(activeDraftStorageKey),
   );
@@ -294,6 +298,7 @@ function CreateTaskForm({
   const [priority, setPriority] = useState<TaskPriority>(2);
   const [dueDate, setDueDate] = useState('');
   const [assigneeIds, setAssigneeIds] = useState<number[]>([]);
+  const [isPriorityOpen, setIsPriorityOpen] = useState(false);
 
   const [isDraftReady, setIsDraftReady] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -309,6 +314,11 @@ function CreateTaskForm({
   const activeSubmissionRef = useRef<object | null>(null);
   const createdReceiptRef = useRef<CreatedTaskReceipt | null>(null);
   const navigationStartedRef = useRef(false);
+  const priorityDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  const projectStartDate = data.project.startDate
+    ? data.project.startDate.slice(0, 10)
+    : undefined;
 
   const currentMemberIds = useMemo(
     () => new Set(data.members.map((member) => member.userId)),
@@ -321,6 +331,33 @@ function CreateTaskForm({
   );
 
   const isBusy = isSaving;
+  const visiblePriorityOpen = isPriorityOpen && !isBusy && !isSubmitted;
+
+  useEffect(() => {
+    if (!visiblePriorityOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        priorityDropdownRef.current &&
+        !priorityDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsPriorityOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsPriorityOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [visiblePriorityOpen]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -329,12 +366,6 @@ function CreateTaskForm({
       isMountedRef.current = false;
       activeSubmissionRef.current = null;
 
-      /*
-       * ลบ Receipt หลังจากเริ่มนำทางไป Task แล้วเท่านั้น
-       *
-       * ถ้าการนำทางยังไม่เริ่มหรือผู้ใช้ต้อง Retry
-       * Receipt จะยังอยู่เพื่อป้องกันการ POST ซ้ำ
-       */
       if (
         navigationStartedRef.current &&
         draftId &&
@@ -431,12 +462,6 @@ function CreateTaskForm({
     ],
   );
 
-  /*
-   * ตรวจบัญชีก่อนและหลังการส่งคำขอ
-   *
-   * ใช้ Session revision ป้องกัน Request เก่า
-   * เปลี่ยน Session ของบัญชีใหม่
-   */
   const verifySubmissionAccount = useCallback(
     async (
       requestId: object,
@@ -497,11 +522,6 @@ function CreateTaskForm({
           error,
         );
 
-        /*
-         * /api/me ล้มเหลว:
-         * เปลี่ยน Session เป็น error เพื่อให้หน้าหลัก
-         * ซ่อนข้อมูลบัญชีเดิมและแสดง Retry
-         */
         const updated = replaceSession(
           null,
           'error',
@@ -548,11 +568,6 @@ function CreateTaskForm({
     ],
   );
 
-  /*
-   * ตรวจสอบ Receipt หลัง POST สำเร็จ
-   *
-   * ไม่มีการเรียก createTask ในฟังก์ชันนี้
-   */
   const verifyCreatedTaskReceipt = useCallback(
     async (
       requestId: object,
@@ -583,10 +598,6 @@ function CreateTaskForm({
           latestSession.status === 'ready' &&
           latestSession.user?.userId === receipt.userId
         ) {
-          /*
-           * เก็บ Receipt ไว้จนกว่าจะเริ่มนำทางจริง
-           * ป้องกัน POST ซ้ำหาก router.push ยังไม่เปลี่ยนหน้า
-           */
           navigationStartedRef.current = true;
 
           router.push(
@@ -597,10 +608,6 @@ function CreateTaskForm({
         }
 
         if (latestSession.status === 'login-required') {
-          /*
-           * ไม่ลบ Receipt เมื่อส่งผู้ใช้ไป Login
-           * เพื่อให้กลับมาตรวจ Task เดิมได้
-           */
           router.replace('/login');
           return;
         }
@@ -644,12 +651,6 @@ function CreateTaskForm({
     ],
   );
 
-  /*
-   * Retry หลัง POST สำเร็จ
-   *
-   * ตรวจ Session และเปิด Task เดิมเท่านั้น
-   * ไม่มีการ POST ซ้ำ
-   */
   const resumeCreatedTask = useCallback(async () => {
     const receipt = createdReceiptRef.current;
 
@@ -679,15 +680,6 @@ function CreateTaskForm({
     }
   }, [isSaving, verifyCreatedTaskReceipt]);
 
-  /*
-   * โหลด Receipt และ Draft ของฟอร์มนี้
-   *
-   * Receipt มีความสำคัญกว่า Draft เสมอ
-   * หากพบ Receipt จะไม่คืนค่าฟอร์มเพื่อป้องกัน POST ซ้ำ
-   *
-   * ไม่เรียก setIsDraftReady(false) ใน Effect
-   * เพราะ State เริ่มต้นเป็น false อยู่แล้ว
-   */
   useEffect(() => {
     if (!draftId || !draftKey || !createdTaskStorageKey) {
       return;
@@ -793,12 +785,6 @@ function CreateTaskForm({
     userId,
   ]);
 
-  /*
-   * บันทึก Draft เฉพาะก่อนสร้าง Task สำเร็จ
-   *
-   * submittedRef ป้องกันการบันทึก Draft กลับมา
-   * แม้ navigation จะล่าช้าหรือมีการ render ใหม่
-   */
   useEffect(() => {
     if (
       !draftKey ||
@@ -863,10 +849,6 @@ function CreateTaskForm({
   ) {
     event.preventDefault();
 
-    /*
-     * หากมี Receipt แล้ว ห้ามสร้าง Task ใหม่
-     * ให้ตรวจ Session และเปิด Task เดิมเท่านั้น
-     */
     if (createdReceiptRef.current || submittedRef.current) {
       await resumeCreatedTask();
       return;
@@ -889,6 +871,16 @@ function CreateTaskForm({
       dueDate,
       assigneeIds: validAssigneeIds,
     });
+
+    if (
+      !validationErrors.dueDate &&
+      projectStartDate &&
+      dueDate &&
+      dueDate < projectStartDate
+    ) {
+      validationErrors.dueDate =
+        'Due date cannot be earlier than the project start date.';
+    }
 
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
@@ -927,16 +919,9 @@ function CreateTaskForm({
         token,
       };
 
-      /*
-       * ล็อกการ Submit ในหน่วยความจำก่อนทำ Storage
-       * เพื่อไม่ให้เกิด POST ซ้ำในระหว่าง render
-       */
       submittedRef.current = true;
       createdReceiptRef.current = receipt;
 
-      /*
-       * ใช้ State ควบคุม UI แทนการอ่าน Ref ระหว่าง Render
-       */
       setIsSubmitted(true);
 
       const saved = safeSetSessionStorage(
@@ -964,10 +949,6 @@ function CreateTaskForm({
     const performSubmission = async () => {
       if (!isCurrent()) return;
 
-      /*
-       * ตรวจ Receipt ซ้ำก่อน POST
-       * ป้องกันกรณีมีการสร้างสำเร็จไปแล้ว
-       */
       const existingReceipt = createdReceiptRef.current;
 
       if (existingReceipt || submittedRef.current) {
@@ -1005,9 +986,6 @@ function CreateTaskForm({
       if (accountBeforeSubmit !== 'same-user') return;
       if (!isCurrent()) return;
 
-      /*
-       * ตรวจ Receipt จาก Storage อีกครั้งก่อน POST
-       */
       const storedReceipt = parseCreatedTaskReceipt(
         safeGetSessionStorage(createdTaskStorageKey!),
         userId,
@@ -1040,10 +1018,6 @@ function CreateTaskForm({
           input,
         );
 
-        /*
-         * หลังได้รับ taskId ต้องบันทึก Receipt ทันที
-         * ก่อนตรวจ Session หรือเริ่มนำทาง
-         */
         if (
           !Number.isSafeInteger(createdTask.taskId) ||
           createdTask.taskId <= 0
@@ -1068,10 +1042,6 @@ function CreateTaskForm({
 
         if (!isCurrent()) return;
 
-        /*
-         * หากมี Receipt แปลว่า POST สำเร็จไปแล้ว
-         * ห้ามส่ง POST ใหม่ไม่ว่ากรณีใด
-         */
         const existingReceipt = createdReceiptRef.current;
 
         if (existingReceipt || submittedRef.current) {
@@ -1172,59 +1142,71 @@ function CreateTaskForm({
     }
   }
 
-  /*
-   * แสดง Receipt ก่อน Loading UI
-   * ป้องกันการกลับไปกด Submit หลังสร้างสำเร็จ
-   */
   if (createdReceipt) {
     return (
-      <div className="mx-auto w-full max-w-3xl rounded-2xl border border-[#e0e0e0] bg-white p-6 shadow-sm sm:p-8">
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-50 text-green-700">
-          <span className="text-xl">✓</span>
-        </div>
+      <div className="relative min-w-0 pb-8 [overflow-wrap:anywhere]">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-0 z-0"
+          style={{
+            backgroundImage: WORKSPACE_PATTERN_BG,
+            backgroundRepeat: 'repeat',
+            backgroundSize: '140px 140px',
+          }}
+        />
 
-        <h1 className="text-xl font-bold text-[#222222]">
-          Task created successfully
-        </h1>
-
-        <p className="mt-2 text-[13px] leading-6 text-[#666666]">
-          Your task has already been created. We need to verify your
-          session before opening it. Do not create this task again.
-        </p>
-
-        {errors.general && (
-          <div
-            role="alert"
-            className="mt-5 rounded-lg border border-red-300 bg-red-50 p-3.5 text-[13px] text-red-700"
-          >
-            {errors.general}
+        <div className="relative z-[1] mx-auto w-full max-w-2xl rounded-2xl border border-[#cfc9e8] bg-white/95 p-6 shadow-[0_4px_18px_rgba(35,25,66,0.05)] sm:p-8">
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-600">
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
           </div>
-        )}
 
-        <div className="mt-6">
-          <button
-            type="button"
-            disabled={isSaving}
-            onClick={() => void resumeCreatedTask()}
-            className="min-h-11 rounded-xl bg-[#222222] px-6 py-3 text-[13px] font-semibold text-white hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSaving
-              ? 'Verifying session...'
-              : 'Verify session and open task'}
-          </button>
+          <h1 className="text-[22px] font-extrabold text-[#1f1f1f]">
+            Task created successfully
+          </h1>
+
+          <p className="mt-2 text-[13.5px] leading-relaxed text-[#6e6b7b]">
+            Your task has already been created. We need to verify your
+            session before opening it. Do not create this task again.
+          </p>
+
+          {errors.general && (
+            <div
+              role="alert"
+              className="mt-5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-[13px] font-medium text-red-700"
+            >
+              {errors.general}
+            </div>
+          )}
+
+          <div className="mt-6">
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={() => void resumeCreatedTask()}
+              className="min-h-11 rounded-xl bg-[#5B44BA] hover:bg-[#4a35a3] px-6 py-3 text-[13.5px] font-bold text-white shadow-[0_4px_14px_rgba(91,68,186,0.25)] transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSaving
+                ? 'Verifying session...'
+                : 'Verify session and open task'}
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  /*
-   * เมื่อ Session ตรวจล้มเหลว:
-   * เก็บ CreateTaskForm instance ไว้
-   * แต่ซ่อนข้อมูลเดิมและแสดง Error พร้อม Retry
-   *
-   * ต้องตรวจ error ก่อน loading
-   * เพื่อไม่ให้หน้า Error กลับไปค้างที่ Loading
-   */
   if (session.status === 'error') {
     return (
       <ProtectedState
@@ -1234,10 +1216,6 @@ function CreateTaskForm({
     );
   }
 
-  /*
-   * ระหว่างตรวจ Session:
-   * เก็บ Form instance ไว้ แต่ซ่อนข้อมูลเดิมด้วย Loading UI
-   */
   if (isRefreshing || !draftId || !isDraftReady) {
     return (
       <ProtectedState
@@ -1247,204 +1225,436 @@ function CreateTaskForm({
     );
   }
 
+  const selectedPriorityOption =
+    PRIORITY_OPTIONS.find((opt) => opt.value === priority) ??
+    PRIORITY_OPTIONS[1];
+
   return (
-    <div className="mx-auto w-full max-w-4xl min-w-0 [overflow-wrap:anywhere]">
-      <Link
-        href={`/projects/${projectId}/tasks`}
-        className="mb-5 inline-flex min-h-11 items-center text-[13px] text-[#666666] hover:text-black"
-      >
-        ← Back to Tasks
-      </Link>
+    <div className="relative min-w-0 pb-10 [overflow-wrap:anywhere]">
+      {/* FULL-SCREEN WORKSPACE PATTERN BACKGROUND */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 z-0"
+        style={{
+          backgroundImage: WORKSPACE_PATTERN_BG,
+          backgroundRepeat: 'repeat',
+          backgroundSize: '140px 140px',
+        }}
+      />
 
-      <div className="mb-6">
-        <p className="mb-1 text-[13px] text-[#777777]">
-          {data.project.projectName}
-        </p>
+      <div className="relative z-[1] mx-auto w-full max-w-4xl min-w-0">
+        {/* FRAMED PURPLE HEADER BANNER */}
+        <div className="relative mb-6 overflow-hidden rounded-[26px] bg-gradient-to-r from-[#755FD9] via-[#7F68E2] to-[#8C76E8] px-6 py-6 sm:px-9 sm:py-7 shadow-[0_10px_28px_rgba(91,68,186,0.18)]">
+          {/* Soft decorative circles & pattern */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+          >
+            <div className="absolute -left-12 -bottom-20 h-56 w-56 rounded-full bg-white/[0.07]" />
+            <div className="absolute right-8 -top-12 h-60 w-60 rounded-full bg-white/[0.08]" />
+            <div className="absolute right-44 bottom-2 h-36 w-36 rounded-full bg-white/[0.06]" />
 
-        <h1 className="text-[30px] font-extrabold text-[#1f1f1f]">
-          Create Task
-        </h1>
-
-        <p className="mt-2 text-[13px] text-[#777777]">
-          Add a new task to this project and assign it to your team members.
-        </p>
-      </div>
-
-      <form
-        onSubmit={handleSubmit}
-        noValidate
-        aria-busy={isSaving}
-        className="rounded-2xl border border-[#e0e0e0] bg-white p-4 shadow-sm sm:p-6 md:p-8"
-      >
-        <fieldset
-          disabled={isSaving || isSubmitted}
-          className="contents"
-        >
-          {errors.general && (
-            <div
-              role="alert"
-              className="mb-6 rounded-lg border border-red-300 bg-red-50 p-3.5 text-[13px] text-red-700"
+            <svg
+              viewBox="0 0 900 180"
+              fill="none"
+              preserveAspectRatio="xMidYMid slice"
+              className="h-full w-full"
             >
-              {errors.general}
+              <g
+                stroke="#FFFFFF"
+                strokeOpacity="0.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path
+                  d="M642 36L644.6 44.4L653 47L644.6 49.6L642 58L639.4 49.6L631 47L639.4 44.4L642 36Z"
+                  strokeWidth="1.7"
+                />
+                <path d="M532 124V136M526 130H538" strokeWidth="1.9" />
+                <path d="M746 32V42M741 37H751" strokeWidth="1.8" />
+                <rect
+                  x="788"
+                  y="108"
+                  width="14"
+                  height="14"
+                  rx="3.8"
+                  transform="rotate(45 795 115)"
+                  strokeWidth="1.8"
+                />
+                <g transform="translate(836 52)">
+                  <rect
+                    x="0"
+                    y="0"
+                    width="17"
+                    height="17"
+                    rx="4.5"
+                    strokeWidth="1.8"
+                  />
+                  <path d="M5 8.5L7.6 11.1L12.2 6.2" strokeWidth="1.8" />
+                </g>
+                <circle cx="584" cy="68" r="5.5" strokeWidth="1.8" />
+              </g>
+            </svg>
+          </div>
+
+          <div className="relative z-[1]">
+            <nav
+              aria-label="Breadcrumb"
+              className="mb-3.5 flex flex-wrap items-center gap-1.5 text-[13px] text-white/80"
+            >
+              <Link
+                href="/projects"
+                className="font-medium hover:text-white transition-colors"
+              >
+                Projects
+              </Link>
+              <span aria-hidden="true" className="text-white/55">
+                &gt;
+              </span>
+              <Link
+                href={`/projects/${projectId}`}
+                className="font-medium hover:text-white transition-colors break-words"
+              >
+                {data.project.projectName}
+              </Link>
+              <span aria-hidden="true" className="text-white/55">
+                &gt;
+              </span>
+              <span className="font-bold text-white">Create Task</span>
+            </nav>
+
+            <div className="flex min-w-0 items-start gap-4">
+              <Link
+                href={`/projects/${projectId}`}
+                aria-label="Back to Project"
+                className="mt-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 hover:border-white/40 transition-colors"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <line x1="19" y1="12" x2="5" y2="12" />
+                  <polyline points="12 19 5 12 12 5" />
+                </svg>
+              </Link>
+
+              <div className="min-w-0">
+                <h1 className="text-[26px] sm:text-[32px] font-extrabold leading-tight tracking-tight text-white">
+                  Create Task
+                </h1>
+                <p className="mt-1 text-[13.5px] leading-relaxed text-white/85">
+                  Add a new task to this project and assign it to your team members.
+                </p>
+              </div>
             </div>
-          )}
+          </div>
+        </div>
 
-          <div className="mb-5">
-            <label
-              htmlFor="taskTitle"
-              className="mb-2 block text-[13px] font-semibold text-[#333333]"
-            >
-              Task title <span className="text-red-500">*</span>
-            </label>
-
-            <input
-              id="taskTitle"
-              type="text"
-              maxLength={200}
-              value={taskTitle}
-              onChange={(event) => {
-                setTaskTitle(event.target.value);
-                clearError('taskTitle');
-              }}
-              placeholder="e.g. Design login page"
-              className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] ${
-                errors.taskTitle
-                  ? 'border-red-500'
-                  : 'border-[#dcdcdc]'
-              }`}
-              aria-invalid={Boolean(errors.taskTitle)}
-            />
-
-            {errors.taskTitle && (
-              <p className="mt-1.5 text-[12px] text-red-600">
-                {errors.taskTitle}
-              </p>
+        {/* FORM CARD */}
+        <form
+          onSubmit={handleSubmit}
+          noValidate
+          aria-busy={isSaving}
+          className="rounded-2xl border border-[#cfc9e8] bg-white/95 p-5 shadow-[0_4px_18px_rgba(35,25,66,0.05)] sm:p-7 md:p-8"
+        >
+          <fieldset
+            disabled={isSaving || isSubmitted}
+            className="contents"
+          >
+            {errors.general && (
+              <div
+                role="alert"
+                className="mb-6 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-[13px] font-medium text-red-700"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                  className="mt-0.5 shrink-0"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <span>{errors.general}</span>
+              </div>
             )}
 
-            <p className="mt-1.5 text-right text-[11px] text-[#999999]">
-              {taskTitle.length}/200
-            </p>
-          </div>
+            {/* TASK TITLE */}
+            <div className="mb-5">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <label
+                  htmlFor="taskTitle"
+                  className="text-[13px] font-bold text-[#1f1f1f]"
+                >
+                  Task title <span className="text-rose-500">*</span>
+                </label>
 
-          <div className="mb-5">
-            <label
-              htmlFor="taskDescription"
-              className="mb-2 block text-[13px] font-semibold text-[#333333]"
-            >
-              Description
-            </label>
-
-            <textarea
-              id="taskDescription"
-              rows={4}
-              value={taskDescription}
-              onChange={(event) => {
-                setTaskDescription(event.target.value);
-                clearError('taskDescription');
-              }}
-              placeholder="Describe what needs to be done..."
-              className="w-full resize-y rounded-xl border border-[#dcdcdc] px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
-            />
-          </div>
-
-          <div className="mb-6 grid gap-5 sm:grid-cols-2">
-            <div>
-              <label
-                htmlFor="priority"
-                className="mb-2 block text-[13px] font-semibold text-[#333333]"
-              >
-                Priority <span className="text-red-500">*</span>
-              </label>
-
-              <select
-                id="priority"
-                value={priority}
-                onChange={(event) => {
-                  setPriority(
-                    Number(event.target.value) as TaskPriority,
-                  );
-                  clearError('priority');
-                }}
-                className="w-full rounded-xl border border-[#dcdcdc] bg-white px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
-              >
-                <option value={1}>{getPriorityLabel(1)}</option>
-                <option value={2}>{getPriorityLabel(2)}</option>
-                <option value={3}>{getPriorityLabel(3)}</option>
-              </select>
-
-              {errors.priority && (
-                <p className="mt-1.5 text-[12px] text-red-600">
-                  {errors.priority}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label
-                htmlFor="dueDate"
-                className="mb-2 block text-[13px] font-semibold text-[#333333]"
-              >
-                Due date <span className="text-red-500">*</span>
-              </label>
+                <span className="text-[11.5px] font-medium text-[#7c788c] tabular-nums">
+                  {taskTitle.length}/200
+                </span>
+              </div>
 
               <input
-                id="dueDate"
-                type="date"
-                value={dueDate}
+                id="taskTitle"
+                type="text"
+                maxLength={200}
+                value={taskTitle}
                 onChange={(event) => {
-                  setDueDate(event.target.value);
-                  clearError('dueDate');
+                  setTaskTitle(event.target.value);
+                  clearError('taskTitle');
                 }}
-                className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] ${
-                  errors.dueDate
-                    ? 'border-red-500'
-                    : 'border-[#dcdcdc]'
+                placeholder="e.g. Design login page"
+                className={`w-full rounded-xl border px-4 py-3 text-[13.5px] text-[#1f1f1f] outline-none placeholder:text-[#8f89a6] transition-all ${
+                  errors.taskTitle
+                    ? 'border-red-400 bg-red-50/40 focus:border-red-500 focus:ring-2 focus:ring-red-500/15'
+                    : 'border-[#cfc9e8] bg-[#f8f6fe] focus:border-[#5B44BA] focus:bg-white focus:ring-2 focus:ring-[#5B44BA]/15'
                 }`}
-                aria-invalid={Boolean(errors.dueDate)}
+                aria-invalid={Boolean(errors.taskTitle)}
               />
 
-              {errors.dueDate && (
-                <p className="mt-1.5 text-[12px] text-red-600">
-                  {errors.dueDate}
+              {errors.taskTitle && (
+                <p className="mt-1.5 text-[12px] font-medium text-red-600">
+                  {errors.taskTitle}
                 </p>
               )}
             </div>
-          </div>
 
-          <AssigneeSelector
-            members={data.members}
-            selectedIds={validAssigneeIds}
-            error={errors.assigneeIds}
-            disabled={isBusy || isSubmitted}
-            onToggle={toggleAssignee}
-          />
+            {/* DESCRIPTION */}
+            <div className="mb-6">
+              <label
+                htmlFor="taskDescription"
+                className="mb-2 block text-[13px] font-bold text-[#1f1f1f]"
+              >
+                Description
+              </label>
 
-          <div className="flex flex-wrap justify-end gap-3 border-t border-[#eeeeee] pt-5">
-            <button
-              type="button"
-              disabled={isBusy || isSubmitted}
-              onClick={() =>
-                router.push(`/projects/${projectId}/tasks`)
+              <textarea
+                id="taskDescription"
+                rows={4}
+                value={taskDescription}
+                onChange={(event) => {
+                  setTaskDescription(event.target.value);
+                  clearError('taskDescription');
+                }}
+                placeholder="Describe what needs to be done..."
+                className="w-full resize-y rounded-xl border border-[#cfc9e8] bg-[#f8f6fe] px-4 py-3 text-[13.5px] text-[#1f1f1f] outline-none placeholder:text-[#8f89a6] focus:border-[#5B44BA] focus:bg-white focus:ring-2 focus:ring-[#5B44BA]/15 transition-all"
+              />
+            </div>
+
+            {/* PRIORITY & DUE DATE */}
+            <div className="mb-6 grid gap-5 sm:grid-cols-2">
+              {/* CUSTOM PRIORITY DROPDOWN */}
+              <div>
+                <label
+                  htmlFor="priority"
+                  className="mb-2 block text-[13px] font-bold text-[#1f1f1f]"
+                >
+                  Priority <span className="text-rose-500">*</span>
+                </label>
+
+                <div ref={priorityDropdownRef} className="relative">
+                  <button
+                    id="priority"
+                    type="button"
+                    disabled={isBusy || isSubmitted}
+                    aria-haspopup="listbox"
+                    aria-expanded={visiblePriorityOpen}
+                    onClick={() => setIsPriorityOpen((prev) => !prev)}
+                    className={`flex min-h-[46px] w-full items-center justify-between gap-2.5 rounded-xl border px-4 py-2.5 text-[13.5px] font-medium outline-none transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 ${
+                      visiblePriorityOpen
+                        ? 'border-[#5B44BA] bg-white text-[#1f1f1f] ring-2 ring-[#5B44BA]/15'
+                        : 'border-[#cfc9e8] bg-[#f8f6fe] hover:border-[#9e8ce6] hover:bg-white text-[#1f1f1f]'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11.5px] font-semibold ${selectedPriorityOption.badgeClass}`}
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${selectedPriorityOption.dotClass}`}
+                        />
+                        {selectedPriorityOption.label}
+                      </span>
+                    </span>
+
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                      className={`shrink-0 transition-transform duration-150 ${
+                        visiblePriorityOpen
+                          ? 'rotate-180 text-[#5B44BA]'
+                          : 'text-[#6e6b7b]'
+                      }`}
+                    >
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+
+                  {visiblePriorityOpen && (
+                    <div
+                      role="listbox"
+                      aria-label="Priority options"
+                      className="absolute left-0 right-0 top-full z-30 mt-1.5 rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
+                    >
+                      {PRIORITY_OPTIONS.map((option) => {
+                        const isSelected = priority === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            role="option"
+                            aria-selected={isSelected}
+                            onClick={() => {
+                              setPriority(option.value);
+                              clearError('priority');
+                              setIsPriorityOpen(false);
+                            }}
+                            className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer ${
+                              isSelected
+                                ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
+                                : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2.5">
+                              <span
+                                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11.5px] font-semibold ${option.badgeClass}`}
+                              >
+                                <span
+                                  className={`h-1.5 w-1.5 rounded-full ${option.dotClass}`}
+                                />
+                                {option.label}
+                              </span>
+                            </span>
+
+                            {isSelected && (
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {errors.priority && (
+                  <p className="mt-1.5 text-[12px] font-medium text-red-600">
+                    {errors.priority}
+                  </p>
+                )}
+              </div>
+
+              {/* DUE DATE */}
+              <div>
+                <label
+                  htmlFor="dueDate"
+                  className="mb-2 block text-[13px] font-bold text-[#1f1f1f]"
+                >
+                  Due date <span className="text-rose-500">*</span>
+                </label>
+
+                <input
+                  id="dueDate"
+                  type="date"
+                  min={projectStartDate}
+                  value={dueDate}
+                  onChange={(event) => {
+                    setDueDate(event.target.value);
+                    clearError('dueDate');
+                  }}
+                  className={`min-h-[46px] w-full rounded-xl border px-4 py-2.5 text-[13.5px] text-[#1f1f1f] outline-none transition-all ${
+                    errors.dueDate
+                      ? 'border-red-400 bg-red-50/40 focus:border-red-500 focus:ring-2 focus:ring-red-500/15'
+                      : 'border-[#cfc9e8] bg-[#f8f6fe] focus:border-[#5B44BA] focus:bg-white focus:ring-2 focus:ring-[#5B44BA]/15'
+                  }`}
+                  aria-invalid={Boolean(errors.dueDate)}
+                />
+
+                {errors.dueDate && (
+                  <p className="mt-1.5 text-[12px] font-medium text-red-600">
+                    {errors.dueDate}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* ASSIGNEE SELECTOR */}
+            <div
+              className={
+                errors.assigneeIds
+                  ? 'rounded-2xl border-2 border-red-400 bg-red-50/30 p-4 ring-4 ring-red-500/10 transition-all'
+                  : 'transition-all'
               }
-              className="min-h-11 rounded-xl border border-[#dddddd] px-5 text-[13px] font-medium text-[#444444] hover:bg-[#f7f7f7] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Cancel
-            </button>
+              <AssigneeSelector
+                members={data.members}
+                selectedIds={validAssigneeIds}
+                error={errors.assigneeIds}
+                disabled={isBusy || isSubmitted}
+                onToggle={toggleAssignee}
+              />
+            </div>
 
-            <button
-              type="submit"
-              disabled={
-                isBusy ||
-                isSubmitted ||
-                !isDraftReady
-              }
-              className="min-h-11 rounded-xl bg-[#222222] px-6 py-3 text-[13px] font-semibold text-white hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSaving ? 'Creating...' : 'Create Task'}
-            </button>
-          </div>
-        </fieldset>
-      </form>
+            {/* ACTION BUTTONS */}
+            <div className="mt-7 flex flex-wrap items-center justify-end gap-3 border-t border-[#e5e0f5] pt-5">
+              <button
+                type="button"
+                disabled={isBusy || isSubmitted}
+                onClick={() =>
+                  router.push(`/projects/${projectId}`)
+                }
+                className="min-h-11 rounded-xl border border-[#cfc9e8] bg-white px-5 py-2.5 text-[13px] font-semibold text-[#3d3a4b] hover:border-[#9e8ce6] hover:bg-[#f6f3ff] hover:text-[#5B44BA] transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={
+                  isBusy ||
+                  isSubmitted ||
+                  !isDraftReady
+                }
+                className="min-h-11 inline-flex items-center gap-2 rounded-xl bg-[#5B44BA] hover:bg-[#4a35a3] px-6 py-2.5 text-[13.5px] font-bold text-white shadow-[0_4px_14px_rgba(91,68,186,0.25)] hover:shadow-[0_6px_20px_rgba(91,68,186,0.34)] transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span>{isSaving ? 'Creating...' : 'Create Task'}</span>
+              </button>
+            </div>
+          </fieldset>
+        </form>
+      </div>
     </div>
   );
 }
@@ -1499,9 +1709,6 @@ function CreateTaskContent({
     }
   }, [isNotFound]);
 
-  /*
-   * Retry ต้องตรวจ Session ใหม่ก่อนโหลดข้อมูล Project
-   */
   const handleRetry = useCallback(async () => {
     try {
       await refreshSession();
@@ -1516,23 +1723,6 @@ function CreateTaskContent({
     return null;
   }
 
-  /*
-   * เก็บ Form เดิมไว้ระหว่างตรวจ Session
-   *
-   * กรณี loading:
-   * Session กำลังตรวจสอบ จึงยังไม่ทราบว่าเป็นบัญชีเดิมหรือไม่
-   * เก็บ Form ไว้ใน Memory แต่ซ่อนข้อมูลทั้งหมดด้วย Loading UI
-   *
-   * กรณี error:
-   * การตรวจ Session ล้มเหลว ยังสรุปไม่ได้ว่าบัญชีเปลี่ยนหรือไม่
-   * จึงเก็บ Form และสถานะ POST เดิมไว้เพื่อให้ Retry ได้
-   *
-   * กรณี ready:
-   * เก็บ Form ได้เฉพาะเมื่อ Session ยืนยันว่าเป็นบัญชีเดิม
-   *
-   * ถ้ายืนยันว่าเป็นบัญชีใหม่ หรือ logged out:
-   * เงื่อนไขนี้จะไม่ผ่าน ทำให้ Form ของบัญชีเดิมถูก Unmount
-   */
   const canKeepPreviousForm =
     retained !== null &&
     retainedUserId !== null &&
@@ -1568,10 +1758,6 @@ function CreateTaskContent({
     );
   }
 
-  /*
-   * ถ้า Session กำลังตรวจและไม่มี Form เดิมให้เก็บ
-   * แสดง Loading ตามปกติ
-   */
   if (session.status === 'loading') {
     return (
       <ProtectedState
@@ -1581,13 +1767,6 @@ function CreateTaskContent({
     );
   }
 
-  /*
-   * ถ้า /api/me ล้มเหลว:
-   * ซ่อน Project และข้อมูลบัญชีเดิม
-   * แสดง Error พร้อม Retry
-   *
-   * หากมี Form เดิม จะถูกเก็บไว้ในเงื่อนไขด้านบนแล้ว
-   */
   if (session.status === 'error') {
     return (
       <ProtectedState
@@ -1617,10 +1796,10 @@ function CreateTaskContent({
 
   if (status === 'error') {
     return (
-      <div className="mx-auto max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-5">
+      <div className="mx-auto max-w-3xl rounded-2xl border border-[#cfc9e8] bg-white p-5 sm:p-6 shadow-[0_4px_18px_rgba(35,25,66,0.05)]">
         <p
           role="alert"
-          className="mb-4 text-[13px] text-red-600"
+          className="mb-4 text-[13.5px] font-medium text-red-600"
         >
           Unable to load the task form. Please try again.
         </p>
@@ -1629,7 +1808,7 @@ function CreateTaskContent({
           <button
             type="button"
             onClick={() => router.push('/projects')}
-            className="min-h-11 rounded-lg border border-[#dddddd] px-4 text-[13px]"
+            className="min-h-10 rounded-xl border border-[#cfc9e8] bg-white hover:bg-[#f6f3ff] hover:text-[#5B44BA] px-4 py-2 text-[12.5px] font-semibold text-[#333333] transition-colors cursor-pointer"
           >
             Back to Projects
           </button>
@@ -1637,7 +1816,7 @@ function CreateTaskContent({
           <button
             type="button"
             onClick={handleRetry}
-            className="min-h-11 rounded-lg bg-[#222222] px-4 text-[13px] text-white"
+            className="min-h-10 rounded-xl border border-[#b5a3f7] bg-[#e2d9ff] hover:bg-[#5B44BA] hover:border-[#5B44BA] px-4 py-2 text-[12.5px] font-bold text-[#452ea0] hover:text-white transition-colors cursor-pointer"
           >
             Try again
           </button>
@@ -1660,10 +1839,6 @@ function CreateTaskContent({
     );
   }
 
-  /*
-   * ป้องกันการใช้ข้อมูล Project ของบัญชีเก่า
-   * หลัง Session เปลี่ยนเป็นบัญชีใหม่แล้ว
-   */
   if (
     session.status !== 'ready' ||
     !session.user ||

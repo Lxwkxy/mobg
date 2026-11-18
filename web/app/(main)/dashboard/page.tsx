@@ -12,6 +12,7 @@ import type {
   DashboardResponse,
   ProjectsResponse,
   Task,
+  TaskStatus,
 } from '@/types';
 
 type DashboardData = {
@@ -83,6 +84,37 @@ const getPriorityText = (priority: number) => {
   if (priority === 1) return 'High';
   if (priority === 2) return 'Medium';
   return 'Low';
+};
+
+const getPriorityBadgeClass = (priority: number) => {
+  if (priority === 1) return 'bg-red-50 text-red-600 border border-red-200';
+  if (priority === 2) return 'bg-amber-50 text-amber-700 border border-amber-200';
+  return 'bg-cyan-50 text-cyan-700 border border-cyan-200';
+};
+
+const getPriorityAccentBarClass = (priority: number) => {
+  if (priority === 1) return 'bg-red-500';
+  if (priority === 2) return 'bg-amber-400';
+  return 'bg-cyan-500';
+};
+
+const getStatusBadgeStyle = (status: TaskStatus) => {
+  if (status === 'Done') {
+    return {
+      pill: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+      dot: 'bg-emerald-600',
+    };
+  }
+  if (status === 'In progress') {
+    return {
+      pill: 'bg-blue-50 text-blue-700 border border-blue-200',
+      dot: 'bg-blue-600',
+    };
+  }
+  return {
+    pill: 'bg-neutral-200 text-neutral-700 border border-neutral-300',
+    dot: 'bg-neutral-600',
+  };
 };
 
 const formatDate = (date: string) => {
@@ -589,32 +621,32 @@ export default function DashboardPage() {
       label: 'Task in progress',
       value: summary.statusCounts.inProgress,
       href: '/mytasks?scope=projects&status=In%20progress',
-      badgeBgClass: 'bg-[#ebf3ff]',
-      badgeColorClass: 'text-[#2563eb]',
+      badgeBgClass: 'bg-blue-50',
+      badgeColorClass: 'text-blue-600',
     },
     {
       key: 'done',
       label: 'Complete tasks',
       value: summary.statusCounts.done,
       href: '/mytasks?scope=projects&status=Done',
-      badgeBgClass: 'bg-[#dcfce7]',
-      badgeColorClass: 'text-[#15803d]',
+      badgeBgClass: 'bg-emerald-50',
+      badgeColorClass: 'text-emerald-600',
     },
     {
       key: 'overdue',
       label: 'Overdue tasks',
       value: summary.overdueCount,
       href: '/mytasks?scope=projects&overdue=true',
-      badgeBgClass: 'bg-[#fee2e2]',
-      badgeColorClass: 'text-[#dc2626]',
+      badgeBgClass: 'bg-rose-50',
+      badgeColorClass: 'text-rose-600',
     },
     {
       key: 'highPriority',
       label: 'High priority',
       value: summary.highPriorityCount,
       href: '/mytasks?scope=projects&priority=1&excludeDone=true',
-      badgeBgClass: 'bg-[#ffedd5]',
-      badgeColorClass: 'text-[#ea580c]',
+      badgeBgClass: 'bg-red-50',
+      badgeColorClass: 'text-red-600',
     },
   ];
 
@@ -986,14 +1018,7 @@ export default function DashboardPage() {
           ) : (
             <div className="mt-2 flex flex-col divide-y divide-[#d4c8ff]">
               {importantTasks.map((task) => {
-                const priorityAccentBar =
-                  task.priority === 1
-                    ? 'bg-[#ea6a2a]'
-                    : task.priority === 2
-                      ? 'bg-[#e3a817]'
-                      : 'bg-[#b7afc9]';
-
-                const isInProgress = task.status === 'In progress';
+                const statusBadgeStyle = getStatusBadgeStyle(task.status);
 
                 return (
                   <div
@@ -1008,19 +1033,17 @@ export default function DashboardPage() {
                       <div className="min-w-0 flex-1 flex items-stretch gap-3">
                         <span
                           aria-hidden="true"
-                          className={`shrink-0 w-1 rounded-full ${priorityAccentBar}`}
+                          className={`shrink-0 w-1 rounded-full ${getPriorityAccentBarClass(
+                            task.priority,
+                          )}`}
                         />
 
                         <div className="min-w-0 flex-1 flex flex-col justify-center gap-2">
                           <div className="min-w-0 flex flex-wrap items-center gap-1.5">
                             <span
-                              className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                                task.priority === 1
-                                  ? 'bg-[#fff0e8] text-[#c45a20]'
-                                  : task.priority === 2
-                                    ? 'bg-[#fff8df] text-[#987000]'
-                                    : 'bg-[#eef0f4] text-[#555b66]'
-                              }`}
+                              className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${getPriorityBadgeClass(
+                                task.priority,
+                              )}`}
                             >
                               {getPriorityText(task.priority)}
                             </span>
@@ -1060,17 +1083,11 @@ export default function DashboardPage() {
                         <div className="flex flex-wrap sm:flex-col items-center sm:items-end gap-1.5">
                           {/* Status Pill */}
                           <span
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold ${
-                              isInProgress
-                                ? 'bg-[#ebf3ff] text-[#2563eb] border border-[#d6e6ff]'
-                                : 'bg-[#f4f2fa] text-[#5f5678] border border-[#e6e1f5]'
-                            }`}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold ${statusBadgeStyle.pill}`}
                           >
                             <span
                               aria-hidden="true"
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                isInProgress ? 'bg-[#2563eb]' : 'bg-[#8d83a8]'
-                              }`}
+                              className={`w-1.5 h-1.5 rounded-full ${statusBadgeStyle.dot}`}
                             />
                             {task.status}
                           </span>
@@ -1105,7 +1122,7 @@ export default function DashboardPage() {
                           </span>
 
                           {task.isOverdue && (
-                            <span className="rounded-full bg-[#fff0f0] border border-[#ffd4d4] px-2 py-0.5 text-[10px] font-bold text-[#d13232]">
+                            <span className="rounded-full bg-rose-50 border border-rose-200 px-2 py-0.5 text-[10px] font-bold text-rose-600">
                               Overdue
                             </span>
                           )}

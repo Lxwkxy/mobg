@@ -36,6 +36,33 @@ type MembersFeedback = {
   taskNames: string[];
 };
 
+const WORKSPACE_PATTERN_BG = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cg fill='none' stroke='%235B44BA' stroke-opacity='0.1' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M24 18V30M18 24H30' stroke-width='1.7'/%3E%3Crect x='76' y='14' width='10' height='10' rx='2.5' transform='rotate(45 81 19)' stroke-width='1.6'/%3E%3Ccircle cx='122' cy='30' r='5' stroke-width='1.6'/%3E%3Cg transform='translate(14 70)'%3E%3Crect x='0' y='0' width='15' height='15' rx='4' stroke-width='1.6'/%3E%3Cpath d='M4.5 7.5L6.8 9.8L10.8 5.5' stroke-width='1.6'/%3E%3C/g%3E%3Cpath d='M70 58L72.2 64.8L79 67L72.2 69.2L70 76L67.8 69.2L61 67L67.8 64.8L70 58Z' stroke-width='1.5'/%3E%3Crect x='110' y='78' width='16' height='7' rx='3.5' transform='rotate(-28 118 81.5)' stroke-width='1.6'/%3E%3Cpath d='M82 113V123M77 118H87' stroke-width='1.7'/%3E%3C/g%3E%3Cg fill='%235B44BA' fill-opacity='0.1'%3E%3Ccircle cx='28' cy='118' r='2'/%3E%3Ccircle cx='36' cy='114' r='2'/%3E%3Ccircle cx='35' cy='123' r='2'/%3E%3Ccircle cx='124' cy='122' r='2.2'/%3E%3C/g%3E%3C/svg%3E")`;
+
+function formatJoinDate(value: string | null | undefined) {
+  if (!value) return '';
+
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(date);
+}
+
+function getInitials(name: string) {
+  return (
+    name
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join('')
+      .toUpperCase() || '?'
+  );
+}
+
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiRequestError) {
     if (error.status === 401) {
@@ -116,25 +143,48 @@ function ProjectMembersContent({
   selectionResetKey: number;
   feedback: MembersFeedback | null;
   onAddMember: (userId: number) => void;
-  onRemoveMember: (member: ProjectMember) => void;
+  onRemoveMember: (member: ProjectMember) => Promise<void>;
 }) {
   const { project, members, users } = data;
 
-  const [selection, setSelection] = useState<{
+  const [searchState, setSearchState] = useState<{
     resetKey: number;
-    userId: string;
+    query: string;
+    isOpen: boolean;
   }>({
     resetKey: selectionResetKey,
-    userId: '',
+    query: '',
+    isOpen: false,
   });
 
-  const selectedUserId =
-    selection.resetKey === selectionResetKey ? selection.userId : '';
+  const [memberToRemove, setMemberToRemove] =
+    useState<ProjectMember | null>(null);
+
+  const memberSearch =
+    searchState.resetKey === selectionResetKey ? searchState.query : '';
+
+  const isMemberDropdownOpen =
+    searchState.resetKey === selectionResetKey &&
+    searchState.isOpen &&
+    !isMutating;
 
   const isOwner = project.myRole === 'Owner';
 
   const actionError = feedback?.message ?? '';
   const blockingTasks = feedback?.taskNames ?? [];
+
+  useEffect(() => {
+    if (!memberToRemove) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !isMutating) {
+        setMemberToRemove(null);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [memberToRemove, isMutating]);
 
   const availableUsers = useMemo(() => {
     const memberIds = new Set(
@@ -146,8 +196,20 @@ function ProjectMembersContent({
     );
   }, [members, users]);
 
-  function handleAddClick() {
-    const userId = Number(selectedUserId);
+  const filteredUsers = useMemo(() => {
+    const query = memberSearch.trim().toLowerCase();
+
+    if (!query) return availableUsers;
+
+    return availableUsers.filter(
+      (user) =>
+        user.userName.toLowerCase().includes(query) ||
+        user.email.toLowerCase().includes(query),
+    );
+  }, [availableUsers, memberSearch]);
+
+  function handleSelectUser(rawUserId: number | string) {
+    const userId = Number(rawUserId);
 
     if (
       !Number.isSafeInteger(userId) ||
@@ -158,169 +220,560 @@ function ProjectMembersContent({
       return;
     }
 
+    setSearchState({
+      resetKey: selectionResetKey,
+      query: memberSearch,
+      isOpen: false,
+    });
+
     onAddMember(userId);
   }
 
+  async function handleConfirmRemove() {
+    if (!memberToRemove || isMutating) return;
+
+    try {
+      await onRemoveMember(memberToRemove);
+    } finally {
+      setMemberToRemove(null);
+    }
+  }
+
   return (
-    <div className="mx-auto w-full min-w-0 max-w-4xl [overflow-wrap:anywhere]">
-      <Link
-        href={`/projects/${projectId}`}
-        className="mb-5 inline-flex min-h-11 items-center text-[13px] text-[#666666] hover:text-black"
-      >
-        ← Back to Project
-      </Link>
+    <div className="relative min-w-0 pb-10 [overflow-wrap:anywhere]">
+      {/* FULL-SCREEN WORKSPACE PATTERN BACKGROUND */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 z-0"
+        style={{
+          backgroundImage: WORKSPACE_PATTERN_BG,
+          backgroundRepeat: 'repeat',
+          backgroundSize: '140px 140px',
+        }}
+      />
 
-      <div className="rounded-2xl border border-[#e0e0e0] bg-white p-4 sm:p-6 md:p-8">
-        <div className="mb-6">
-          <p className="mb-2 text-[12px] text-[#777777]">
-            Project members
-          </p>
+      <div className="relative z-[1] mx-auto w-full min-w-0 max-w-4xl">
+        {/* FRAMED PURPLE HEADER BANNER */}
+        <div className="relative mb-6 overflow-hidden rounded-[26px] bg-gradient-to-r from-[#755FD9] via-[#7F68E2] to-[#8C76E8] px-6 py-6 sm:px-9 sm:py-7 shadow-[0_10px_28px_rgba(91,68,186,0.18)]">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+          >
+            <div className="absolute -left-12 -bottom-20 h-56 w-56 rounded-full bg-white/[0.07]" />
+            <div className="absolute right-8 -top-12 h-60 w-60 rounded-full bg-white/[0.08]" />
+            <div className="absolute right-44 bottom-2 h-36 w-36 rounded-full bg-white/[0.06]" />
 
-          <h1 className="text-2xl font-extrabold text-[#1f1f1f]">
-            {project.projectName}
-          </h1>
+            <svg
+              viewBox="0 0 900 180"
+              fill="none"
+              preserveAspectRatio="xMidYMid slice"
+              className="h-full w-full"
+            >
+              <g
+                stroke="#FFFFFF"
+                strokeOpacity="0.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path
+                  d="M642 36L644.6 44.4L653 47L644.6 49.6L642 58L639.4 49.6L631 47L639.4 44.4L642 36Z"
+                  strokeWidth="1.7"
+                />
+                <path d="M532 124V136M526 130H538" strokeWidth="1.9" />
+                <path d="M746 32V42M741 37H751" strokeWidth="1.8" />
+                <rect
+                  x="788"
+                  y="108"
+                  width="14"
+                  height="14"
+                  rx="3.8"
+                  transform="rotate(45 795 115)"
+                  strokeWidth="1.8"
+                />
+                <g transform="translate(836 52)">
+                  <rect
+                    x="0"
+                    y="0"
+                    width="17"
+                    height="17"
+                    rx="4.5"
+                    strokeWidth="1.8"
+                  />
+                  <path d="M5 8.5L7.6 11.1L12.2 6.2" strokeWidth="1.8" />
+                </g>
+                <circle cx="584" cy="68" r="5.5" strokeWidth="1.8" />
+              </g>
+            </svg>
+          </div>
 
-          <p className="mt-2 text-sm text-[#777777]">
-            Manage people who can access this project.
-          </p>
+          <div className="relative z-[1]">
+            <nav
+              aria-label="Breadcrumb"
+              className="mb-3.5 flex flex-wrap items-center gap-1.5 text-[13px] text-white/80"
+            >
+              <Link
+                href="/projects"
+                className="font-medium hover:text-white transition-colors"
+              >
+                Projects
+              </Link>
+              <span aria-hidden="true" className="text-white/55">
+                &gt;
+              </span>
+              <Link
+                href={`/projects/${projectId}`}
+                className="font-medium hover:text-white transition-colors break-words"
+              >
+                {project.projectName}
+              </Link>
+              <span aria-hidden="true" className="text-white/55">
+                &gt;
+              </span>
+              <span className="font-bold text-white">Manage Members</span>
+            </nav>
+
+            <div className="flex min-w-0 items-start gap-4">
+              <Link
+                href={`/projects/${projectId}`}
+                aria-label="Back to Project"
+                className="mt-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 hover:border-white/40 transition-colors"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <line x1="19" y1="12" x2="5" y2="12" />
+                  <polyline points="12 19 5 12 12 5" />
+                </svg>
+              </Link>
+
+              <div className="min-w-0">
+                <h1 className="text-[26px] sm:text-[32px] font-extrabold leading-tight tracking-tight text-white">
+                  Manage Members
+                </h1>
+                <p className="mt-1 text-[13.5px] leading-relaxed text-white/85">
+                  Manage people who can access {project.projectName}.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {isOwner && (
-          <section className="mb-7 rounded-xl border border-[#eeeeee] bg-[#fafafa] p-4">
-            <h2 className="mb-3 text-sm font-bold text-[#222222]">
-              Add a member
-            </h2>
-
-            {availableUsers.length > 0 ? (
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <select
-                  value={selectedUserId}
-                  onChange={(event) =>
-                    setSelection({
-                      resetKey: selectionResetKey,
-                      userId: event.target.value,
-                    })
-                  }
-                  disabled={isMutating}
-                  className="min-h-11 min-w-0 flex-1 rounded-lg border border-[#dddddd] bg-white px-3 text-sm outline-none focus:border-[#777777] disabled:bg-[#f5f5f5]"
+        {/* MAIN CARD */}
+        <div className="rounded-2xl border border-[#cfc9e8] bg-white/95 p-5 shadow-[0_4px_18px_rgba(35,25,66,0.05)] sm:p-7 md:p-8">
+          {/* ADD A MEMBER SECTION (OWNER ONLY) */}
+          {isOwner && (
+            <section className="mb-7 rounded-2xl border border-[#dcd4fa] bg-[#f7f5fd] p-4 sm:p-5">
+              <div className="mb-1.5 flex items-center gap-2">
+                <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-[#d6ccf8] bg-white text-[#5B44BA]">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                    <circle cx="8.5" cy="7" r="4" />
+                    <line x1="20" y1="8" x2="20" y2="14" />
+                    <line x1="23" y1="11" x2="17" y2="11" />
+                  </svg>
+                </span>
+                <label
+                  htmlFor="memberSearch"
+                  className="text-[14.5px] font-extrabold text-[#1f1f1f]"
                 >
-                  <option value="">Select a user</option>
-
-                  {availableUsers.map((user) => (
-                    <option
-                      key={user.userId}
-                      value={user.userId}
-                    >
-                      {user.userName} ({user.email})
-                    </option>
-                  ))}
-                </select>
-
-                <button
-                  type="button"
-                  onClick={handleAddClick}
-                  disabled={!selectedUserId || isMutating}
-                  className="min-h-11 rounded-lg bg-[#222222] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isMutating ? 'Please wait...' : 'Add member'}
-                </button>
+                  Add a member
+                </label>
               </div>
-            ) : (
-              <p className="text-sm text-[#777777]">
-                There are no other users available to add.
-              </p>
-            )}
-          </section>
-        )}
 
-        {actionError && (
-          <div
-            role="alert"
-            className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
-          >
-            <p>{actionError}</p>
+              {availableUsers.length > 0 ? (
+                <>
+                  <p className="mb-3 text-[12.5px] text-[#6e6b7b]">
+                    Search by name or email and select the people you want to add.
+                  </p>
 
-            {blockingTasks.length > 0 && (
-              <ul className="mt-2 list-inside list-disc space-y-1">
-                {blockingTasks.map((taskName, index) => (
-                  <li key={`${index}-${taskName}`}>{taskName}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-
-        <section>
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-bold text-[#222222]">
-              Members
-            </h2>
-
-            <span className="text-xs text-[#777777]">
-              {members.length}{' '}
-              {members.length === 1 ? 'member' : 'members'}
-            </span>
-          </div>
-
-          {members.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-[#dddddd] p-6 text-center text-sm text-[#777777]">
-              No members found.
-            </div>
-          ) : (
-            <div className="divide-y divide-[#eeeeee] rounded-xl border border-[#eeeeee]">
-              {members.map((member) => (
-                <div
-                  key={member.userId}
-                  className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-[#222222]">
-                      {member.userName}
-                    </p>
-
-                    <p className="mt-1 break-all text-xs text-[#777777]">
-                      {member.email}
-                    </p>
-
-                    <p className="mt-1 text-[11px] text-[#999999]">
-                      Joined {member.joinDate}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                        member.role === 'Owner'
-                          ? 'bg-[#222222] text-white'
-                          : 'bg-[#eeeeee] text-[#555555]'
+                  <div className="relative">
+                    <div
+                      className={`flex items-center gap-2.5 rounded-xl border bg-white px-3.5 transition-all ${
+                        isMutating
+                          ? 'border-[#dcd4fa] bg-[#f4f2fa] opacity-75'
+                          : 'border-[#cfc9e8] focus-within:border-[#5B44BA] focus-within:ring-2 focus-within:ring-[#5B44BA]/15'
                       }`}
                     >
-                      {member.role}
-                    </span>
-
-                    {isOwner && (
-                      <button
-                        type="button"
-                        onClick={() => onRemoveMember(member)}
-                        disabled={isMutating}
-                        className="min-h-10 rounded-lg border border-[#e5baba] px-3 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      <svg
+                        className="h-4 w-4 shrink-0 text-[#7c788c]"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        aria-hidden="true"
                       >
-                        Remove
-                      </button>
+                        <circle cx="11" cy="11" r="7" strokeWidth={2} />
+                        <path
+                          strokeLinecap="round"
+                          strokeWidth={2}
+                          d="m16 16 4 4"
+                        />
+                      </svg>
+
+                      <input
+                        id="memberSearch"
+                        type="text"
+                        disabled={isMutating}
+                        value={memberSearch}
+                        onFocus={() =>
+                          setSearchState({
+                            resetKey: selectionResetKey,
+                            query: memberSearch,
+                            isOpen: true,
+                          })
+                        }
+                        onChange={(event) =>
+                          setSearchState({
+                            resetKey: selectionResetKey,
+                            query: event.target.value,
+                            isOpen: true,
+                          })
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === 'Escape') {
+                            setSearchState({
+                              resetKey: selectionResetKey,
+                              query: memberSearch,
+                              isOpen: false,
+                            });
+                          }
+                        }}
+                        placeholder="Search members by name or email..."
+                        autoComplete="off"
+                        className="min-w-0 w-full border-0 bg-transparent py-3 text-[13.5px] text-[#1f1f1f] outline-none placeholder:text-[#8f89a6] disabled:cursor-not-allowed"
+                      />
+
+                      {isMutating && !memberToRemove ? (
+                        <span className="shrink-0 text-[12px] font-semibold text-[#5B44BA]">
+                          Adding...
+                        </span>
+                      ) : (
+                        memberSearch && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSearchState({
+                                resetKey: selectionResetKey,
+                                query: '',
+                                isOpen: true,
+                              })
+                            }
+                            aria-label="Clear member search"
+                            className="shrink-0 min-h-9 min-w-9 text-lg leading-none text-[#8f89a6] hover:text-[#1f1f1f] cursor-pointer"
+                          >
+                            ×
+                          </button>
+                        )
+                      )}
+                    </div>
+
+                    {isMemberDropdownOpen && (
+                      <>
+                        <button
+                          type="button"
+                          aria-label="Close member search results"
+                          onClick={() =>
+                            setSearchState({
+                              resetKey: selectionResetKey,
+                              query: memberSearch,
+                              isOpen: false,
+                            })
+                          }
+                          className="fixed inset-0 z-10 cursor-default"
+                        />
+
+                        <div
+                          id="member-search-results"
+                          className="absolute left-0 right-0 z-20 mt-2 max-h-60 w-full overflow-y-auto overscroll-contain rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
+                        >
+                          {filteredUsers.length === 0 ? (
+                            <p className="p-3 text-[12.5px] text-[#6e6b7b]">
+                              No members found.
+                            </p>
+                          ) : (
+                            filteredUsers.map((user) => (
+                              <button
+                                key={user.userId}
+                                type="button"
+                                disabled={isMutating}
+                                onClick={() => handleSelectUser(user.userId)}
+                                className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-[#f6f3ff] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#dcd4fa] bg-[#f1edff] text-[11.5px] font-bold text-[#5B44BA]">
+                                  {getInitials(user.userName)}
+                                </span>
+
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-[13px] font-semibold text-[#1f1f1f] group-hover:text-[#5B44BA]">
+                                    {user.userName}
+                                  </span>
+                                  <span className="block truncate text-[11.5px] text-[#6e6b7b]">
+                                    {user.email}
+                                  </span>
+                                </span>
+
+                                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[17px] font-medium text-[#7c788c] group-hover:bg-[#ebe4ff] group-hover:text-[#5B44BA]">
+                                  +
+                                </span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </>
                     )}
                   </div>
+                </>
+              ) : (
+                <p className="mt-1 text-[13px] text-[#6e6b7b]">
+                  There are no other users available to add.
+                </p>
+              )}
+            </section>
+          )}
+
+          {/* ACTION FEEDBACK / ERROR ALERT */}
+          {actionError && (
+            <div
+              role="alert"
+              className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-[13px] text-red-700"
+            >
+              <div className="flex items-start gap-2.5">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                  className="mt-0.5 shrink-0"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <div className="min-w-0">
+                  <p className="font-semibold">{actionError}</p>
+
+                  {blockingTasks.length > 0 && (
+                    <ul className="mt-2 list-inside list-disc space-y-1 text-[12.5px]">
+                      {blockingTasks.map((taskName, index) => (
+                        <li key={`${index}-${taskName}`}>{taskName}</li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
-              ))}
+              </div>
             </div>
           )}
-        </section>
 
-        {!isOwner && (
-          <p className="mt-5 text-xs text-[#888888]">
-            Only project Owners can add or remove members.
-          </p>
-        )}
+          {/* MEMBERS LIST */}
+          <section>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <h2 className="text-[17px] font-extrabold text-[#1f1f1f]">
+                  Members
+                </h2>
+                <span className="inline-flex items-center rounded-full border border-[#dcd4fa] bg-[#f1edff] px-2.5 py-0.5 text-[11.5px] font-bold text-[#5B44BA] tabular-nums">
+                  {members.length}{' '}
+                  {members.length === 1 ? 'member' : 'members'}
+                </span>
+              </div>
+            </div>
+
+            {members.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-[#cfc9e8] bg-[#faf9fe] p-8 text-center text-[13.5px] text-[#6e6b7b]">
+                No members found.
+              </div>
+            ) : (
+              <div className="divide-y divide-[#ece8f8] overflow-hidden rounded-xl border border-[#dcd5f5] bg-white">
+                {members.map((member) => (
+                  <div
+                    key={member.userId}
+                    className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between hover:bg-[#f9f7ff] transition-colors"
+                  >
+                    <div className="flex min-w-0 items-center gap-3.5">
+                      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#dcd4fa] bg-[#f1edff] text-[12px] font-bold text-[#5B44BA]">
+                        {getInitials(member.userName)}
+                      </span>
+
+                      <div className="min-w-0">
+                        <p className="truncate text-[14px] font-bold text-[#1f1f1f]">
+                          {member.userName}
+                        </p>
+
+                        <p className="mt-0.5 break-all text-[12px] text-[#6e6b7b]">
+                          {member.email}
+                        </p>
+
+                        {member.joinDate && (
+                          <p className="mt-0.5 text-[11px] text-[#8f89a6]">
+                            Joined {formatJoinDate(member.joinDate)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 self-end sm:self-center">
+                      <span
+                        className={`rounded-full px-3 py-1 text-[11.5px] font-semibold ${
+                          member.role === 'Owner'
+                            ? 'bg-[#5B44BA] text-white'
+                            : 'border border-[#dcd4fa] bg-[#f1edff] text-[#4c35ab]'
+                        }`}
+                      >
+                        {member.role}
+                      </span>
+
+                      {isOwner && (
+                        <button
+                          type="button"
+                          onClick={() => setMemberToRemove(member)}
+                          disabled={isMutating}
+                          className="min-h-9 rounded-xl border border-rose-200 bg-white px-3.5 text-[12px] font-semibold text-rose-600 transition-colors hover:border-rose-300 hover:bg-rose-50 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {!isOwner && (
+            <p className="mt-5 text-[12px] text-[#7c788c]">
+              Only project Owners can add or remove members.
+            </p>
+          )}
+        </div>
       </div>
+
+      {/* CENTERED REMOVE MEMBER CONFIRMATION MODAL */}
+      {memberToRemove && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="remove-member-dialog-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#191233]/45 p-4 backdrop-blur-[2px]"
+          onClick={() => {
+            if (!isMutating) {
+              setMemberToRemove(null);
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-[#cfc9e8] bg-white p-6 shadow-[0_20px_50px_rgba(35,25,66,0.22)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 text-rose-600">
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.1"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="8.5" cy="7" r="4" />
+                  <line x1="23" y1="11" x2="17" y2="11" />
+                </svg>
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <h2
+                  id="remove-member-dialog-title"
+                  className="text-[18px] font-extrabold text-[#1f1f1f]"
+                >
+                  Remove member
+                </h2>
+                <p className="mt-1 text-[13px] leading-relaxed text-[#6e6b7b]">
+                  Remove{' '}
+                  <span className="font-bold text-[#1f1f1f]">
+                    {memberToRemove.userName}
+                  </span>{' '}
+                  from{' '}
+                  <span className="font-bold text-[#1f1f1f]">
+                    {project.projectName}
+                  </span>
+                  ? They will immediately lose access to this project.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-[#e5e0f5] bg-[#faf9fe] px-3.5 py-2.5">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#dcd4fa] bg-[#f1edff] text-[11px] font-bold text-[#5B44BA]">
+                  {getInitials(memberToRemove.userName)}
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-bold text-[#1f1f1f]">
+                    {memberToRemove.userName}
+                  </p>
+                  <p className="truncate text-[11.5px] text-[#6e6b7b]">
+                    {memberToRemove.email}
+                  </p>
+                </div>
+              </div>
+
+              <span
+                className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                  memberToRemove.role === 'Owner'
+                    ? 'bg-[#5B44BA] text-white'
+                    : 'border border-[#dcd4fa] bg-[#f1edff] text-[#4c35ab]'
+                }`}
+              >
+                {memberToRemove.role}
+              </span>
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center justify-end gap-2.5">
+              <button
+                type="button"
+                disabled={isMutating}
+                onClick={() => setMemberToRemove(null)}
+                className="min-h-10 rounded-xl border border-[#cfc9e8] bg-white px-4 py-2 text-[13px] font-semibold text-[#3d3a4b] hover:border-[#9e8ce6] hover:bg-[#f6f3ff] hover:text-[#5B44BA] transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={isMutating}
+                onClick={() => void handleConfirmRemove()}
+                className="min-h-10 rounded-xl bg-rose-600 hover:bg-rose-700 px-4 py-2 text-[13px] font-bold text-white shadow-[0_4px_14px_rgba(225,29,72,0.24)] transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isMutating ? 'Removing...' : 'Remove member'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -413,14 +866,12 @@ function ProjectMembersLoader({
   }, [retry]);
 
   const refreshAfterMutation = useCallback(async () => {
-    // รอ request ที่เริ่มจาก focus หรือการโหลดก่อนหน้าจบทั้งหมด
     while (activeLoadsRef.current.size > 0) {
       await Promise.allSettled([
         ...activeLoadsRef.current,
       ]);
     }
 
-    // โหลดข้อมูลใหม่หลัง request เก่าจบแล้ว
     retryRef.current();
   }, []);
 
@@ -430,7 +881,6 @@ function ProjectMembersLoader({
       requestProjectId: string,
       requestUserId: number | string,
     ): Promise<boolean> => {
-      // ตรวจ route และคำขอก่อน เพราะช่วง session loading ค่า userId จะว่างชั่วคราว
       if (
         !mountedRef.current ||
         mutationSequenceRef.current !== requestId ||
@@ -571,12 +1021,6 @@ function ProjectMembersLoader({
         return;
       }
 
-      const confirmed = window.confirm(
-        `Remove ${member.userName} from this project?`,
-      );
-
-      if (!confirmed) return;
-
       const requestUserId = session.user.userId;
       const requestProjectId = projectId;
       const requestScope = currentScope;
@@ -661,8 +1105,8 @@ function ProjectMembersLoader({
 
   if (status === 'error') {
     return (
-      <div className="mx-auto w-full max-w-4xl rounded-xl border border-[#e0e0e0] bg-white p-5">
-        <p role="alert" className="mb-4 text-sm text-red-600">
+      <div className="mx-auto w-full max-w-3xl rounded-2xl border border-[#cfc9e8] bg-white p-5 sm:p-6 shadow-[0_4px_18px_rgba(35,25,66,0.05)]">
+        <p role="alert" className="mb-4 text-[13.5px] font-medium text-red-600">
           {httpStatus === 400
             ? 'Invalid project ID.'
             : httpStatus === 403
@@ -676,7 +1120,7 @@ function ProjectMembersLoader({
           <button
             type="button"
             onClick={() => router.push(`/projects/${projectId}`)}
-            className="min-h-11 rounded-lg border border-[#dddddd] px-4 text-sm"
+            className="min-h-10 rounded-xl border border-[#cfc9e8] bg-white hover:bg-[#f6f3ff] hover:text-[#5B44BA] px-4 py-2 text-[12.5px] font-semibold text-[#333333] transition-colors cursor-pointer"
           >
             Back to Project
           </button>
@@ -687,7 +1131,7 @@ function ProjectMembersLoader({
               <button
                 type="button"
                 onClick={retry}
-                className="min-h-11 rounded-lg bg-[#222222] px-4 text-sm text-white"
+                className="min-h-10 rounded-xl border border-[#b5a3f7] bg-[#e2d9ff] hover:bg-[#5B44BA] hover:border-[#5B44BA] px-4 py-2 text-[12.5px] font-bold text-[#452ea0] hover:text-white transition-colors cursor-pointer"
               >
                 Try again
               </button>
@@ -715,7 +1159,7 @@ function ProjectMembersLoader({
       selectionResetKey={selectionResetKey}
       feedback={visibleFeedback}
       onAddMember={(userId) => void handleAddMember(userId)}
-      onRemoveMember={(member) => void handleRemoveMember(member)}
+      onRemoveMember={handleRemoveMember}
     />
   );
 }
