@@ -18,7 +18,11 @@ import AssigneeSelector from '@/components/tasks/AssigneeSelector';
 import { getCurrentUser } from '@/lib/authService';
 import { useSession } from '@/lib/SessionProvider';
 import { ApiRequestError, projectApi } from '@/lib/projectApi';
-import { parseRouteId, taskApi } from '@/lib/taskApi';
+import {
+  parseRouteId,
+  taskApi,
+  tryParseRouteId,
+} from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 
 import {
@@ -1458,9 +1462,7 @@ function CreateTaskContent({
   } = useSession();
 
   const isInvalidId =
-    !/^\d+$/.test(projectId) ||
-    !Number.isSafeInteger(Number(projectId)) ||
-    Number(projectId) <= 0;
+    tryParseRouteId(projectId, 'project ID') === null;
 
   const load = useCallback(async (): Promise<FormData> => {
     const id = parseRouteId(projectId, 'project ID');

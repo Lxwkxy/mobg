@@ -16,7 +16,11 @@ import {
   projectApi,
 } from '@/lib/projectApi';
 import { useSession } from '@/lib/SessionProvider';
-import { taskApi, parseRouteId } from '@/lib/taskApi';
+import {
+  parseRouteId,
+  taskApi,
+  tryParseRouteId,
+} from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import type { Project, Task } from '@/types';
 
@@ -59,14 +63,6 @@ type DeleteContext = {
   taskId: number;
 };
 
-function isPositiveIntString(value: string) {
-  return (
-    /^\d+$/.test(value) &&
-    Number.isSafeInteger(Number(value)) &&
-    Number(value) > 0
-  );
-}
-
 function TaskDetailContent({
   projectId,
   taskId,
@@ -86,7 +82,8 @@ function TaskDetailContent({
   const deleteContextRef = useRef<DeleteContext | null>(null);
 
   const isInvalidId =
-    !isPositiveIntString(projectId) || !isPositiveIntString(taskId);
+    tryParseRouteId(projectId, 'project ID') === null ||
+    tryParseRouteId(taskId, 'task ID') === null;
 
   const load = useCallback(async (): Promise<TaskDetailData> => {
     const numericProjectId = parseRouteId(projectId, 'project ID');
