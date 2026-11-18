@@ -1,8 +1,8 @@
-
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 import { taskApi } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
@@ -17,13 +17,70 @@ const STATUS_OPTIONS: TaskStatus[] = [
   'Done',
 ];
 
-export default function MyTasksPage() {
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
-  const [priorityFilter, setPriorityFilter] = useState<TaskPriority | ''>('');
+function parseStatusParam(value: string | null): TaskStatus | '' {
+  if (value === 'To do' || value === 'In progress' || value === 'Done') {
+    return value;
+  }
+  return '';
+}
 
+function parsePriorityParam(value: string | null): TaskPriority | '' {
+  if (value === '1') return 1;
+  if (value === '2') return 2;
+  if (value === '3') return 3;
+  return '';
+}
+
+export default function MyTasksPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const [search, setSearch] = useState('');
   const [updatingTaskId, setUpdatingTaskId] = useState<number | null>(null);
   const [actionError, setActionError] = useState('');
+
+  // อ่านค่าตัวกรองจาก URL query parameters โดยตรง (ไม่ต้องใช้ useEffect ซิงก์)
+  const statusFilter = parseStatusParam(searchParams.get('status'));
+  const priorityFilter = parsePriorityParam(searchParams.get('priority'));
+  const overdueOnly = searchParams.get('overdue') === 'true';
+
+  const updateQueryParams = useCallback(
+    (updates: {
+      status?: TaskStatus | '';
+      priority?: TaskPriority | '';
+      overdue?: boolean;
+    }) => {
+      const next = new URLSearchParams(searchParams.toString());
+
+      if (updates.status !== undefined) {
+        if (updates.status) {
+          next.set('status', updates.status);
+        } else {
+          next.delete('status');
+        }
+      }
+
+      if (updates.priority !== undefined) {
+        if (updates.priority !== '') {
+          next.set('priority', String(updates.priority));
+        } else {
+          next.delete('priority');
+        }
+      }
+
+      if (updates.overdue !== undefined) {
+        if (updates.overdue) {
+          next.set('overdue', 'true');
+        } else {
+          next.delete('overdue');
+        }
+      }
+
+      const qs = next.toString();
+      router.replace(qs ? `/mytasks?${qs}` : '/mytasks', { scroll: false });
+    },
+    [router, searchParams],
+  );
 
   // โหลดข้อมูลใหม่เมื่อ Status Filter เปลี่ยน
   // ถ้าไม่ได้เลือก Status จะไม่ส่ง status ไปยัง API
@@ -43,7 +100,7 @@ export default function MyTasksPage() {
 
   const tasksList = useMemo(() => data ?? [], [data]);
 
-  // Search และ Priority ยังคงกรองข้อมูลฝั่ง Client
+  // Search, Priority และ Overdue กรองข้อมูลฝั่ง Client
   const filteredTasks = useMemo(() => {
     const keyword = search.trim().toLowerCase();
 
@@ -54,9 +111,11 @@ export default function MyTasksPage() {
       const matchesPriority =
         priorityFilter === '' || task.priority === priorityFilter;
 
-      return matchesSearch && matchesPriority;
+      const matchesOverdue = !overdueOnly || Boolean(task.isOverdue);
+
+      return matchesSearch && matchesPriority && matchesOverdue;
     });
-  }, [tasksList, search, priorityFilter]);
+  }, [tasksList, search, priorityFilter, overdueOnly]);
 
   const handleStatusChange = async (
     task: Task,
@@ -92,8 +151,10 @@ export default function MyTasksPage() {
 
   const clearFilters = () => {
     setSearch('');
-    setStatusFilter('');
-    setPriorityFilter('');
+
+    if (searchParams.toString()) {
+      router.replace('/mytasks', { scroll: false });
+    }
   };
 
   const getPriorityLabel = (priority: number) => {
@@ -114,7 +175,8 @@ export default function MyTasksPage() {
   const hasActiveFilters =
     search !== '' ||
     statusFilter !== '' ||
-    priorityFilter !== '';
+    priorityFilter !== '' ||
+    overdueOnly;
 
   const hasNoAssignedTasks =
     tasksList.length === 0 && !hasActiveFilters;
@@ -136,10 +198,27 @@ export default function MyTasksPage() {
         status={statusFilter}
         priority={priorityFilter}
         onSearchChange={setSearch}
-        onStatusChange={setStatusFilter}
-        onPriorityChange={setPriorityFilter}
+        onStatusChange={(nextStatus) =>
+          updateQueryParams({ status: nextStatus })
+        }
+        onPriorityChange={(nextPriority) =>
+          updateQueryParams({ priority: nextPriority })
+        }
         onClear={clearFilters}
       />
+
+      {overdueOnly && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[12px] text-red-700">
+          <span>Showing overdue tasks only</span>
+          <button
+            type="button"
+            onClick={() => updateQueryParams({ overdue: false })}
+            className="font-semibold underline hover:text-red-900"
+          >
+            Show all due dates
+          </button>
+        </div>
+      )}
 
       {actionError && (
         <div

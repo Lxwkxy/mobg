@@ -309,7 +309,7 @@ export default function Sidebar() {
       }}
       className={`relative w-full ${
         isCollapsed ? 'lg:w-[84px]' : 'lg:w-[248px]'
-      } rounded-none lg:rounded-br-[32px] bg-[#5B44BA] text-white border-b lg:border-b-0 lg:border-r border-white/15 shadow-[4px_0_24px_rgba(91,68,186,0.16)] lg:sticky lg:top-0 lg:h-screen lg:shrink-0 z-20 transition-[width] duration-[350ms] ease-[cubic-bezier(0.22,1,0.36,1)]`}
+      } rounded-none lg:rounded-br-[32px] bg-[#5B44BA] text-white border-b lg:border-b-0 lg:border-r border-white/15 shadow-[4px_0_24px_rgba(91,68,186,0.16)] lg:sticky lg:top-0 lg:h-screen lg:shrink-0 z-30 transition-[width] duration-[350ms] ease-[cubic-bezier(0.22,1,0.36,1)]`}
     >
       {/* ปุ่มพับเข้า-กางออกบนหน้าจอใหญ่ */}
       <button
