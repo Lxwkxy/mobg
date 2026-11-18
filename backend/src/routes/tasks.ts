@@ -1,8 +1,10 @@
 import { Router, type Request, type Response } from "express";
-import type { MessageResponse, TaskResponse, TasksResponse } from "../contracts/api.js";
+import type { CommentResponse, CommentsResponse, MessageResponse, TaskResponse, TasksResponse } from "../contracts/api.js";
 import { ApiError, notFound } from "../errors.js";
 import { requireAuth, requireProjectRole } from "../guards.js";
 import { mapTask, toDbStatus } from "../mappers/task.js";
+import { mapComment } from "../mappers/comment.js";
+import { createComment, listCommentsByTask } from "../services/commentDb.js";
 import { FOREIGN_KEY_VIOLATION, pgErrorInfo } from "../pgErrors.js";
 import { domainIdToNumber } from "../services/dbHelpers.js";
 import { listProjectMembers } from "../services/projectDb.js";
@@ -11,7 +13,7 @@ import {
   updateTask, type TaskChanges,
 } from "../services/taskDb.js";
 import {
-  createTaskSchema, parseRequest, taskListQuerySchema, updateTaskSchema, urlIdSchema,
+  createCommentSchema, createTaskSchema, parseRequest, taskListQuerySchema, updateTaskSchema, urlIdSchema,
 } from "../validation.js";
 
 // Mounted at /api/projects/:projectId/tasks, so the parent param must be merged.
@@ -127,6 +129,23 @@ router.delete("/:taskId", requireProjectRole("Owner"), async (req: Request, res:
   const { taskId } = await loadTask(req.projectAccess!.projectId, req.params.taskId as string);
   if (!(await deleteTask(taskId))) throw taskNotFound();
   res.json({ success: true, message: "Task deleted" });
+});
+
+// Any current project Owner/Member can comment, independently of task assignment or creation.
+router.get("/:taskId/comments", requireProjectRole("Member"), async (req: Request, res: Response<CommentsResponse>) => {
+  const { taskId } = await loadTask(req.projectAccess!.projectId, req.params.taskId as string);
+  res.json({ success: true, comments: (await listCommentsByTask(taskId)).map(mapComment) });
+});
+
+router.post("/:taskId/comments", requireProjectRole("Member"), async (req: Request, res: Response<CommentResponse>) => {
+  const { projectId } = req.projectAccess!;
+  const { taskId } = await loadTask(projectId, req.params.taskId as string);
+  const body = parseRequest(createCommentSchema, req.body);
+  const row = await createComment({
+    project_id: projectId, task_id: taskId, user_id: req.currentUser!.userId, comment_text: body.commentText,
+  });
+  if (!row) throw taskNotFound();
+  res.status(201).json({ success: true, comment: mapComment(row) });
 });
 
 export default router;

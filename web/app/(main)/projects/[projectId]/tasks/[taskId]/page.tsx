@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { notFound, useParams, useRouter } from 'next/navigation';
 
 import ProtectedState from '@/components/ProtectedState';
+import TaskComments from '@/components/tasks/TaskComments';
 import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
 import {
   ApiRequestError,
@@ -362,6 +363,12 @@ function TaskDetailContent({
             `/projects/${projectId}/tasks/${data.task.taskId}/edit`,
           )
         }
+      />
+
+      <TaskComments
+        projectId={data.project.projectId}
+        taskId={data.task.taskId}
+        onAccessLost={retry}
       />
 
       <ConfirmationDialog
