@@ -1,6 +1,6 @@
 # Task comments
 
-Verified on 2026-11-18. The task detail page at
+Verified on 2026-11-18; review fixes rechecked on 2026-11-19. The task detail page at
 `/projects/:projectId/tasks/:taskId` now loads and posts persisted comments.
 The existing `comments` table is used; no migration is required.
 
@@ -27,7 +27,7 @@ All checks below passed:
 | Backend typecheck and test typecheck | PASS |
 | Frontend typecheck and lint | PASS |
 | `taskRoutes.test.ts` with the optional browser test enabled | 21/21 PASS |
-| Comment UI tests at 375px and 1440px, including error recovery | 3/3 PASS |
+| Comment UI tests at 375px and 1440px, including error recovery and session revalidation | 4/4 PASS |
 | Browser → real HTTP API → PostgreSQL, then page reload | PASS |
 
 The integration suite used PostgreSQL 18 in a temporary local cluster and a fresh
@@ -60,7 +60,8 @@ Member session. It verifies the saved row directly and reloads the page to verif
 Without `COMMENTS_WEB_URL`, only that browser case is skipped.
 
 The separate UI tests use intercepted API fixtures to exercise layout, blank input,
-plain-text rendering, load retry and preservation of a draft after a failed POST:
+plain-text rendering, load retry, preservation of a draft after a failed POST and
+after same-account focus verification, and draft isolation when the account changes:
 
 ```powershell
 # From the repository root, with the web dev server running:

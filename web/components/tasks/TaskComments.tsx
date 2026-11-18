@@ -6,9 +6,11 @@ import { useSession } from '@/lib/SessionProvider';
 import { taskApi } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 
-export default function TaskComments({ projectId, taskId, onAccessLost }: {
+export default function TaskComments({ projectId, taskId, draft, onDraftChange, onAccessLost }: {
   projectId: number;
   taskId: number;
+  draft: string;
+  onDraftChange: (value: string) => void;
   onAccessLost: () => void;
 }) {
   const { session, isCurrentSessionRevision } = useSession();
@@ -16,7 +18,6 @@ export default function TaskComments({ projectId, taskId, onAccessLost }: {
   // TaskDetailContent owns session/focus verification. Refreshing the session here
   // would hide the parent, unmount this component, and restart that cycle on mount.
   const { status, data: comments, retry } = useProtectedLoad(load);
-  const [text, setText] = useState('');
   const [isPosting, setIsPosting] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -30,7 +31,7 @@ export default function TaskComments({ projectId, taskId, onAccessLost }: {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const commentText = text.trim();
+    const commentText = draft.trim();
     if (!commentText || postingRef.current || status !== 'ready' || session.status !== 'ready') return;
     const revision = session.revision;
     const isCurrent = () => mountedRef.current && isCurrentSessionRevision(revision);
@@ -41,7 +42,7 @@ export default function TaskComments({ projectId, taskId, onAccessLost }: {
     try {
       await taskApi.addComment(projectId, taskId, { commentText });
       if (!isCurrent()) return;
-      setText('');
+      onDraftChange('');
       setNotice('Comment posted.');
       retry();
     } catch (cause) {
@@ -87,13 +88,13 @@ export default function TaskComments({ projectId, taskId, onAccessLost }: {
           )}
           <form onSubmit={submit} className="mt-6 border-t border-[#eeeeee] pt-5">
             <label htmlFor="task-comment" className="mb-2 block text-[13px] font-medium text-[#333333]">Add a comment</label>
-            <textarea id="task-comment" value={text} onChange={(event) => setText(event.target.value)}
+            <textarea id="task-comment" value={draft} onChange={(event) => onDraftChange(event.target.value)}
               rows={3} required disabled={isPosting} placeholder="Write a comment…"
               aria-describedby={error ? 'task-comment-error' : undefined}
               className="w-full min-w-0 resize-y rounded-lg border border-[#d5d5d5] p-3 text-[14px] focus:border-[#222222] focus:outline-none disabled:opacity-50" />
             {error && <p id="task-comment-error" role="alert" className="mt-2 text-[13px] text-red-600">{error}</p>}
             <div className="mt-3 flex justify-end">
-              <button type="submit" disabled={!text.trim() || isPosting}
+              <button type="submit" disabled={!draft.trim() || isPosting}
                 className="min-h-11 rounded-lg bg-[#222222] px-5 py-2 text-[13px] font-medium text-white hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-50">
                 {isPosting ? 'Posting…' : 'Post comment'}
               </button>

@@ -77,6 +77,12 @@ function TaskDetailContent({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  // Keep the draft while focus verification temporarily unmounts the protected view.
+  // The route keys this component by task; user ownership prevents cross-account display.
+  const [commentDraft, setCommentDraft] = useState<{
+    userId: number | string;
+    text: string;
+  } | null>(null);
 
   const mountedRef = useRef(false);
   const requestSequenceRef = useRef(0);
@@ -368,6 +374,12 @@ function TaskDetailContent({
       <TaskComments
         projectId={data.project.projectId}
         taskId={data.task.taskId}
+        draft={commentDraft?.userId === session.user?.userId ? commentDraft?.text ?? '' : ''}
+        onDraftChange={(text) => {
+          if (session.status === 'ready' && session.user) {
+            setCommentDraft({ userId: session.user.userId, text });
+          }
+        }}
         onAccessLost={retry}
       />
 

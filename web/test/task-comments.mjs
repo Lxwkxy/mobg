@@ -14,7 +14,8 @@ async function setup(width) {
     taskTitle: "Another member's task", taskDescription: 'Review together', priority: 2,
     status: 'To do', dueDate: '2026-12-01', createdAt: '2026-01-01T09:00:00Z',
     createdById: 1, createdByName: 'Owner', assignees: [{ userId: 1, userName: 'Owner' }] };
-  const state = { comments: [], posts: 0, failPost: false, failLoad: false };
+  const state = { comments: [], posts: 0, failPost: false, failLoad: false,
+    userId: 2, holdNextSession: false, releaseSession: null };
   await page.route('**/api/**', async (route) => {
     const req = route.request();
     const path = new URL(req.url()).pathname;
@@ -22,7 +23,13 @@ async function setup(width) {
       'Access-Control-Allow-Credentials': 'true', 'Access-Control-Allow-Headers': 'content-type' };
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
     let body;
-    if (path === '/api/me') body = { user: { userId: 2, userName: 'Member', email: 'member@example.test' } };
+    if (path === '/api/me') {
+      if (state.holdNextSession) {
+        state.holdNextSession = false;
+        await new Promise((resolve) => { state.releaseSession = resolve; });
+      }
+      body = { user: { userId: state.userId, userName: 'Member', email: 'member@example.test' } };
+    }
     else if (path === '/api/projects/91') body = { project };
     else if (path === '/api/projects/91/tasks/92') body = { task };
     else if (path === '/api/projects/91/tasks/92/comments') {
@@ -99,4 +106,34 @@ test('comment failures preserve draft and support retry without hiding task deta
     assert.equal(state.posts, 2);
     assert.equal(state.comments.length, 1);
   } finally { await page.close(); }
+});
+
+test('focus verification preserves a same-account draft and hides it from another account', async () => {
+  const { page, state } = await setup(375);
+  try {
+    await page.goto(`${base}/projects/91/tasks/92`);
+    const section = page.getByRole('region', { name: 'Comments' });
+    const input = section.getByLabel('Add a comment');
+    await input.fill('Draft survives switching tabs');
+    async function verifyOnFocus() {
+      // Let the existing 500ms focus throttle expire before simulating tab return.
+      await page.waitForTimeout(600);
+      state.holdNextSession = true;
+      state.releaseSession = null;
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await section.waitFor({ state: 'detached' });
+      assert.ok(state.releaseSession, 'session verification is in flight');
+      state.releaseSession();
+      await input.waitFor();
+    }
+    await verifyOnFocus();
+    assert.equal(await input.inputValue(), 'Draft survives switching tabs');
+    state.userId = 3;
+    await verifyOnFocus();
+    assert.equal(await input.inputValue(), '');
+    assert.equal(state.posts, 0);
+  } finally {
+    state.releaseSession?.();
+    await page.close();
+  }
 });

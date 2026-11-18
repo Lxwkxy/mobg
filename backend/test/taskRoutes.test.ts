@@ -224,7 +224,9 @@ test("comment database failures return safe errors without saving a partial comm
 test("browser comments persist through the real API and database", {
   skip: !process.env.COMMENTS_WEB_URL,
 }, async () => {
-  const { chromium } = await import("playwright");
+  // Browser coverage is optional; ordinary backend CI does not install root dependencies.
+  const playwrightModule = "playwright";
+  const { chromium } = await import(playwrightModule);
   const browser = await chromium.launch({ channel: "chrome", headless: true });
   const task = await api("owner", "POST", tasksUrl(shared), valid([ids.owner]));
   const taskId = task.body.task.taskId;
@@ -233,7 +235,7 @@ test("browser comments persist through the real API and database", {
     const web = process.env.COMMENTS_WEB_URL!;
     // Forward browser requests to this test's isolated API, with a real member session.
     // Responses and persisted data come from the running backend, not fixtures.
-    await page.route("**/api/**", async (route) => {
+    await page.route("**/api/**", async (route: any) => {
       const request = route.request();
       const url = new URL(request.url());
       const headers = { "Access-Control-Allow-Origin": new URL(web).origin,
