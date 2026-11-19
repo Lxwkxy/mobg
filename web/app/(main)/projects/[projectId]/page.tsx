@@ -839,77 +839,18 @@ export default function ProjectDetailPage() {
     const rows = compact ? bundle.overviewTasks : filteredTasks;
 
     return (
-    <div className="rounded-2xl border border-[#cfc9e8] bg-white/95 p-5 sm:p-6 shadow-[0_4px_18px_rgba(35,25,66,0.05)]">
-      {compact ? (
-        /* OVERVIEW TAB COMPACT HEADER */
-        <div
-          className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"
-        >
-          <div className="flex items-center gap-2.5">
-            <h2 className="shrink-0 text-[20px] font-extrabold text-[#1f1f1f]">
-              Tasks
-            </h2>
-            <span className="inline-flex items-center rounded-full border border-[#dcd4fa] bg-[#f1edff] px-2.5 py-0.5 text-[11.5px] font-bold text-[#5B44BA] tabular-nums">
-              {bundle.tasks.length}
-            </span>
-          </div>
-
-          <p className="text-[12.5px] font-medium text-[#6e6b7b]">
-            Top {OVERVIEW_TASK_LIMIT} by priority, then nearest due date
-          </p>
-        </div>
-      ) : (
-        /* TASKS TAB HEADER */
-        <>
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-[#e5e0f5] pb-5">
-            <div>
-              <div className="flex items-center gap-2.5">
-                <h2 className="text-[20px] font-extrabold text-[#1f1f1f]">
-                  Tasks
-                </h2>
-                <span className="inline-flex items-center rounded-full border border-[#dcd4fa] bg-[#f1edff] px-2.5 py-0.5 text-[11.5px] font-bold text-[#5B44BA] tabular-nums">
-                  {bundle.tasks.length}
-                </span>
-              </div>
-              <p className="mt-0.5 text-[12.5px] text-[#6e6b7b]">
-                Manage all tasks in this project
-              </p>
-            </div>
-
-            {isOwner && (
-              <Link
-                href={`/projects/${projectId}/tasks/new`}
-                className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-[#b5a3f7] bg-[#e2d9ff] hover:bg-[#5B44BA] hover:border-[#5B44BA] px-4.5 py-2 text-[13px] font-bold text-[#452ea0] hover:text-white shadow-[0_2px_10px_rgba(91,68,186,0.14)] hover:shadow-[0_6px_18px_rgba(91,68,186,0.28)] transition-all"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                <span>Create Task</span>
-              </Link>
-            )}
-          </div>
-
-          {/* FILTER BAR ROW */}
+      <section className="min-w-0 rounded-[24px] border border-[#e2daff] bg-white shadow-[0_8px_26px_rgba(91,68,186,0.06)]">
+        {/* PURPLE GRADIENT TOP HEADER BAR (DASHBOARD STYLE) */}
+        <div className="relative overflow-hidden rounded-t-[23px] flex flex-wrap gap-3 items-center justify-between bg-gradient-to-r from-[#5B44BA] via-[#7A61D4] to-[#9B86EE] px-4 py-4 sm:px-6 sm:py-4.5 text-white">
           <div
-            ref={taskFilterBarRef}
-            className="mb-5 flex flex-wrap items-center gap-2.5"
-          >
-            {/* SEARCH INPUT */}
-            <div className="flex min-h-10 min-w-[200px] flex-1 items-center gap-2 rounded-xl border border-[#cfc9e8] focus-within:border-[#5B44BA] bg-[#f8f6fe] focus-within:bg-white px-3.5 py-2 transition-colors">
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full bg-white/10"
+          />
+          <div className="relative z-[1] flex items-center gap-3">
+            <span className="w-9 h-9 shrink-0 rounded-2xl bg-white text-[#5B44BA] shadow-sm flex items-center justify-center">
               <svg
-                width="14"
-                height="14"
+                width="17"
+                height="17"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -917,478 +858,96 @@ export default function ProjectDetailPage() {
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 aria-hidden="true"
-                className="shrink-0 text-[#7d7696]"
               >
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                <rect x="8" y="2" width="8" height="4" rx="1" />
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                <path d="M9 12h6" />
+                <path d="M9 16h6" />
               </svg>
+            </span>
 
-              <input
-                type="text"
-                value={taskSearch}
-                onChange={(e) => setTaskSearch(e.target.value)}
-                placeholder="Search task..."
-                aria-label="Search task"
-                className="w-full min-w-0 border-none bg-transparent text-[13px] text-[#1f1f1f] outline-none placeholder:text-[#8f89a6]"
-              />
-
-              {taskSearch && (
-                <button
-                  type="button"
-                  onClick={() => setTaskSearch('')}
-                  aria-label="Clear task search"
-                  className="shrink-0 w-5 h-5 rounded-full hover:bg-[#ece8fa] inline-flex items-center justify-center text-[#777777] hover:text-[#5B44BA] cursor-pointer transition-colors"
-                >
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              )}
+            <div>
+              <div className="flex items-center gap-2.5">
+                <h2 className="text-[18px] font-extrabold text-white">
+                  Tasks
+                </h2>
+                <span className="inline-flex items-center rounded-full bg-white/20 border border-white/30 px-2.5 py-0.5 text-[11.5px] font-bold text-white tabular-nums">
+                  {bundle.tasks.length}
+                </span>
+              </div>
+              <p className="text-[11px] text-white/80">
+                {compact
+                  ? 'Top priority & upcoming tasks'
+                  : 'Manage all tasks in this project'}
+              </p>
             </div>
-
-            {/* CUSTOM PRIORITY DROPDOWN */}
-            <KeyboardPopup open={openTaskDropdown === 'priority'} onClose={() => setOpenTaskDropdown(null)} className="relative shrink-0">
-              <button
-                type="button"
-                aria-label="Filter tasks by priority"
-                aria-haspopup="listbox"
-                aria-expanded={openTaskDropdown === 'priority'}
-                onClick={() =>
-                  setOpenTaskDropdown((prev) =>
-                    prev === 'priority' ? null : 'priority',
-                  )
-                }
-                className={`min-h-10 min-w-[135px] inline-flex items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2 text-[13px] font-medium outline-none cursor-pointer transition-all ${
-                  openTaskDropdown === 'priority'
-                    ? 'border-[#5B44BA] bg-white text-[#5B44BA] ring-2 ring-[#5B44BA]/15'
-                    : taskPriorityFilter !== 'ALL'
-                      ? 'border-[#b3a4eb] bg-[#f4f0ff] text-[#4c35ab]'
-                      : 'border-[#cfc9e8] bg-[#f8f6fe] hover:bg-white hover:border-[#9e8ce6] text-[#3d3a4b]'
-                }`}
-              >
-                <span>{currentPriorityLabel}</span>
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                  className={`shrink-0 transition-transform duration-150 ${
-                    openTaskDropdown === 'priority'
-                      ? 'rotate-180 text-[#5B44BA]'
-                      : 'text-[#6e6b7b]'
-                  }`}
-                >
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </button>
-
-              {openTaskDropdown === 'priority' && (
-                <div
-                  role="listbox"
-                  aria-label="Task priority options"
-                  className="absolute left-0 top-full mt-1.5 z-30 min-w-[165px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
-                >
-                  {TASK_PRIORITY_OPTIONS.map((option) => {
-                    const isSelected = taskPriorityFilter === option.value;
-                    return (
-                      <button
-                        key={String(option.value)}
-                        type="button"
-                        role="option"
-                        tabIndex={-1}
-                        aria-selected={isSelected}
-                        onClick={() => {
-                          setTaskPriorityFilter(option.value);
-                          setOpenTaskDropdown(null);
-                        }}
-                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
-                            : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
-                        }`}
-                      >
-                        <span>{option.label}</span>
-                        {isSelected && (
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </KeyboardPopup>
-
-            {/* CUSTOM STATUS DROPDOWN */}
-            <KeyboardPopup open={openTaskDropdown === 'status'} onClose={() => setOpenTaskDropdown(null)} className="relative shrink-0">
-              <button
-                type="button"
-                aria-label="Filter tasks by status"
-                aria-haspopup="listbox"
-                aria-expanded={openTaskDropdown === 'status'}
-                onClick={() =>
-                  setOpenTaskDropdown((prev) =>
-                    prev === 'status' ? null : 'status',
-                  )
-                }
-                className={`min-h-10 min-w-[135px] inline-flex items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2 text-[13px] font-medium outline-none cursor-pointer transition-all ${
-                  openTaskDropdown === 'status'
-                    ? 'border-[#5B44BA] bg-white text-[#5B44BA] ring-2 ring-[#5B44BA]/15'
-                    : taskStatusFilter !== 'ALL'
-                      ? 'border-[#b3a4eb] bg-[#f4f0ff] text-[#4c35ab]'
-                      : 'border-[#cfc9e8] bg-[#f8f6fe] hover:bg-white hover:border-[#9e8ce6] text-[#3d3a4b]'
-                }`}
-              >
-                <span>{currentStatusLabel}</span>
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                  className={`shrink-0 transition-transform duration-150 ${
-                    openTaskDropdown === 'status'
-                      ? 'rotate-180 text-[#5B44BA]'
-                      : 'text-[#6e6b7b]'
-                  }`}
-                >
-                  <polyline points="6 9 12 15 18 9" />
-                  </svg>
-              </button>
-
-              {openTaskDropdown === 'status' && (
-                <div
-                  role="listbox"
-                  aria-label="Task status options"
-                  className="absolute left-0 top-full mt-1.5 z-30 min-w-[170px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
-                >
-                  {TASK_STATUS_OPTIONS.map((option) => {
-                    const isSelected = taskStatusFilter === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        role="option"
-                        tabIndex={-1}
-                        aria-selected={isSelected}
-                        onClick={() => {
-                          setTaskStatusFilter(option.value);
-                          setOpenTaskDropdown(null);
-                        }}
-                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
-                            : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
-                        }`}
-                      >
-                        <span>{option.label}</span>
-                        {isSelected && (
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </KeyboardPopup>
-
-            {/* CUSTOM SORT DROPDOWN */}
-            <KeyboardPopup open={openTaskDropdown === 'sort'} onClose={() => setOpenTaskDropdown(null)} className="relative shrink-0">
-              <button
-                type="button"
-                aria-label="Sort tasks"
-                aria-haspopup="listbox"
-                aria-expanded={openTaskDropdown === 'sort'}
-                onClick={() =>
-                  setOpenTaskDropdown((prev) =>
-                    prev === 'sort' ? null : 'sort',
-                  )
-                }
-                className={`min-h-10 min-w-[125px] inline-flex items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2 text-[13px] font-medium outline-none cursor-pointer transition-all ${
-                  openTaskDropdown === 'sort'
-                    ? 'border-[#5B44BA] bg-white text-[#5B44BA] ring-2 ring-[#5B44BA]/15'
-                    : taskSortBy !== 'DEFAULT'
-                      ? 'border-[#b3a4eb] bg-[#f4f0ff] text-[#4c35ab]'
-                      : 'border-[#cfc9e8] bg-[#f8f6fe] hover:bg-white hover:border-[#9e8ce6] text-[#3d3a4b]'
-                }`}
-              >
-                <span>{currentSortLabel}</span>
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                  className={`shrink-0 transition-transform duration-150 ${
-                    openTaskDropdown === 'sort'
-                      ? 'rotate-180 text-[#5B44BA]'
-                      : 'text-[#6e6b7b]'
-                  }`}
-                >
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </button>
-
-              {openTaskDropdown === 'sort' && (
-                <div
-                  role="listbox"
-                  aria-label="Sort task options"
-                  className="absolute right-0 top-full mt-1.5 z-30 min-w-[165px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
-                >
-                  {TASK_SORT_OPTIONS.map((option) => {
-                    const isSelected = taskSortBy === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        role="option"
-                        tabIndex={-1}
-                        aria-selected={isSelected}
-                        onClick={() => {
-                          setTaskSortBy(option.value);
-                          setOpenTaskDropdown(null);
-                        }}
-                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
-                            : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
-                        }`}
-                      >
-                        <span>{option.label}</span>
-                        {isSelected && (
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </KeyboardPopup>
-
-            {/* CLEAR FILTER BUTTON */}
-            <button
-              type="button"
-              onClick={handleClearTaskFilters}
-              disabled={!hasActiveTaskFilters}
-              className="min-h-10 shrink-0 rounded-xl border border-[#cfc9e8] bg-white px-4 py-2 text-[13px] font-medium text-[#4a465c] transition-colors hover:border-[#9e8ce6] hover:bg-[#f6f3ff] hover:text-[#5B44BA] cursor-pointer disabled:cursor-not-allowed disabled:border-[#e4e0f2] disabled:bg-[#fafafa] disabled:text-[#b5b2c2]"
-            >
-              Clear filter
-            </button>
           </div>
-        </>
-      )}
 
-      {/* TABLE HEADER */}
-      <div
-        aria-hidden="true"
-        className="hidden md:grid md:grid-cols-[minmax(0,2fr)_96px_minmax(0,1.15fr)_116px_136px] items-center gap-3 rounded-xl bg-[#f7f5fd] border border-[#e5e0f5] px-3.5 py-2.5 text-[12px] font-semibold text-[#6e6b7b]"
-      >
-        <div>Tasks name</div>
-        <div className="text-center">Priority</div>
-        <div>Assignee</div>
-        <div className="text-center">Status</div>
-        <div>Due Date</div>
-      </div>
-
-      {/* ROWS */}
-      {rows.length === 0 ? (
-        <div className="py-12 text-center">
-          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f1edff] text-[#5B44BA]">
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
+          {!compact && isOwner && (
+            <Link
+              href={`/projects/${projectId}/tasks/new`}
+              className="relative z-[1] min-h-9 rounded-full bg-white hover:bg-[#f3efff] px-4 inline-flex items-center gap-1.5 text-[12px] font-bold text-[#5B44BA] shadow-sm transition-colors duration-150"
             >
-              <rect x="4" y="3" width="16" height="18" rx="2" />
-              <line x1="4" y1="8" x2="20" y2="8" />
-            </svg>
-          </div>
-          <p className="text-[14.5px] font-bold text-[#1f1f1f]">
-            {bundle.tasks.length === 0
-              ? 'No tasks in this project yet.'
-              : 'No tasks match your filters.'}
-          </p>
-          <p className="mt-1 text-[12.5px] text-[#777777]">
-            {bundle.tasks.length === 0
-              ? isOwner
-                ? 'Create a task to start tracking progress.'
-                : 'No tasks have been created in this project yet.'
-              : 'Try adjusting your search or filter selection.'}
-          </p>
-          {bundle.tasks.length === 0 ? (
-            isOwner && (
-              <Link
-                href={`/projects/${projectId}/tasks/new`}
-                className="mt-4 inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-[#b5a3f7] bg-[#e2d9ff] hover:bg-[#5B44BA] hover:border-[#5B44BA] px-4 py-2 text-[12.5px] font-bold text-[#452ea0] hover:text-white transition-colors"
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
               >
-                <span>+ Create Task</span>
-              </Link>
-            )
-          ) : (
-            <button
-              type="button"
-              onClick={handleClearTaskFilters}
-              className="mt-4 inline-flex min-h-10 items-center rounded-xl border border-[#c7bbf5] bg-[#f1edff] hover:bg-[#5B44BA] px-4 py-2 text-[12.5px] font-semibold text-[#5B44BA] hover:text-white transition-colors cursor-pointer"
-            >
-              Clear filter
-            </button>
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              <span>Create Task</span>
+            </Link>
           )}
         </div>
-      ) : (
-        <div className="mt-1 divide-y divide-[#ece8f8]">
-          {rows.map((task) => {
-            const assignees = task.assignees ?? [];
-            const firstAssignee = assignees[0];
-            const extraAssignees = Math.max(0, assignees.length - 1);
 
-            return (
-              <Link
-                key={task.taskId}
-                href={`/projects/${projectId}/tasks/${task.taskId}`}
-                className="group grid grid-cols-1 gap-2.5 rounded-xl px-3.5 py-3.5 md:grid-cols-[minmax(0,2fr)_96px_minmax(0,1.15fr)_116px_136px] md:items-center md:gap-3 hover:bg-[#f7f5ff] transition-colors cursor-pointer"
-              >
-                {/* TASK NAME & DESCRIPTION */}
-                <div className="min-w-0">
-                  <span className="block truncate text-[13.5px] font-bold text-[#1f1f1f] group-hover:text-[#5B44BA] transition-colors">
-                    {task.taskTitle}
-                  </span>
-                  <p className="mt-0.5 truncate text-[11.5px] text-[#7c788c]">
-                    {task.taskDescription || 'No description'}
-                  </p>
-                </div>
-
-                {/* PRIORITY */}
-                <div className="flex items-center md:justify-center">
-                  <span className="mr-2 text-[11px] font-semibold text-[#888888] md:hidden">
-                    Priority:
-                  </span>
-                  <span
-                    className={`inline-flex items-center justify-center rounded-full border px-3 py-0.5 text-[11.5px] font-semibold ${getPriorityBadgeClass(
-                      task.priority,
-                    )}`}
-                  >
-                    {getPriorityLabel(task.priority)}
-                  </span>
-                </div>
-
-                {/* ASSIGNEE */}
-                <div className="flex min-w-0 items-center gap-2 text-[12.5px] text-[#333333]">
-                  <span className="shrink-0 w-7 h-7 rounded-full border border-[#dcd4fa] bg-[#f1edff] inline-flex items-center justify-center text-[#5B44BA]">
-                    <svg
-                      width="13"
-                      height="13"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                      <circle cx="12" cy="7" r="4" />
-                    </svg>
-                  </span>
-
-                  <span className="truncate font-medium">
-                    {firstAssignee ? firstAssignee.userName : 'Unassigned'}
-                    {extraAssignees > 0 ? ` +${extraAssignees}` : ''}
-                  </span>
-                </div>
-
-                {/* STATUS */}
-                <div className="flex items-center md:justify-center">
-                  <span className="mr-2 text-[11px] font-semibold text-[#888888] md:hidden">
-                    Status:
-                  </span>
-                  <span
-                    className={`inline-flex items-center justify-center rounded-full border px-3 py-0.5 text-[11.5px] font-semibold whitespace-nowrap ${getStatusBadgeClass(
-                      task.status,
-                    )}`}
-                  >
-                    {task.status}
-                  </span>
-                </div>
-
-                {/* DUE DATE */}
-                <div
-                  className={`flex items-center gap-2 text-[12px] ${
-                    task.isOverdue && task.status !== 'Done'
-                      ? 'font-semibold text-rose-600'
-                      : 'text-[#555266]'
-                  }`}
+        {/* CARD BODY */}
+        <div className="p-4 sm:p-6 pt-4 sm:pt-5">
+          {!compact && (
+            /* FILTER BAR ROW */
+            <div
+              ref={taskFilterBarRef}
+              className="mb-5 flex flex-wrap items-center gap-2.5"
+            >
+              {/* SEARCH INPUT */}
+              <div className="flex min-h-10 min-w-[200px] flex-1 items-center gap-2 rounded-xl border border-[#cfc9e8] focus-within:border-[#5B44BA] bg-[#f8f6fe] focus-within:bg-white px-3.5 py-2 transition-colors">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.1"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                  className="shrink-0 text-[#7d7696]"
                 >
-                  <span
-                    className={`shrink-0 w-7 h-7 rounded-full border inline-flex items-center justify-center ${
-                      task.isOverdue && task.status !== 'Done'
-                        ? 'border-rose-200 bg-rose-50 text-rose-500'
-                        : 'border-[#dcd4fa] bg-[#f4f1ff] text-[#5B44BA]'
-                    }`}
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+
+                <input
+                  type="text"
+                  value={taskSearch}
+                  onChange={(e) => setTaskSearch(e.target.value)}
+                  placeholder="Search task..."
+                  aria-label="Search task"
+                  className="w-full min-w-0 border-none bg-transparent text-[13px] text-[#1f1f1f] outline-none placeholder:text-[#8f89a6]"
+                />
+
+                {taskSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setTaskSearch('')}
+                    aria-label="Clear task search"
+                    className="shrink-0 w-5 h-5 rounded-full hover:bg-[#ece8fa] inline-flex items-center justify-center text-[#777777] hover:text-[#5B44BA] cursor-pointer transition-colors"
                   >
                     <svg
                       width="12"
@@ -1396,42 +955,507 @@ export default function ProjectDetailPage() {
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="2"
+                      strokeWidth="2.4"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       aria-hidden="true"
                     >
-                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                      <line x1="16" y1="2" x2="16" y2="6" />
-                      <line x1="8" y1="2" x2="8" y2="6" />
-                      <line x1="3" y1="10" x2="21" y2="10" />
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
                     </svg>
-                  </span>
-                  <span className="truncate">{formatShortDate(task.dueDate)}</span>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      )}
+                  </button>
+                )}
+              </div>
 
-      {compact && bundle.tasks.length > rows.length && (
-        <div className="mt-4 border-t border-[#ece8f8] pt-3.5 text-center">
-          <button
-            type="button"
-            onClick={() => {
-              // ล้างคำค้นและตัวกรองเดิมของแท็บ Tasks ก่อน เพื่อให้เห็นงานครบทั้งหมด
-              handleClearTaskFilters();
-              selectAndFocusTab('tasks');
-            }}
-            className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-[#5B44BA] hover:text-[#422c9c] transition-colors cursor-pointer"
+              {/* CUSTOM PRIORITY DROPDOWN */}
+              <KeyboardPopup
+                open={openTaskDropdown === 'priority'}
+                onClose={() => setOpenTaskDropdown(null)}
+                className="relative shrink-0"
+              >
+                <button
+                  type="button"
+                  aria-label="Filter tasks by priority"
+                  aria-haspopup="listbox"
+                  aria-expanded={openTaskDropdown === 'priority'}
+                  onClick={() =>
+                    setOpenTaskDropdown((prev) =>
+                      prev === 'priority' ? null : 'priority',
+                    )
+                  }
+                  className={`min-h-10 min-w-[135px] inline-flex items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2 text-[13px] font-medium outline-none cursor-pointer transition-all ${
+                    openTaskDropdown === 'priority'
+                      ? 'border-[#5B44BA] bg-white text-[#5B44BA] ring-2 ring-[#5B44BA]/15'
+                      : taskPriorityFilter !== 'ALL'
+                        ? 'border-[#b3a4eb] bg-[#f4f0ff] text-[#4c35ab]'
+                        : 'border-[#cfc9e8] bg-[#f8f6fe] hover:bg-white hover:border-[#9e8ce6] text-[#3d3a4b]'
+                  }`}
+                >
+                  <span>{currentPriorityLabel}</span>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                    className={`shrink-0 transition-transform duration-150 ${
+                      openTaskDropdown === 'priority'
+                        ? 'rotate-180 text-[#5B44BA]'
+                        : 'text-[#6e6b7b]'
+                    }`}
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
+
+                {openTaskDropdown === 'priority' && (
+                  <div
+                    role="listbox"
+                    aria-label="Task priority options"
+                    className="absolute left-0 top-full mt-1.5 z-30 min-w-[165px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
+                  >
+                    {TASK_PRIORITY_OPTIONS.map((option) => {
+                      const isSelected = taskPriorityFilter === option.value;
+                      return (
+                        <button
+                          key={String(option.value)}
+                          type="button"
+                          role="option"
+                          tabIndex={-1}
+                          aria-selected={isSelected}
+                          onClick={() => {
+                            setTaskPriorityFilter(option.value);
+                            setOpenTaskDropdown(null);
+                          }}
+                          className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer ${
+                            isSelected
+                              ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
+                              : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
+                          }`}
+                        >
+                          <span>{option.label}</span>
+                          {isSelected && (
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </KeyboardPopup>
+
+              {/* CUSTOM STATUS DROPDOWN */}
+              <KeyboardPopup
+                open={openTaskDropdown === 'status'}
+                onClose={() => setOpenTaskDropdown(null)}
+                className="relative shrink-0"
+              >
+                <button
+                  type="button"
+                  aria-label="Filter tasks by status"
+                  aria-haspopup="listbox"
+                  aria-expanded={openTaskDropdown === 'status'}
+                  onClick={() =>
+                    setOpenTaskDropdown((prev) =>
+                      prev === 'status' ? null : 'status',
+                    )
+                  }
+                  className={`min-h-10 min-w-[135px] inline-flex items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2 text-[13px] font-medium outline-none cursor-pointer transition-all ${
+                    openTaskDropdown === 'status'
+                      ? 'border-[#5B44BA] bg-white text-[#5B44BA] ring-2 ring-[#5B44BA]/15'
+                      : taskStatusFilter !== 'ALL'
+                        ? 'border-[#b3a4eb] bg-[#f4f0ff] text-[#4c35ab]'
+                        : 'border-[#cfc9e8] bg-[#f8f6fe] hover:bg-white hover:border-[#9e8ce6] text-[#3d3a4b]'
+                  }`}
+                >
+                  <span>{currentStatusLabel}</span>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                    className={`shrink-0 transition-transform duration-150 ${
+                      openTaskDropdown === 'status'
+                        ? 'rotate-180 text-[#5B44BA]'
+                        : 'text-[#6e6b7b]'
+                    }`}
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
+
+                {openTaskDropdown === 'status' && (
+                  <div
+                    role="listbox"
+                    aria-label="Task status options"
+                    className="absolute left-0 top-full mt-1.5 z-30 min-w-[170px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
+                  >
+                    {TASK_STATUS_OPTIONS.map((option) => {
+                      const isSelected = taskStatusFilter === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          role="option"
+                          tabIndex={-1}
+                          aria-selected={isSelected}
+                          onClick={() => {
+                            setTaskStatusFilter(option.value);
+                            setOpenTaskDropdown(null);
+                          }}
+                          className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer ${
+                            isSelected
+                              ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
+                              : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
+                          }`}
+                        >
+                          <span>{option.label}</span>
+                          {isSelected && (
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </KeyboardPopup>
+
+              {/* CUSTOM SORT DROPDOWN */}
+              <KeyboardPopup
+                open={openTaskDropdown === 'sort'}
+                onClose={() => setOpenTaskDropdown(null)}
+                className="relative shrink-0"
+              >
+                <button
+                  type="button"
+                  aria-label="Sort tasks"
+                  aria-haspopup="listbox"
+                  aria-expanded={openTaskDropdown === 'sort'}
+                  onClick={() =>
+                    setOpenTaskDropdown((prev) =>
+                      prev === 'sort' ? null : 'sort',
+                    )
+                  }
+                  className={`min-h-10 min-w-[125px] inline-flex items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2 text-[13px] font-medium outline-none cursor-pointer transition-all ${
+                    openTaskDropdown === 'sort'
+                      ? 'border-[#5B44BA] bg-white text-[#5B44BA] ring-2 ring-[#5B44BA]/15'
+                      : taskSortBy !== 'DEFAULT'
+                        ? 'border-[#b3a4eb] bg-[#f4f0ff] text-[#4c35ab]'
+                        : 'border-[#cfc9e8] bg-[#f8f6fe] hover:bg-white hover:border-[#9e8ce6] text-[#3d3a4b]'
+                  }`}
+                >
+                  <span>{currentSortLabel}</span>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                    className={`shrink-0 transition-transform duration-150 ${
+                      openTaskDropdown === 'sort'
+                        ? 'rotate-180 text-[#5B44BA]'
+                        : 'text-[#6e6b7b]'
+                    }`}
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
+
+                {openTaskDropdown === 'sort' && (
+                  <div
+                    role="listbox"
+                    aria-label="Sort task options"
+                    className="absolute right-0 top-full mt-1.5 z-30 min-w-[165px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
+                  >
+                    {TASK_SORT_OPTIONS.map((option) => {
+                      const isSelected = taskSortBy === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          role="option"
+                          tabIndex={-1}
+                          aria-selected={isSelected}
+                          onClick={() => {
+                            setTaskSortBy(option.value);
+                            setOpenTaskDropdown(null);
+                          }}
+                          className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer ${
+                            isSelected
+                              ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
+                              : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
+                          }`}
+                        >
+                          <span>{option.label}</span>
+                          {isSelected && (
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </KeyboardPopup>
+
+              {/* CLEAR FILTER BUTTON */}
+              <button
+                type="button"
+                onClick={handleClearTaskFilters}
+                disabled={!hasActiveTaskFilters}
+                className="min-h-10 shrink-0 rounded-xl border border-[#cfc9e8] bg-white px-4 py-2 text-[13px] font-medium text-[#4a465c] transition-colors hover:border-[#9e8ce6] hover:bg-[#f6f3ff] hover:text-[#5B44BA] cursor-pointer disabled:cursor-not-allowed disabled:border-[#e4e0f2] disabled:bg-[#fafafa] disabled:text-[#b5b2c2]"
+              >
+                Clear filter
+              </button>
+            </div>
+          )}
+
+          {/* TABLE HEADER */}
+          <div
+            aria-hidden="true"
+            className="hidden md:grid md:grid-cols-[minmax(0,2fr)_96px_minmax(0,1.15fr)_116px_136px] items-center gap-3 rounded-xl bg-[#f7f5fd] border border-[#e5e0f5] px-3.5 py-2.5 text-[12px] font-semibold text-[#6e6b7b]"
           >
-            <span>View all {bundle.tasks.length} tasks</span>
-            <span aria-hidden="true">→</span>
-          </button>
+            <div>Tasks name</div>
+            <div className="text-center">Priority</div>
+            <div>Assignee</div>
+            <div className="text-center">Status</div>
+            <div>Due Date</div>
+          </div>
+
+          {/* ROWS */}
+          {rows.length === 0 ? (
+            <div className="py-12 text-center">
+              <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f1edff] text-[#5B44BA]">
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="4" y="3" width="16" height="18" rx="2" />
+                  <line x1="4" y1="8" x2="20" y2="8" />
+                </svg>
+              </div>
+              <p className="text-[14.5px] font-bold text-[#1f1f1f]">
+                {bundle.tasks.length === 0
+                  ? 'No tasks in this project yet.'
+                  : 'No tasks match your filters.'}
+              </p>
+              <p className="mt-1 text-[12.5px] text-[#777777]">
+                {bundle.tasks.length === 0
+                  ? isOwner
+                    ? 'Create a task to start tracking progress.'
+                    : 'No tasks have been created in this project yet.'
+                  : 'Try adjusting your search or filter selection.'}
+              </p>
+              {bundle.tasks.length === 0 ? (
+                isOwner && (
+                  <Link
+                    href={`/projects/${projectId}/tasks/new`}
+                    className="mt-4 inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-[#b5a3f7] bg-[#e2d9ff] hover:bg-[#5B44BA] hover:border-[#5B44BA] px-4 py-2 text-[12.5px] font-bold text-[#452ea0] hover:text-white transition-colors"
+                  >
+                    <span>+ Create Task</span>
+                  </Link>
+                )
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleClearTaskFilters}
+                  className="mt-4 inline-flex min-h-10 items-center rounded-xl border border-[#c7bbf5] bg-[#f1edff] hover:bg-[#5B44BA] px-4 py-2 text-[12.5px] font-semibold text-[#5B44BA] hover:text-white transition-colors cursor-pointer"
+                >
+                  Clear filter
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="mt-1 divide-y divide-[#ece8f8]">
+              {rows.map((task) => {
+                const assignees = task.assignees ?? [];
+                const firstAssignee = assignees[0];
+                const extraAssignees = Math.max(0, assignees.length - 1);
+
+                return (
+                  <div
+                    key={task.taskId}
+                    className="group relative grid grid-cols-1 gap-2.5 rounded-xl px-3.5 py-3.5 md:grid-cols-[minmax(0,2fr)_96px_minmax(0,1.15fr)_116px_136px] md:items-center md:gap-3 hover:bg-[#f7f5ff] transition-colors cursor-pointer"
+                  >
+                    {/* TASK NAME & DESCRIPTION */}
+                    <div className="min-w-0">
+                      <Link
+                        href={`/projects/${projectId}/tasks/${task.taskId}`}
+                        className="block truncate text-[13.5px] font-bold text-[#1f1f1f] group-hover:text-[#5B44BA] transition-colors after:absolute after:inset-0 focus:outline-none focus-visible:underline"
+                      >
+                        {task.taskTitle}
+                      </Link>
+                      <p className="mt-0.5 truncate text-[11.5px] text-[#7c788c]">
+                        {task.taskDescription || 'No description'}
+                      </p>
+                    </div>
+
+                    {/* PRIORITY */}
+                    <div className="flex items-center md:justify-center">
+                      <span className="mr-2 text-[11px] font-semibold text-[#888888] md:hidden">
+                        Priority:
+                      </span>
+                      <span
+                        className={`inline-flex items-center justify-center rounded-full border px-3 py-0.5 text-[11.5px] font-semibold ${getPriorityBadgeClass(
+                          task.priority,
+                        )}`}
+                      >
+                        {getPriorityLabel(task.priority)}
+                      </span>
+                    </div>
+
+                    {/* ASSIGNEE */}
+                    <div className="flex min-w-0 items-center gap-2 text-[12.5px] text-[#333333]">
+                      <span className="shrink-0 w-7 h-7 rounded-full border border-[#dcd4fa] bg-[#f1edff] inline-flex items-center justify-center text-[#5B44BA]">
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                          <circle cx="12" cy="7" r="4" />
+                        </svg>
+                      </span>
+
+                      <span className="truncate font-medium">
+                        {firstAssignee ? firstAssignee.userName : 'Unassigned'}
+                        {extraAssignees > 0 ? ` +${extraAssignees}` : ''}
+                      </span>
+                    </div>
+
+                    {/* STATUS */}
+                    <div className="flex items-center md:justify-center">
+                      <span className="mr-2 text-[11px] font-semibold text-[#888888] md:hidden">
+                        Status:
+                      </span>
+                      <span
+                        className={`inline-flex items-center justify-center rounded-full border px-3 py-0.5 text-[11.5px] font-semibold whitespace-nowrap ${getStatusBadgeClass(
+                          task.status,
+                        )}`}
+                      >
+                        {task.status}
+                      </span>
+                    </div>
+
+                    {/* DUE DATE */}
+                    <div
+                      className={`flex items-center gap-2 text-[12px] ${
+                        task.isOverdue && task.status !== 'Done'
+                          ? 'font-semibold text-rose-600'
+                          : 'text-[#555266]'
+                      }`}
+                    >
+                      <span
+                        className={`shrink-0 w-7 h-7 rounded-full border inline-flex items-center justify-center ${
+                          task.isOverdue && task.status !== 'Done'
+                            ? 'border-rose-200 bg-rose-50 text-rose-500'
+                            : 'border-[#dcd4fa] bg-[#f4f1ff] text-[#5B44BA]'
+                        }`}
+                      >
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                          <line x1="16" y1="2" x2="16" y2="6" />
+                          <line x1="8" y1="2" x2="8" y2="6" />
+                          <line x1="3" y1="10" x2="21" y2="10" />
+                        </svg>
+                      </span>
+                      <span className="truncate">{formatShortDate(task.dueDate)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {compact && bundle.tasks.length > rows.length && (
+            <div className="mt-4 border-t border-[#ece8f8] pt-3.5 text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  // ล้างคำค้นและตัวกรองเดิมของแท็บ Tasks ก่อน เพื่อให้เห็นงานครบทั้งหมด
+                  handleClearTaskFilters();
+                  selectAndFocusTab('tasks');
+                }}
+                className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-[#5B44BA] hover:text-[#422c9c] transition-colors cursor-pointer"
+              >
+                <span>View all {bundle.tasks.length} tasks</span>
+                <span aria-hidden="true">→</span>
+              </button>
+            </div>
+          )}
         </div>
-      )}
-    </div>
+      </section>
     );
   };
 
@@ -2002,81 +2026,128 @@ export default function ProjectDetailPage() {
 
               {/* TAB 3: MEMBERS */}
               {activeTab === 'members' && (
-                <div className="mx-auto w-full max-w-3xl rounded-2xl border border-[#cfc9e8] bg-white/95 p-5 sm:p-6 shadow-[0_4px_18px_rgba(35,25,66,0.05)]">
-                  <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h2 className="text-[20px] font-extrabold text-[#1f1f1f]">
-                        Project Members ({members.length})
-                      </h2>
-                      <p className="mt-0.5 text-[12.5px] text-[#6e6b7b]">
-                        People who have access to this project
-                      </p>
+                <section className="mx-auto w-full max-w-3xl overflow-hidden rounded-[24px] border border-[#e2daff] bg-white shadow-[0_8px_26px_rgba(91,68,186,0.06)]">
+                  {/* PURPLE GRADIENT TOP HEADER BAR (DASHBOARD STYLE) */}
+                  <div className="relative overflow-hidden flex flex-wrap gap-3 items-center justify-between bg-gradient-to-r from-[#5B44BA] via-[#7A61D4] to-[#9B86EE] px-4 py-4 sm:px-6 sm:py-4.5 text-white">
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full bg-white/10"
+                    />
+                    <div className="relative z-[1] flex items-center gap-3">
+                      <span className="w-9 h-9 shrink-0 rounded-2xl bg-white text-[#5B44BA] shadow-sm flex items-center justify-center">
+                        <svg
+                          width="17"
+                          height="17"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.1"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                          <circle cx="9" cy="7" r="4" />
+                          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                        </svg>
+                      </span>
+
+                      <div>
+                        <div className="flex items-center gap-2.5">
+                          <h2 className="text-[18px] font-extrabold text-white">
+                            Project Members
+                          </h2>
+                          <span className="inline-flex items-center rounded-full bg-white/20 border border-white/30 px-2.5 py-0.5 text-[11.5px] font-bold text-white tabular-nums">
+                            {members.length}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-white/80">
+                          People who have access to this project
+                        </p>
+                      </div>
                     </div>
 
                     {isOwner && (
                       <Link
                         href={`/projects/${projectId}/members`}
-                        className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-[#b5a3f7] bg-[#e2d9ff] hover:bg-[#5B44BA] hover:border-[#5B44BA] px-4.5 py-2 text-[13px] font-bold text-[#452ea0] hover:text-white shadow-[0_2px_10px_rgba(91,68,186,0.14)] hover:shadow-[0_6px_18px_rgba(91,68,186,0.28)] transition-all"
+                        className="relative z-[1] min-h-9 rounded-full bg-white hover:bg-[#f3efff] px-4 inline-flex items-center gap-1.5 text-[12px] font-bold text-[#5B44BA] shadow-sm transition-colors duration-150"
                       >
                         <span>Manage Members</span>
-                        <span aria-hidden="true">→</span>
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <line x1="5" y1="12" x2="19" y2="12" />
+                          <polyline points="12 5 19 12 12 19" />
+                        </svg>
                       </Link>
                     )}
                   </div>
 
-                  {members.length === 0 ? (
-                    <p className="py-8 text-center text-[13px] text-[#777777]">
-                      No members found in this project.
-                    </p>
-                  ) : (
-                    <div className="divide-y divide-[#ece8f8] rounded-xl border border-[#dcd5f5] bg-white">
-                      {members.map((member) => (
-                        <div
-                          key={member.userId}
-                          className="flex flex-wrap items-center justify-between gap-3 p-4 hover:bg-[#f9f7ff] transition-colors"
-                        >
-                          <div className="flex min-w-0 items-center gap-3">
-                            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#dcd4fa] bg-[#f1edff] text-[#5B44BA]">
-                              <svg
-                                width="17"
-                                height="17"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden="true"
-                              >
-                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                                <circle cx="12" cy="7" r="4" />
-                              </svg>
-                            </span>
-
-                            <div className="min-w-0">
-                              <p className="truncate text-[14px] font-bold text-[#1f1f1f]">
-                                {member.userName}
-                              </p>
-                              <p className="truncate text-[12px] text-[#6e6b7b]">
-                                {member.email} · Joined {formatShortDate(member.joinDate)}
-                              </p>
-                            </div>
-                          </div>
-
-                          <span
-                            className={`rounded-full px-3 py-1 text-[11.5px] font-semibold ${
-                              member.role?.toLowerCase() === 'owner'
-                                ? 'bg-[#5B44BA] text-white'
-                                : 'border border-[#dcd4fa] bg-[#f1edff] text-[#4c35ab]'
-                            }`}
+                  {/* CARD BODY */}
+                  <div className="p-4 sm:p-6 pt-4 sm:pt-5">
+                    {members.length === 0 ? (
+                      <p className="py-8 text-center text-[13px] text-[#777777]">
+                        No members found in this project.
+                      </p>
+                    ) : (
+                      <div className="divide-y divide-[#ece8f8] rounded-xl border border-[#dcd5f5] bg-white">
+                        {members.map((member) => (
+                          <div
+                            key={member.userId}
+                            className="flex flex-wrap items-center justify-between gap-3 p-4 hover:bg-[#f9f7ff] transition-colors"
                           >
-                            {member.role}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                            <div className="flex min-w-0 items-center gap-3">
+                              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#dcd4fa] bg-[#f1edff] text-[#5B44BA]">
+                                <svg
+                                  width="17"
+                                  height="17"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  aria-hidden="true"
+                                >
+                                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                                  <circle cx="12" cy="7" r="4" />
+                                </svg>
+                              </span>
+
+                              <div className="min-w-0">
+                                <p className="truncate text-[14px] font-bold text-[#1f1f1f]">
+                                  {member.userName}
+                                </p>
+                                <p className="truncate text-[12px] text-[#6e6b7b]">
+                                  {member.email} · Joined {formatShortDate(member.joinDate)}
+                                </p>
+                              </div>
+                            </div>
+
+                            <span
+                              className={`rounded-full px-3 py-1 text-[11.5px] font-semibold ${
+                                member.role?.toLowerCase() === 'owner'
+                                  ? 'bg-[#5B44BA] text-white'
+                                  : 'border border-[#dcd4fa] bg-[#f1edff] text-[#4c35ab]'
+                              }`}
+                            >
+                              {member.role}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
               )}
             </div>
 
