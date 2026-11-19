@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
@@ -117,22 +118,34 @@ function TaskDetailContent({
   const router = useRouter();
   const { session, isCurrentSessionRevision } = useSession();
 
+  const sessionRef = useRef(session);
+  useLayoutEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteError, setDeleteError] = useState('');
 
   // Keep the draft while focus verification temporarily unmounts the protected view.
-  // The route keys this component by task; user ownership prevents cross-account display.
+  // Binding both userId and revision prevents stale drafts or statuses across logout/account switch.
   const [commentDraft, setCommentDraft] = useState<{
     userId: number | string;
+    revision: number;
     text: string;
   } | null>(null);
   const [commentPost, setCommentPost] = useState<{
     userId: number | string;
+    revision: number;
     status: 'posting' | 'saved' | 'error';
     message: string;
   } | null>(null);
-  const commentPostingRef = useRef(false);
+  const commentRequestSequenceRef = useRef(0);
+  const activeCommentRequestRef = useRef<{
+    token: number;
+    userId: number | string;
+    revision: number;
+  } | null>(null);
 
   const mountedRef = useRef(false);
   const requestSequenceRef = useRef(0);
@@ -165,34 +178,75 @@ function TaskDetailContent({
   });
 
   // Posting belongs to the route, which survives focus/session verification.
-  // Reconcile only the exact submitted draft, even if its form has unmounted.
+  // Reconcile only the exact submitted draft and ignore responses from stale sessions.
   const handleCommentSubmit = async () => {
     const submittedDraft = commentDraft;
     if (
-      commentPostingRef.current ||
       !data ||
       session.status !== 'ready' ||
       !session.user ||
       !submittedDraft?.text.trim() ||
-      submittedDraft.userId !== session.user.userId
+      submittedDraft.userId !== session.user.userId ||
+      !isCurrentSessionRevision(submittedDraft.revision)
     ) {
       return;
     }
+
     const userId = session.user.userId;
-    commentPostingRef.current = true;
-    setCommentPost({ userId, status: 'posting', message: '' });
+    const requestRevision = session.revision;
+
+    const currentActive = activeCommentRequestRef.current;
+    if (
+      currentActive &&
+      currentActive.userId === userId &&
+      isCurrentSessionRevision(currentActive.revision)
+    ) {
+      return;
+    }
+
+    const requestToken = ++commentRequestSequenceRef.current;
+    activeCommentRequestRef.current = {
+      token: requestToken,
+      userId,
+      revision: requestRevision,
+    };
+
+    const isCommentRequestCurrent = () => {
+      const latestSession = sessionRef.current;
+      return (
+        mountedRef.current &&
+        commentRequestSequenceRef.current === requestToken &&
+        latestSession.status === 'ready' &&
+        latestSession.user?.userId === userId &&
+        isCurrentSessionRevision(requestRevision)
+      );
+    };
+
+    setCommentPost({
+      userId,
+      revision: requestRevision,
+      status: 'posting',
+      message: '',
+    });
+
     try {
       await taskApi.addComment(data.project.projectId, data.task.taskId, {
         commentText: submittedDraft.text.trim(),
       });
-      if (!mountedRef.current) return;
+      if (!isCommentRequestCurrent()) return;
       setCommentDraft((current) => (current === submittedDraft ? null : current));
-      setCommentPost({ userId, status: 'saved', message: 'Comment posted.' });
-      retry();
-    } catch (cause) {
-      if (!mountedRef.current) return;
       setCommentPost({
         userId,
+        revision: requestRevision,
+        status: 'saved',
+        message: 'Comment posted.',
+      });
+      retry();
+    } catch (cause) {
+      if (!isCommentRequestCurrent()) return;
+      setCommentPost({
+        userId,
+        revision: requestRevision,
         status: 'error',
         message:
           cause instanceof Error
@@ -206,7 +260,9 @@ function TaskDetailContent({
         retry();
       }
     } finally {
-      commentPostingRef.current = false;
+      if (activeCommentRequestRef.current?.token === requestToken) {
+        activeCommentRequestRef.current = null;
+      }
     }
   };
 
@@ -226,6 +282,8 @@ function TaskDetailContent({
     return () => {
       mountedRef.current = false;
       requestSequenceRef.current += 1;
+      commentRequestSequenceRef.current += 1;
+      activeCommentRequestRef.current = null;
       deleteContextRef.current = null;
     };
   }, []);
@@ -465,6 +523,25 @@ function TaskDetailContent({
     );
   const canEditTask = isProjectOwner || isTaskAssignee;
   const canDeleteTask = isProjectOwner;
+
+  const validSessionUser =
+    session.status === 'ready' && session.user ? session.user : null;
+
+  const activeDraft =
+    validSessionUser &&
+    commentDraft &&
+    commentDraft.userId === validSessionUser.userId &&
+    isCurrentSessionRevision(commentDraft.revision)
+      ? commentDraft.text
+      : '';
+
+  const activeCommentPost =
+    validSessionUser &&
+    commentPost &&
+    commentPost.userId === validSessionUser.userId &&
+    isCurrentSessionRevision(commentPost.revision)
+      ? commentPost
+      : null;
 
   const statusConfig = getStatusConfig(task.status);
   const priorityConfig = getPriorityConfig(task.priority);
@@ -868,35 +945,31 @@ function TaskDetailContent({
               </p>
             </div>
 
-            {/* 3. COMMENTS SECTION (SINGLE INSTANCE FROM MAIN) */}
+            {/* 3. COMMENTS SECTION */}
             <TaskComments
+              key={`${resolvedProjectId}-${resolvedTaskId}-${currentUserId ?? 'anon'}-${session.revision}`}
               projectId={resolvedProjectId}
               taskId={resolvedTaskId}
-              draft={
-                commentDraft?.userId === session.user?.userId
-                  ? (commentDraft?.text ?? '')
-                  : ''
-              }
+              draft={activeDraft}
               onDraftChange={(text) => {
                 if (session.status === 'ready' && session.user) {
-                  setCommentDraft({ userId: session.user.userId, text });
+                  setCommentDraft({
+                    userId: session.user.userId,
+                    revision: session.revision,
+                    text,
+                  });
                 }
               }}
               onSubmit={() => void handleCommentSubmit()}
-              isPosting={
-                commentPost?.userId === session.user?.userId &&
-                commentPost?.status === 'posting'
-              }
+              isPosting={activeCommentPost?.status === 'posting'}
               error={
-                commentPost?.userId === session.user?.userId &&
-                commentPost?.status === 'error'
-                  ? commentPost.message
+                activeCommentPost?.status === 'error'
+                  ? activeCommentPost.message
                   : ''
               }
               notice={
-                commentPost?.userId === session.user?.userId &&
-                commentPost?.status === 'saved'
-                  ? commentPost.message
+                activeCommentPost?.status === 'saved'
+                  ? activeCommentPost.message
                   : ''
               }
             />
