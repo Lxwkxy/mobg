@@ -944,12 +944,12 @@ export default function MyTasksPage() {
               </svg>
 
               <input
-                type="text"
+                type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search task name..."
-                aria-label="Search task name"
-                className="w-full min-w-0 border-none bg-transparent text-[13px] text-[#1f1f1f] outline-none placeholder:text-[#8f89a6]"
+                aria-label="Search tasks"
+                className="w-full min-w-0 border-none bg-transparent text-[13px] text-[#1f1f1f] outline-none placeholder:text-[#8f89a6] [&::-webkit-search-cancel-button]:appearance-none"
               />
 
               {search && (
@@ -984,11 +984,28 @@ export default function MyTasksPage() {
                 onClose={() => setOpenDropdown(null)}
                 className="relative shrink-0"
               >
+                <select
+                  aria-label="Filter by project"
+                  value={projectFilter === 'ALL' ? 'ALL' : String(projectFilter)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setProjectFilter(val === 'ALL' ? 'ALL' : Number(val));
+                    setOpenDropdown(null);
+                  }}
+                  className="sr-only pointer-events-none"
+                >
+                  <option value="ALL">All projects</option>
+                  {projectOptions.map((proj) => (
+                    <option key={proj.projectId} value={String(proj.projectId)}>
+                      {proj.projectName}
+                    </option>
+                  ))}
+                </select>
+
                 <button
                   type="button"
-                  aria-label="Filter tasks by project"
-                  aria-haspopup="listbox"
-                  aria-expanded={openDropdown === 'project'}
+                  tabIndex={-1}
+                  aria-hidden="true"
                   onClick={() =>
                     setOpenDropdown((prev) =>
                       prev === 'project' ? null : 'project',
@@ -1112,11 +1129,30 @@ export default function MyTasksPage() {
               onClose={() => setOpenDropdown(null)}
               className="relative shrink-0"
             >
+              <select
+                aria-label="Filter by status"
+                value={statusFilter}
+                onChange={(e) => {
+                  const val = parseStatusParam(e.target.value);
+                  updateQueryParams({
+                    status: val,
+                    ...(val === 'Done' ? { excludeDone: false } : {}),
+                  });
+                  setOpenDropdown(null);
+                }}
+                className="sr-only pointer-events-none"
+              >
+                {STATUS_FILTER_OPTIONS.map((option) => (
+                  <option key={option.value || 'ALL'} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
               <button
                 type="button"
-                aria-label="Filter tasks by status"
-                aria-haspopup="listbox"
-                aria-expanded={openDropdown === 'status'}
+                tabIndex={-1}
+                aria-hidden="true"
                 onClick={() =>
                   setOpenDropdown((prev) =>
                     prev === 'status' ? null : 'status',
@@ -1210,11 +1246,34 @@ export default function MyTasksPage() {
               onClose={() => setOpenDropdown(null)}
               className="relative shrink-0"
             >
+              <select
+                aria-label="Filter by priority"
+                value={priorityFilter === '' ? '' : String(priorityFilter)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  updateQueryParams({
+                    priority:
+                      val === '1' ? 1 : val === '2' ? 2 : val === '3' ? 3 : '',
+                    excludeDone: false,
+                  });
+                  setOpenDropdown(null);
+                }}
+                className="sr-only pointer-events-none"
+              >
+                {PRIORITY_FILTER_OPTIONS.map((option) => (
+                  <option
+                    key={String(option.value || 'ALL')}
+                    value={String(option.value)}
+                  >
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
               <button
                 type="button"
-                aria-label="Filter tasks by priority"
-                aria-haspopup="listbox"
-                aria-expanded={openDropdown === 'priority'}
+                tabIndex={-1}
+                aria-hidden="true"
                 onClick={() =>
                   setOpenDropdown((prev) =>
                     prev === 'priority' ? null : 'priority',
@@ -1306,11 +1365,33 @@ export default function MyTasksPage() {
               onClose={() => setOpenDropdown(null)}
               className="relative shrink-0"
             >
+              <select
+                aria-label="Sort tasks"
+                value={sortBy}
+                onChange={(e) => {
+                  setSortBy(
+                    e.target.value as
+                      | 'DEFAULT'
+                      | 'DUE_DATE'
+                      | 'PRIORITY'
+                      | 'NAME'
+                      | 'PROJECT',
+                  );
+                  setOpenDropdown(null);
+                }}
+                className="sr-only pointer-events-none"
+              >
+                {SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
               <button
                 type="button"
-                aria-label="Sort tasks"
-                aria-haspopup="listbox"
-                aria-expanded={openDropdown === 'sort'}
+                tabIndex={-1}
+                aria-hidden="true"
                 onClick={() =>
                   setOpenDropdown((prev) =>
                     prev === 'sort' ? null : 'sort',
@@ -1581,11 +1662,14 @@ export default function MyTasksPage() {
                       key={rowKey}
                       className="group relative grid min-w-0 grid-cols-1 items-start gap-3 rounded-xl px-3.5 py-3.5 hover:bg-[#f7f5ff] transition-colors sm:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1.25fr)_minmax(0,1.15fr)_96px_142px_148px_40px] xl:items-center [&>div]:min-w-0 [overflow-wrap:anywhere]"
                     >
-                      {/* TASK NAME & DESCRIPTION (NON-LINK) */}
+                      {/* TASK NAME & DESCRIPTION */}
                       <div className="flex min-w-0 flex-col sm:col-span-2 xl:col-span-1">
-                        <span className="text-[13.5px] font-bold text-[#1f1f1f]">
+                        <Link
+                          href={`/projects/${row.projectId}/tasks/${row.taskId}`}
+                          className="text-[13.5px] font-bold text-[#1f1f1f] hover:text-[#5B44BA] hover:underline transition-colors [overflow-wrap:anywhere]"
+                        >
                           {row.taskTitle}
-                        </span>
+                        </Link>
 
                         <span className="mt-0.5 truncate text-[11.5px] text-[#7c788c]">
                           {row.taskDescription || 'No description'}
@@ -1708,11 +1792,30 @@ export default function MyTasksPage() {
                             onClose={() => setOpenStatusRowKey(null)}
                             className="relative inline-block"
                           >
+                            <select
+                              aria-label={`Change status for ${row.taskTitle}`}
+                              value={row.status}
+                              disabled={updatingTaskId !== null}
+                              onChange={(e) => {
+                                const nextStatus = parseStatusParam(e.target.value);
+                                if (nextStatus) {
+                                  setOpenStatusRowKey(null);
+                                  void handleStatusChange(row, nextStatus);
+                                }
+                              }}
+                              className="sr-only pointer-events-none"
+                            >
+                              {STATUS_OPTIONS.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+
                             <button
                               type="button"
-                              aria-label={`Change status for ${row.taskTitle}`}
-                              aria-haspopup="listbox"
-                              aria-expanded={isStatusOpen}
+                              tabIndex={-1}
+                              aria-hidden="true"
                               disabled={updatingTaskId !== null}
                               onClick={() =>
                                 setOpenStatusRowKey((prev) =>

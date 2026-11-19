@@ -1328,16 +1328,18 @@ export default function ProjectDetailPage() {
                 const extraAssignees = Math.max(0, assignees.length - 1);
 
                 return (
-                  <Link
+                  <div
                     key={task.taskId}
-                    href={`/projects/${projectId}/tasks/${task.taskId}`}
-                    className="group grid grid-cols-1 gap-2.5 rounded-xl px-3.5 py-3.5 md:grid-cols-[minmax(0,2fr)_96px_minmax(0,1.15fr)_116px_136px] md:items-center md:gap-3 hover:bg-[#f7f5ff] transition-colors cursor-pointer"
+                    className="group relative grid grid-cols-1 gap-2.5 rounded-xl px-3.5 py-3.5 md:grid-cols-[minmax(0,2fr)_96px_minmax(0,1.15fr)_116px_136px] md:items-center md:gap-3 hover:bg-[#f7f5ff] transition-colors cursor-pointer"
                   >
                     {/* TASK NAME & DESCRIPTION */}
                     <div className="min-w-0">
-                      <span className="block truncate text-[13.5px] font-bold text-[#1f1f1f] group-hover:text-[#5B44BA] transition-colors">
+                      <Link
+                        href={`/projects/${projectId}/tasks/${task.taskId}`}
+                        className="block truncate text-[13.5px] font-bold text-[#1f1f1f] group-hover:text-[#5B44BA] transition-colors after:absolute after:inset-0 focus:outline-none focus-visible:underline"
+                      >
                         {task.taskTitle}
-                      </span>
+                      </Link>
                       <p className="mt-0.5 truncate text-[11.5px] text-[#7c788c]">
                         {task.taskDescription || 'No description'}
                       </p>
@@ -1430,7 +1432,7 @@ export default function ProjectDetailPage() {
                       </span>
                       <span className="truncate">{formatShortDate(task.dueDate)}</span>
                     </div>
-                  </Link>
+                  </div>
                 );
               })}
             </div>
