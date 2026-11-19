@@ -435,6 +435,7 @@ The business routes below are implemented, including comments and activity.
 | POST | `/api/projects/:projectId/members` | Owner | Add a member | `findProjectMembership`, `addProjectMember` |
 | DELETE | `/api/projects/:projectId/members/:userId` | Owner | Remove a member | `findProjectMembership`, `removeProjectMember` |
 | GET | `/api/projects/:projectId/tasks` | Owner, Member | Task list | `findProjectMembership`, `listTasksByProject` |
+| GET | `/api/projects/:projectId/overview/tasks` | Owner, Member | Overview preview: top 5 tasks, priority (High first) then nearest due date | `findProjectMembership`, `listOverviewTasks` |
 | POST | `/api/projects/:projectId/tasks` | Owner, Member | Create task | `findProjectMembership`, `listProjectMembers`, `createTask`, `getTaskById` |
 | GET | `/api/projects/:projectId/tasks/:taskId` | Owner, Member | Task details | `findProjectMembership`, `getTaskById` |
 | PATCH | `/api/projects/:projectId/tasks/:taskId` | Owner or assigned Member | Edit task, change status, change assignees | `findProjectMembership`, `getTaskById`, `listProjectMembers`, `updateTask` |

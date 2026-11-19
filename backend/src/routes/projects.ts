@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from "express";
-import type { ActivitiesResponse, MessageResponse, ProjectResponse, ProjectsResponse } from "../contracts/api.js";
+import type { ActivitiesResponse, MessageResponse, ProjectResponse, ProjectsResponse, TasksResponse } from "../contracts/api.js";
+import { mapTask } from "../mappers/task.js";
+import { listOverviewTasks } from "../services/taskDb.js";
 import { ApiError, notFound } from "../errors.js";
 import { requireAuth, requireProjectRole } from "../guards.js";
 import { countToNumber, mapProject } from "../mappers/project.js";
@@ -71,6 +73,13 @@ router.get("/:projectId", requireProjectRole("Member"), async (req: Request, res
   const row = await getProjectById(projectId);
   if (!row) throw notFound();
   res.json({ success: true, project: mapProject(row, role) });
+});
+
+// GET /api/projects/:projectId/overview/tasks  (Owner, Member)
+// Top 5 tasks for the Overview tab: priority (High first), then nearest due date.
+router.get("/:projectId/overview/tasks", requireProjectRole("Member"), async (req: Request, res: Response<TasksResponse>) => {
+  const rows = await listOverviewTasks(req.projectAccess!.projectId);
+  res.set("Cache-Control", "private, no-store").json({ success: true, tasks: rows.map(mapTask) });
 });
 
 router.get("/:projectId/activity", requireProjectRole("Member"), async (req: Request, res: Response<ActivitiesResponse>) => {
