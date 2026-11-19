@@ -32,16 +32,6 @@ async function setup(width) {
     }
     else if (path === '/api/projects/91') body = { project };
     else if (path === '/api/projects/91/tasks/92') body = { task };
-    else if (path === '/api/projects/91/tasks/92/activity') {
-      const details = { taskId: task.taskId, taskTitle: task.taskTitle };
-      body = { activities: [
-        ...state.comments.toReversed().map(comment => ({ ...details, activityId: `comment_added:${comment.commentId}`,
-          activityType: 'comment_added', occurredAt: comment.createdAt, actorId: comment.userId,
-          actorName: comment.userName, commentId: comment.commentId, commentText: comment.commentText })),
-        { ...details, activityId: 'task_created:92', activityType: 'task_created', occurredAt: task.createdAt,
-          actorId: 1, actorName: 'Owner', commentId: null, commentText: null },
-      ] };
-    }
     else if (path === '/api/projects/91/tasks/92/comments') {
       if (req.method() === 'POST') {
         state.posts++;
@@ -75,8 +65,6 @@ for (const width of [375, 1440]) {
     try {
       await page.goto(`${base}/projects/91/tasks/92`);
       const section = page.getByRole('region', { name: 'Comments' });
-      const activity = page.getByRole('region', { name: 'Activity' });
-      await activity.getByText('Owner created this task').waitFor();
       await section.getByText('No comments yet. Start the conversation.').waitFor();
       const submit = section.getByRole('button', { name: 'Post comment', exact: true });
       const input = section.getByLabel('Add a comment');
@@ -87,7 +75,7 @@ for (const width of [375, 1440]) {
       await input.fill(`  ${content}  `);
       await submit.click();
       await section.getByRole('listitem').getByText(content, { exact: true }).waitFor();
-      await activity.getByText(content, { exact: true }).waitFor();
+      assert.equal(await page.getByRole('region', { name: 'Activity' }).count(), 0);
       assert.equal(state.posts, 1);
       assert.equal(await input.inputValue(), '');
       assert.equal(await page.evaluate(() => window.commentInjected), undefined);

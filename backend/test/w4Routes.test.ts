@@ -55,49 +55,20 @@ const projectUrl = (id: number) => `/api/projects/${id}`;
 const membersUrl = (id: number) => `/api/projects/${id}/members`;
 const tasksUrl = (id: number) => `/api/projects/${id}/tasks`;
 
-test("Activity combines persisted events, enforces scope and applies its limit after sorting", async () => {
+test("removed project and task activity endpoints return the standard 404", async () => {
   const project = await newProject("owner", [ids.member]);
-  const elsewhere = await newProject("owner", []);
-  const projectFeed = `${projectUrl(project)}/activity`;
-  const otherTask = await newTask("owner", elsewhere, [ids.owner]);
-  assert.deepEqual(await api("member", "GET", projectFeed), {
-    status: 200, body: { success: true, activities: [] },
-  });
-
   const task = await newTask("owner", project, [ids.owner]);
-  const sibling = await newTask("member", project, [ids.member]);
-  const taskFeed = `${tasksUrl(project)}/${task.taskId}/activity`;
-  const commentPath = `${tasksUrl(project)}/${task.taskId}/comments`;
-  const first = await api("member", "POST", commentPath, { commentText: "First comment" });
-  const last = await api("owner", "POST", commentPath, { commentText: "Last comment" });
-  assert.equal(first.status, 201);
-  assert.equal(last.status, 201);
-  const commentIds = [first.body.comment.commentId, last.body.comment.commentId];
-  const sameTime = "2026-11-19T12:00:00.000Z";
-  await pool.query("UPDATE tasks SET task_create_date = $1 WHERE task_id = ANY($2::bigint[])", [sameTime, [task.taskId, sibling.taskId]]);
-  await pool.query("UPDATE comments SET comment_created_at = $1 WHERE comment_id = ANY($2::bigint[])", [sameTime, commentIds]);
-
-  const combined = await api("member", "GET", projectFeed);
-  assert.equal(combined.status, 200);
-  const entries = combined.body.activities;
-  assert.deepEqual(entries.map((event: { activityId: string }) => event.activityId), [
-    `comment_added:${commentIds[1]}`, `comment_added:${commentIds[0]}`,
-    `task_created:${sibling.taskId}`, `task_created:${task.taskId}`,
-  ]);
-  assert.deepEqual(entries[1], {
-    activityId: `comment_added:${commentIds[0]}`, activityType: "comment_added", occurredAt: sameTime,
-    actorId: ids.member, actorName: "W4 member", taskId: task.taskId, taskTitle: task.taskTitle,
-    commentId: commentIds[0], commentText: "First comment",
-  });
-  assert.equal(entries[3].commentId, null);
-  assert.equal(entries[3].commentText, null);
-  assert.deepEqual((await api("owner", "GET", taskFeed)).body.activities, [entries[0], entries[1], entries[3]]);
-  assert.deepEqual((await api("member", "GET", `${taskFeed}?limit=1`)).body.activities, [entries[0]]);
-  assert.equal((await api("member", "GET", `${projectFeed}?limit=101`)).status, 400);
-  assert.equal((await api(null, "GET", taskFeed)).status, 401);
-  assert.equal((await api("outsider", "GET", projectFeed)).status, 404);
-  assert.equal((await api("outsider", "GET", taskFeed)).status, 404);
-  assert.equal((await api("owner", "GET", `${tasksUrl(project)}/${otherTask.taskId}/activity`)).status, 404);
+  for (const path of [
+    `${projectUrl(project)}/activity`,
+    `${tasksUrl(project)}/${task.taskId}/activity`,
+  ]) {
+    for (const who of ["owner", "member"] as const) {
+      assert.deepEqual(await api(who, "GET", path), {
+        status: 404,
+        body: { success: false, error: { code: "NOT_FOUND", message: "Endpoint not found" } },
+      });
+    }
+  }
 });
 
 test("PostgreSQL-backed project, task and comment text rejects NUL as a field error", async () => {

@@ -32,7 +32,6 @@ import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import { useSession } from '@/lib/SessionProvider';
 import ProtectedState from '@/components/ProtectedState';
 import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
-import ActivityFeed from '@/components/ActivityFeed';
 
 import type {
   ProjectItem,
@@ -2256,7 +2255,6 @@ export default function ProjectDetailPage() {
                     </div>
                   )}
                 </div>
-                <ActivityFeed projectId={projectId} />
               </aside>
             )}
           </div>
