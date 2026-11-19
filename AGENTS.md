@@ -11,3 +11,7 @@ Use `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `won
 ### Domain docs
 
 Use the single-context layout. See `docs/agents/domain.md`.
+
+## Git branches
+
+Use branch names such as `fix/<topic>` or `feat/<topic>`. Omit the `codex/` prefix.
