@@ -1886,9 +1886,9 @@ export default function ProjectDetailPage() {
                           {progress}%
                         </p>
 
-                        <div className="mt-3.5 h-2.5 w-full overflow-hidden rounded-full bg-[#e2dcf3]">
+                        <div className="project-progress-track mt-3.5 h-2.5 w-full overflow-hidden rounded-full bg-[#e2dcf3]">
                           <div
-                            className="h-full rounded-full bg-[#65c300] transition-[width] duration-300"
+                            className="project-progress-fill h-full rounded-full bg-[#65c300] transition-[width] duration-300"
                             style={{ width: `${progress}%` }}
                           />
                         </div>

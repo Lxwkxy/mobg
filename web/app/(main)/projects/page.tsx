@@ -1235,9 +1235,9 @@ export default function ProjectsPage() {
                       </strong>
                     </div>
 
-                    <div className="h-2 w-full overflow-hidden rounded-full bg-[#e2dcf3]">
+                    <div className="project-progress-track h-2 w-full overflow-hidden rounded-full bg-[#e2dcf3]">
                       <div
-                        className="h-full rounded-full bg-[#65c300] transition-[width] duration-300"
+                        className="project-progress-fill h-full rounded-full bg-[#65c300] transition-[width] duration-300"
                         style={{ width: `${progress}%` }}
                       />
                     </div>

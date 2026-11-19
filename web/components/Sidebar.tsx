@@ -387,7 +387,7 @@ export default function Sidebar() {
       }}
       className={`relative w-full ${
         isCollapsed ? 'lg:w-[104px]' : 'lg:w-[248px]'
-      } rounded-none bg-[#5B44BA] lg:bg-transparent text-white border-b lg:border-b-0 border-white/15 shadow-[0_4px_18px_rgba(91,68,186,0.16)] lg:shadow-none lg:sticky lg:top-0 lg:h-screen lg:shrink-0 z-30 transition-[width] duration-[350ms] ease-[cubic-bezier(0.22,1,0.36,1)]`}
+      } rounded-none bg-[#5B44BA] dark:bg-(--sidebar-background) lg:bg-transparent lg:dark:bg-transparent text-white border-b lg:border-b-0 border-white/15 shadow-[0_4px_18px_rgba(91,68,186,0.16)] lg:shadow-none lg:sticky lg:top-0 lg:h-screen lg:shrink-0 z-30 transition-[width] duration-[350ms] ease-[cubic-bezier(0.22,1,0.36,1)]`}
     >
       {/* แผ่นสีขาวด้านหลังช่องเว้าที่เลื่อนตามตำแหน่งของ Topbar แบบ 1:1 */}
       <div
@@ -407,7 +407,7 @@ export default function Sidebar() {
         className="hidden lg:block pointer-events-none absolute inset-0 z-0"
       >
         <div
-          className="h-full w-full rounded-br-[32px] bg-[#5B44BA]"
+          className="h-full w-full rounded-br-[32px] bg-[#5B44BA] dark:bg-(--sidebar-background)"
           style={SIDEBAR_NOTCH_MASK_STYLE}
         />
       </div>
@@ -420,7 +420,7 @@ export default function Sidebar() {
         title={`${collapseLabel} (Ctrl+B)`}
         aria-expanded={!isCollapsed}
         onClick={() => setIsCollapsed((prev) => !prev)}
-        className="hidden lg:flex items-center justify-center w-7 h-7 rounded-full bg-[#5B44BA] hover:bg-[#4934a3] text-white hover:scale-105 active:scale-95 absolute -right-[3px] top-[25px] z-30 cursor-pointer transition-all duration-200"
+        className="hidden lg:flex items-center justify-center w-7 h-7 rounded-full bg-[#5B44BA] dark:bg-(--sidebar-background) hover:bg-[#4934a3] text-white hover:scale-105 active:scale-95 absolute -right-[3px] top-[25px] z-30 cursor-pointer transition-all duration-200"
       >
         <svg
           width="15"

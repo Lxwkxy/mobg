@@ -52,7 +52,7 @@ export default function ThemeToggle() {
       type="button"
       title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
       onClick={() => applyTheme(isDark ? 'light' : 'dark')}
-      className="theme-toggle shrink-0 w-11 h-11 rounded-full border border-[#e7e1ff] bg-[#faf9ff] text-[#5B44BA] flex items-center justify-center cursor-pointer hover:bg-[#f2eeff] hover:border-[#d7ccff] transition-colors duration-200"
+      className="shrink-0 w-11 h-11 rounded-full border border-[#e7e1ff] bg-[#faf9ff] text-[#5B44BA] flex items-center justify-center cursor-pointer hover:bg-[#f2eeff] hover:border-[#d7ccff] transition-colors duration-200"
     >
       <span className="sr-only theme-label-light">
         Switch to dark mode

@@ -941,9 +941,9 @@ export default function DashboardPage() {
                         </div>
 
                         <div className="flex items-center gap-3 pl-13">
-                          <div className="flex-1 h-[6px] bg-[#e5e7eb] rounded-full overflow-hidden">
+                          <div className="project-progress-track flex-1 h-[6px] bg-[#e5e7eb] rounded-full overflow-hidden">
                             <div
-                              className="h-full bg-[#65c300] rounded-full transition-[width] duration-300"
+                              className="project-progress-fill h-full bg-[#65c300] rounded-full transition-[width] duration-300"
                               style={{ width: `${progress}%` }}
                             />
                           </div>

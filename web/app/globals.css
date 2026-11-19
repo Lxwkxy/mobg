@@ -1,9 +1,9 @@
 @import "tailwindcss";
-@import "./dark-theme.css";
+@import "./dark-theme.css" layer(utilities);
 
 /* The theme is chosen by the user (see ThemeToggle + the script in layout.tsx),
    never by the OS setting. Make Tailwind's `dark:` variant follow it too. */
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@custom-variant dark (&:is([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
   --background: #ffffff;
@@ -14,6 +14,7 @@
 html[data-theme="dark"] {
   --background: #14122a;
   --foreground: #ebe8fb;
+  --sidebar-background: #352b78;
   color-scheme: dark;
 }
 
@@ -78,8 +79,12 @@ html[data-theme="dark"] textarea::placeholder {
   color: #8d88bd;
 }
 
-html[data-theme="dark"] .theme-toggle {
-  border-color: #38336a;
+html[data-theme="dark"] .project-progress-track {
+  background-color: #7e76ac;
+}
+
+html[data-theme="dark"] .project-progress-fill {
+  background-color: #b5f783;
 }
 
 /* Theme toggle icon: pure CSS so the right icon shows from the first paint. */
@@ -109,12 +114,6 @@ html[data-theme="dark"] .theme-label-light {
   display: none;
 }
 
-/* Softer sidebar in dark mode: a bright purple slab is tiring on a dark page. */
-html[data-theme="dark"] aside.bg-\[\#5B44BA\],
-html[data-theme="dark"] aside .bg-\[\#5B44BA\] {
-  background-color: #352b78;
-}
-
 html[data-theme="dark"] .dashboard-project-icon {
   background-image: linear-gradient(to bottom right, #2e2a63, #1d1a3d);
 }
@@ -123,11 +122,6 @@ html[data-theme="dark"] .dashboard-project-icon {
   html[data-theme="dark"] .group:hover .dashboard-project-icon {
     background-image: linear-gradient(to bottom right, #352b78, #5b44ba);
     border-color: #5b44ba;
-    color: #fff;
-  }
-
-  html[data-theme="dark"] .mytasks-empty-clear-filters:hover {
-    background-color: #5b44ba;
     color: #fff;
   }
 }
