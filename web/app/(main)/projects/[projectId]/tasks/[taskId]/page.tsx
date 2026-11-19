@@ -3,75 +3,33 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from 'react';
 import Link from 'next/link';
-import {
-  notFound,
-  useParams,
-  useRouter,
-} from 'next/navigation';
+import { notFound, useParams, useRouter } from 'next/navigation';
 
+import ProtectedState from '@/components/ProtectedState';
+import TaskComments from '@/components/tasks/TaskComments';
+import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
 import {
   ApiRequestError,
   projectApi,
 } from '@/lib/projectApi';
+import { useSession } from '@/lib/SessionProvider';
 import {
   parseRouteId,
   taskApi,
   tryParseRouteId,
-  type TaskComment,
 } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
-import { useSession } from '@/lib/SessionProvider';
-import ProtectedState from '@/components/ProtectedState';
-import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
-
 import type {
-  ProjectItem,
+  Project,
   Task,
   TaskStatus,
 } from '@/types';
 
-const emptySubscribe = () => () => {};
-
-type ExtendedTask = Task & {
-  createdAt?: string | null;
-  updatedAt?: string | null;
-  createdByName?: string | null;
-  creatorName?: string | null;
-  creator?: {
-    userId?: number | string;
-    userName?: string;
-  } | null;
-};
-
-type TaskCommentItem = {
-  id: string;
-  userId?: number | string;
-  authorName: string;
-  content: string;
-  createdAt: string;
-};
-
-type TaskDetailBundle = {
-  project: ProjectItem;
-  task: ExtendedTask;
-  initialComments: TaskCommentItem[];
-};
-
 const WORKSPACE_PATTERN_BG = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cg fill='none' stroke='%235B44BA' stroke-opacity='0.1' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M24 18V30M18 24H30' stroke-width='1.7'/%3E%3Crect x='76' y='14' width='10' height='10' rx='2.5' transform='rotate(45 81 19)' stroke-width='1.6'/%3E%3Ccircle cx='122' cy='30' r='5' stroke-width='1.6'/%3E%3Cg transform='translate(14 70)'%3E%3Crect x='0' y='0' width='15' height='15' rx='4' stroke-width='1.6'/%3E%3Cpath d='M4.5 7.5L6.8 9.8L10.8 5.5' stroke-width='1.6'/%3E%3C/g%3E%3Cpath d='M70 58L72.2 64.8L79 67L72.2 69.2L70 76L67.8 69.2L61 67L67.8 64.8L70 58Z' stroke-width='1.5'/%3E%3Crect x='110' y='78' width='16' height='7' rx='3.5' transform='rotate(-28 118 81.5)' stroke-width='1.6'/%3E%3Cpath d='M82 113V123M77 118H87' stroke-width='1.7'/%3E%3C/g%3E%3Cg fill='%235B44BA' fill-opacity='0.1'%3E%3Ccircle cx='28' cy='118' r='2'/%3E%3Ccircle cx='36' cy='114' r='2'/%3E%3Ccircle cx='35' cy='123' r='2'/%3E%3Ccircle cx='124' cy='122' r='2.2'/%3E%3C/g%3E%3C/svg%3E")`;
-
-const COMMENT_SORT_OPTIONS: {
-  value: 'LATEST' | 'OLDEST';
-  label: string;
-}[] = [
-  { value: 'LATEST', label: 'Sort by latest' },
-  { value: 'OLDEST', label: 'Sort by oldest' },
-];
 
 function getInitials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -94,33 +52,6 @@ function formatShortDate(value: string | null | undefined) {
     month: 'short',
     year: 'numeric',
   }).format(date);
-}
-
-function formatRelativeTime(value: string | null | undefined) {
-  if (!value) return 'Just now';
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  const diffSeconds = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (diffSeconds < 60) return 'Just now';
-
-  const diffMinutes = Math.floor(diffSeconds / 60);
-  if (diffMinutes < 60) {
-    return `${diffMinutes} ${diffMinutes === 1 ? 'minute' : 'minutes'} ago`;
-  }
-
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) {
-    return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
-  }
-
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 30) {
-    return `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
-  }
-
-  return formatShortDate(value);
 }
 
 function getPriorityConfig(priority: Task['priority']) {
@@ -164,136 +95,320 @@ function getStatusConfig(status: TaskStatus) {
   };
 }
 
-function mapApiComment(
-  raw: TaskComment,
-  fallbackAuthorName = 'Team Member',
-): TaskCommentItem {
-  return {
-    id: String(raw.commentId),
-    userId: raw.userId ?? raw.user?.userId,
-    authorName:
-      raw.userName ??
-      raw.authorName ??
-      raw.user?.userName ??
-      fallbackAuthorName,
-    content: raw.commentText,
-    createdAt: raw.createdAt,
-  };
-}
+type TaskDetailData = {
+  task: Task;
+  project: Project;
+};
 
-export default function TaskDetailPage() {
-  const params = useParams<{ projectId: string; taskId: string }>();
+type DeleteContext = {
+  revision: number;
+  userId: number | string;
+  projectId: number;
+  taskId: number;
+};
+
+function TaskDetailContent({
+  projectId,
+  taskId,
+}: {
+  projectId: string;
+  taskId: string;
+}) {
   const router = useRouter();
-  const isClient = useSyncExternalStore(
-    emptySubscribe,
-    () => true,
-    () => false,
-  );
+  const { session, isCurrentSessionRevision } = useSession();
 
-  const isInvalidIds =
-    tryParseRouteId(params.projectId, 'project ID') === null ||
-    tryParseRouteId(params.taskId, 'task ID') === null;
-
-  const { session } = useSession();
-
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteError, setDeleteError] = useState('');
 
-  const [commentSort, setCommentSort] = useState<'LATEST' | 'OLDEST'>('LATEST');
-  const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
-  const [commentDraft, setCommentDraft] = useState('');
-  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
-  const [commentError, setCommentError] = useState('');
-  const [extraComments, setExtraComments] = useState<TaskCommentItem[]>([]);
+  // Keep the draft while focus verification temporarily unmounts the protected view.
+  // The route keys this component by task; user ownership prevents cross-account display.
+  const [commentDraft, setCommentDraft] = useState<{
+    userId: number | string;
+    text: string;
+  } | null>(null);
+  const [commentPost, setCommentPost] = useState<{
+    userId: number | string;
+    status: 'posting' | 'saved' | 'error';
+    message: string;
+  } | null>(null);
+  const commentPostingRef = useRef(false);
 
-  const sortDropdownRef = useRef<HTMLDivElement | null>(null);
+  const mountedRef = useRef(false);
+  const requestSequenceRef = useRef(0);
+  const deleteContextRef = useRef<DeleteContext | null>(null);
 
-  useEffect(() => {
-    if (!isSortDropdownOpen) return;
+  const isInvalidId =
+    tryParseRouteId(projectId, 'project ID') === null ||
+    tryParseRouteId(taskId, 'task ID') === null;
 
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        sortDropdownRef.current &&
-        !sortDropdownRef.current.contains(event.target as Node)
-      ) {
-        setIsSortDropdownOpen(false);
-      }
-    };
+  const load = useCallback(async (): Promise<TaskDetailData> => {
+    const numericProjectId = parseRouteId(projectId, 'project ID');
+    const numericTaskId = parseRouteId(taskId, 'task ID');
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsSortDropdownOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isSortDropdownOpen]);
-
-  const load = useCallback(async (): Promise<TaskDetailBundle> => {
-    const projectId = parseRouteId(params.projectId, 'project ID');
-    const taskId = parseRouteId(params.taskId, 'task ID');
-
-    const [project, task, rawComments] = await Promise.all([
-      projectApi.getProjectById(projectId),
-      taskApi.getTaskById(projectId, taskId),
-      taskApi.getComments(projectId, taskId).catch((error: unknown) => {
-        if (error instanceof ApiRequestError && error.status === 404) {
-          return [] as TaskComment[];
-        }
-        throw error;
-      }),
+    const [task, project] = await Promise.all([
+      taskApi.getTaskById(numericProjectId, numericTaskId),
+      projectApi.getProjectById(numericProjectId),
     ]);
 
-    return {
-      project,
-      task,
-      initialComments: rawComments.map((item) => mapApiComment(item)),
-    };
-  }, [params.projectId, params.taskId]);
+    return { task, project };
+  }, [projectId, taskId]);
 
   const {
     status,
-    data: bundle,
+    data,
     httpStatus,
     retry,
   } = useProtectedLoad(load, {
     revalidateOnFocus: true,
-    hideDataWhileRefreshing: false,
+    hideDataWhileRefreshing: true,
   });
 
+  // Posting belongs to the route, which survives focus/session verification.
+  // Reconcile only the exact submitted draft, even if its form has unmounted.
+  const handleCommentSubmit = async () => {
+    const submittedDraft = commentDraft;
+    if (
+      commentPostingRef.current ||
+      !data ||
+      session.status !== 'ready' ||
+      !session.user ||
+      !submittedDraft?.text.trim() ||
+      submittedDraft.userId !== session.user.userId
+    ) {
+      return;
+    }
+    const userId = session.user.userId;
+    commentPostingRef.current = true;
+    setCommentPost({ userId, status: 'posting', message: '' });
+    try {
+      await taskApi.addComment(data.project.projectId, data.task.taskId, {
+        commentText: submittedDraft.text.trim(),
+      });
+      if (!mountedRef.current) return;
+      setCommentDraft((current) => (current === submittedDraft ? null : current));
+      setCommentPost({ userId, status: 'saved', message: 'Comment posted.' });
+      retry();
+    } catch (cause) {
+      if (!mountedRef.current) return;
+      setCommentPost({
+        userId,
+        status: 'error',
+        message:
+          cause instanceof Error
+            ? cause.message
+            : 'Unable to post your comment. Please try again.',
+      });
+      if (
+        cause instanceof ApiRequestError &&
+        [401, 403, 404].includes(cause.status)
+      ) {
+        retry();
+      }
+    } finally {
+      commentPostingRef.current = false;
+    }
+  };
+
   const isNotFound =
-    isInvalidIds ||
+    isInvalidId ||
     (status === 'error' && (httpStatus === 400 || httpStatus === 404));
 
   useEffect(() => {
-    if (isNotFound && isClient) {
+    if (isNotFound) {
       notFound();
     }
-  }, [isNotFound, isClient]);
+  }, [isNotFound]);
 
-  const comments = useMemo(() => {
-    const base = bundle?.initialComments ?? [];
-    const seen = new Set<string>();
-    const merged: TaskCommentItem[] = [];
+  useEffect(() => {
+    mountedRef.current = true;
 
-    for (const item of [...extraComments, ...base]) {
-      if (seen.has(item.id)) continue;
-      seen.add(item.id);
-      merged.push(item);
+    return () => {
+      mountedRef.current = false;
+      requestSequenceRef.current += 1;
+      deleteContextRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const context = deleteContextRef.current;
+
+    if (!context) return;
+
+    const isSameSession =
+      session.status === 'ready' &&
+      session.user?.userId === context.userId &&
+      isCurrentSessionRevision(context.revision);
+
+    if (!isSameSession) {
+      requestSequenceRef.current += 1;
+      deleteContextRef.current = null;
+      setIsDeleteDialogOpen(false);
+      setIsDeleting(false);
+      setDeleteError('');
+    }
+  }, [
+    session.revision,
+    session.status,
+    session.user?.userId,
+    isCurrentSessionRevision,
+  ]);
+
+  useEffect(() => {
+    if (!isDeleteDialogOpen || !deleteContextRef.current || !data) {
+      return;
     }
 
-    return [...merged].sort((a, b) => {
-      const timeA = new Date(a.createdAt).getTime() || 0;
-      const timeB = new Date(b.createdAt).getTime() || 0;
-      return commentSort === 'LATEST' ? timeB - timeA : timeA - timeB;
-    });
-  }, [bundle?.initialComments, extraComments, commentSort]);
+    const context = deleteContextRef.current;
+
+    const isSameItem =
+      data.project.projectId === context.projectId &&
+      data.task.taskId === context.taskId;
+
+    const stillOwner = data.project.myRole?.toLowerCase() === 'owner';
+
+    if (!isSameItem || !stillOwner) {
+      requestSequenceRef.current += 1;
+      deleteContextRef.current = null;
+      setIsDeleteDialogOpen(false);
+      setIsDeleting(false);
+      setDeleteError('');
+    }
+  }, [data, isDeleteDialogOpen]);
+
+  const openDeleteDialog = () => {
+    if (
+      !data ||
+      data.project.myRole?.toLowerCase() !== 'owner' ||
+      session.status !== 'ready' ||
+      !session.user
+    ) {
+      return;
+    }
+
+    const numericProjectId = parseRouteId(projectId, 'project ID');
+    const numericTaskId = parseRouteId(taskId, 'task ID');
+
+    deleteContextRef.current = {
+      revision: session.revision,
+      userId: session.user.userId,
+      projectId: numericProjectId,
+      taskId: numericTaskId,
+    };
+
+    setDeleteError('');
+    setIsDeleteDialogOpen(true);
+  };
+
+  const closeDeleteDialog = () => {
+    if (isDeleting) return;
+
+    requestSequenceRef.current += 1;
+    deleteContextRef.current = null;
+    setIsDeleteDialogOpen(false);
+    setDeleteError('');
+  };
+
+  const handleDelete = async () => {
+    const context = deleteContextRef.current;
+
+    if (
+      !data ||
+      !context ||
+      isDeleting ||
+      !isDeleteDialogOpen ||
+      session.status !== 'ready' ||
+      !session.user ||
+      data.project.myRole?.toLowerCase() !== 'owner'
+    ) {
+      return;
+    }
+
+    const numericProjectId = parseRouteId(projectId, 'project ID');
+    const numericTaskId = parseRouteId(taskId, 'task ID');
+
+    const canDelete =
+      context.revision === session.revision &&
+      context.userId === session.user.userId &&
+      context.projectId === numericProjectId &&
+      context.taskId === numericTaskId &&
+      data.project.projectId === numericProjectId &&
+      data.task.taskId === numericTaskId &&
+      data.project.myRole?.toLowerCase() === 'owner' &&
+      isCurrentSessionRevision(context.revision);
+
+    if (!canDelete) {
+      deleteContextRef.current = null;
+      setIsDeleteDialogOpen(false);
+      setDeleteError('');
+      return;
+    }
+
+    const requestRevision = context.revision;
+    const requestUserId = context.userId;
+    const requestProjectId = context.projectId;
+    const requestTaskId = context.taskId;
+    const requestToken = ++requestSequenceRef.current;
+
+    const isRequestCurrent = () => {
+      return (
+        mountedRef.current &&
+        requestSequenceRef.current === requestToken &&
+        deleteContextRef.current === context &&
+        session.user?.userId === requestUserId &&
+        isCurrentSessionRevision(requestRevision)
+      );
+    };
+
+    setIsDeleting(true);
+    setDeleteError('');
+
+    try {
+      await taskApi.deleteTask(requestProjectId, requestTaskId);
+
+      if (!isRequestCurrent()) return;
+
+      deleteContextRef.current = null;
+      setIsDeleteDialogOpen(false);
+
+      router.push(`/projects/${requestProjectId}`);
+      router.refresh();
+    } catch (error) {
+      if (!isRequestCurrent()) return;
+
+      if (error instanceof ApiRequestError) {
+        if (error.status === 401) {
+          deleteContextRef.current = null;
+          setIsDeleteDialogOpen(false);
+          router.replace('/login');
+          return;
+        }
+
+        if (error.status === 403) {
+          setDeleteError(
+            'You do not have permission to delete this task.',
+          );
+          return;
+        }
+
+        if (error.status === 404) {
+          setDeleteError(
+            'This task could not be found. It may have already been deleted.',
+          );
+          return;
+        }
+
+        setDeleteError(error.message);
+        return;
+      }
+
+      setDeleteError('Unable to delete this task. Please try again.');
+    } finally {
+      if (isRequestCurrent()) {
+        setIsDeleting(false);
+      }
+    }
+  };
 
   if (isNotFound) {
     return null;
@@ -309,7 +424,7 @@ export default function TaskDetailPage() {
         <div className="flex flex-wrap gap-3">
           <button
             type="button"
-            onClick={() => router.push(`/projects/${params.projectId}`)}
+            onClick={() => router.push(`/projects/${projectId}`)}
             className="min-h-10 rounded-xl border border-[#cfc9e8] bg-white px-4 py-2 text-[12.5px] font-semibold text-[#333333] hover:border-[#9e8ce6] hover:bg-[#f6f3ff] hover:text-[#5B44BA] transition-colors cursor-pointer"
           >
             Back to Project
@@ -327,7 +442,7 @@ export default function TaskDetailPage() {
     );
   }
 
-  if (status !== 'ready' || bundle === null) {
+  if (status !== 'ready' || data === null) {
     return (
       <ProtectedState
         status={status === 'ready' ? 'loading' : status}
@@ -336,9 +451,9 @@ export default function TaskDetailPage() {
     );
   }
 
-  const { project, task } = bundle;
-  const projectId = project.projectId;
-  const taskId = task.taskId;
+  const { project, task } = data;
+  const resolvedProjectId = project.projectId;
+  const resolvedTaskId = task.taskId;
   const assignees = task.assignees ?? [];
 
   const currentUserId = session.user?.userId;
@@ -353,69 +468,6 @@ export default function TaskDetailPage() {
 
   const statusConfig = getStatusConfig(task.status);
   const priorityConfig = getPriorityConfig(task.priority);
-  const activeSortOption =
-    COMMENT_SORT_OPTIONS.find((option) => option.value === commentSort) ??
-    COMMENT_SORT_OPTIONS[0];
-
-  const handleDeleteTask = async () => {
-    if (isDeleting || !canDeleteTask) return;
-
-    setIsDeleting(true);
-    setDeleteError('');
-
-    try {
-      await taskApi.deleteTask(projectId, taskId);
-
-      setIsDeleteDialogOpen(false);
-      router.push(`/projects/${projectId}`);
-      router.refresh();
-    } catch (error) {
-      if (error instanceof ApiRequestError) {
-        if (error.status === 401) {
-          router.replace('/login');
-          return;
-        }
-        setDeleteError(error.message);
-      } else {
-        setDeleteError('Unable to delete this task. Please try again.');
-      }
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  const handleAddComment = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const trimmed = commentDraft.trim();
-    if (!trimmed || isSubmittingComment) return;
-
-    setIsSubmittingComment(true);
-    setCommentError('');
-
-    const currentUserName = session.user?.userName ?? 'You';
-
-    try {
-      const created = await taskApi.addComment(projectId, taskId, {
-        commentText: trimmed,
-      });
-      const createdItem = mapApiComment(created, currentUserName);
-
-      setExtraComments((prev) => [createdItem, ...prev]);
-      setCommentDraft('');
-    } catch (error) {
-      if (error instanceof ApiRequestError) {
-        if (error.status === 401) {
-          router.replace('/login');
-          return;
-        }
-        setCommentError(error.message);
-      } else {
-        setCommentError('Unable to post comment. Please try again.');
-      }
-    } finally {
-      setIsSubmittingComment(false);
-    }
-  };
 
   return (
     <>
@@ -502,7 +554,7 @@ export default function TaskDetailPage() {
                   &gt;
                 </span>
                 <Link
-                  href={`/projects/${projectId}`}
+                  href={`/projects/${resolvedProjectId}`}
                   className="font-medium hover:text-white transition-colors break-words"
                 >
                   {project.projectName}
@@ -511,7 +563,7 @@ export default function TaskDetailPage() {
                   &gt;
                 </span>
                 <Link
-                  href={`/projects/${projectId}`}
+                  href={`/projects/${resolvedProjectId}`}
                   className="font-medium hover:text-white transition-colors"
                 >
                   Task
@@ -528,7 +580,7 @@ export default function TaskDetailPage() {
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-center gap-4">
                   <Link
-                    href={`/projects/${projectId}`}
+                    href={`/projects/${resolvedProjectId}`}
                     aria-label="Back to Project"
                     className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 hover:border-white/40 transition-colors"
                   >
@@ -560,7 +612,7 @@ export default function TaskDetailPage() {
                   <div className="flex flex-wrap shrink-0 items-center gap-2.5 self-start sm:self-center">
                     {canEditTask && (
                       <Link
-                        href={`/projects/${projectId}/tasks/${taskId}/edit`}
+                        href={`/projects/${resolvedProjectId}/tasks/${resolvedTaskId}/edit`}
                         className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-white px-4 py-2 text-[13px] font-bold text-[#5B44BA] shadow-[0_4px_14px_rgba(35,25,66,0.14)] hover:bg-[#f6f3ff] transition-all"
                       >
                         <svg
@@ -585,10 +637,7 @@ export default function TaskDetailPage() {
                       <button
                         type="button"
                         disabled={isDeleting}
-                        onClick={() => {
-                          setDeleteError('');
-                          setIsDeleteDialogOpen(true);
-                        }}
+                        onClick={openDeleteDialog}
                         className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-rose-300/40 bg-rose-500/90 px-4 py-2 text-[13px] font-bold text-white shadow-[0_4px_14px_rgba(35,25,66,0.14)] hover:bg-rose-600 transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <svg
@@ -720,7 +769,7 @@ export default function TaskDetailPage() {
                       </svg>
                     </span>
                     <Link
-                      href={`/projects/${projectId}`}
+                      href={`/projects/${resolvedProjectId}`}
                       className="truncate text-[13px] font-bold text-[#5B44BA] hover:text-[#452ea0] hover:underline transition-colors"
                     >
                       {project.projectName}
@@ -819,250 +868,38 @@ export default function TaskDetailPage() {
               </p>
             </div>
 
-            {/* 3. COMMENTS CARD */}
-            <div className="rounded-2xl border border-[#cfc9e8] bg-white/95 p-5 sm:p-7 shadow-[0_6px_24px_rgba(35,25,66,0.05)]">
-              {/* HEADER + CUSTOM ROUNDED SORT DROPDOWN */}
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ece8f8] pb-4">
-                <div className="flex items-center gap-2.5">
-                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-[#dcd4fa] bg-[#f1edff] text-[#5B44BA]">
-                    <svg
-                      width="15"
-                      height="15"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.1"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                    </svg>
-                  </span>
-
-                  <h2 className="text-[17px] font-extrabold text-[#1f1f1f]">
-                    Comments
-                  </h2>
-
-                  <span className="rounded-full border border-[#cfc5f7] bg-[#f3f0ff] px-2.5 py-0.5 text-[11.5px] font-bold text-[#5B44BA] tabular-nums">
-                    {comments.length}
-                  </span>
-                </div>
-
-                {/* CUSTOM SORT DROPDOWN */}
-                <div ref={sortDropdownRef} className="relative">
-                  <button
-                    type="button"
-                    aria-label="Sort comments"
-                    aria-haspopup="listbox"
-                    aria-expanded={isSortDropdownOpen}
-                    onClick={() => setIsSortDropdownOpen((prev) => !prev)}
-                    className={`inline-flex min-h-9 items-center gap-2 rounded-xl border px-3.5 py-1.5 text-[12.5px] font-semibold outline-none transition-all cursor-pointer ${
-                      isSortDropdownOpen
-                        ? 'border-[#5B44BA] bg-white text-[#5B44BA] ring-2 ring-[#5B44BA]/15'
-                        : 'border-[#cfc9e8] bg-[#f8f6fe] text-[#3d3a4b] hover:border-[#9e8ce6] hover:bg-white hover:text-[#5B44BA]'
-                    }`}
-                  >
-                    <span>{activeSortOption.label}</span>
-                    <svg
-                      width="13"
-                      height="13"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                      className={`shrink-0 transition-transform duration-150 ${
-                        isSortDropdownOpen
-                          ? 'rotate-180 text-[#5B44BA]'
-                          : 'text-[#6e6b7b]'
-                      }`}
-                    >
-                      <polyline points="6 9 12 15 18 9" />
-                    </svg>
-                  </button>
-
-                  {isSortDropdownOpen && (
-                    <div
-                      role="listbox"
-                      aria-label="Comment sort options"
-                      className="absolute right-0 top-full z-30 mt-1.5 min-w-[168px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
-                    >
-                      {COMMENT_SORT_OPTIONS.map((option) => {
-                        const isSelected = commentSort === option.value;
-                        return (
-                          <button
-                            key={option.value}
-                            type="button"
-                            role="option"
-                            aria-selected={isSelected}
-                            onClick={() => {
-                              setCommentSort(option.value);
-                              setIsSortDropdownOpen(false);
-                            }}
-                            className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[12.5px] transition-colors cursor-pointer ${
-                              isSelected
-                                ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
-                                : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
-                            }`}
-                          >
-                            <span>{option.label}</span>
-                            {isSelected && (
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.5"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden="true"
-                              >
-                                <polyline points="20 6 9 17 4 12" />
-                              </svg>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* COMMENTS LIST */}
-              {comments.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-9 text-center">
-                  <span className="mb-2.5 inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-[#e2dcf5] bg-[#f8f6fe] text-[#8f89a6]">
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.9"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                    </svg>
-                  </span>
-                  <p className="text-[13.5px] font-semibold text-[#5c586b]">
-                    No comments yet
-                  </p>
-                  <p className="mt-0.5 text-[12px] text-[#8f89a6]">
-                    Start the conversation below.
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y divide-[#ece8f8]">
-                  {comments.map((comment) => (
-                    <div
-                      key={comment.id}
-                      className="flex items-start gap-3 py-4"
-                    >
-                      <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#dcd4fa] bg-[#f1edff] text-[11.5px] font-bold text-[#5B44BA]">
-                        {getInitials(comment.authorName)}
-                      </span>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-baseline gap-2">
-                          <span className="text-[13.5px] font-bold text-[#1f1f1f]">
-                            {comment.authorName}
-                          </span>
-                          <span className="text-[11.5px] text-[#8f89a6]">
-                            {formatRelativeTime(comment.createdAt)}
-                          </span>
-                        </div>
-                        <p className="mt-1 whitespace-pre-wrap text-[13.5px] leading-relaxed text-[#3a3747]">
-                          {comment.content}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* WRITE A COMMENT FORM */}
-              <form
-                onSubmit={(e) => void handleAddComment(e)}
-                className="mt-2 border-t border-[#ece8f8] pt-4"
-              >
-                {commentError && (
-                  <p
-                    role="alert"
-                    className="mb-2.5 text-[12px] font-medium text-rose-600"
-                  >
-                    {commentError}
-                  </p>
-                )}
-
-                <div className="flex items-start gap-3">
-                  {session.user?.userName ? (
-                    <span className="mt-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#5B44BA] text-[11.5px] font-bold text-white shadow-xs">
-                      {getInitials(session.user.userName)}
-                    </span>
-                  ) : (
-                    <span className="mt-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#dcd4fa] bg-[#f1edff] text-[#5B44BA]">
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                      >
-                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                        <circle cx="12" cy="7" r="4" />
-                      </svg>
-                    </span>
-                  )}
-
-                  <textarea
-                    rows={2}
-                    value={commentDraft}
-                    onChange={(e) => setCommentDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        void handleAddComment(e);
-                      }
-                    }}
-                    placeholder="Write a comment... (Press Enter to send)"
-                    aria-label="Write a comment"
-                    className="min-h-[52px] flex-1 resize-none rounded-xl border border-[#cfc9e8] bg-[#f8f6fe] px-3.5 py-2.5 text-[13.5px] text-[#1f1f1f] outline-none placeholder:text-[#8f89a6] focus:border-[#5B44BA] focus:bg-white focus:ring-2 focus:ring-[#5B44BA]/15 transition-all"
-                  />
-
-                  <button
-                    type="submit"
-                    disabled={!commentDraft.trim() || isSubmittingComment}
-                    className="mt-1 inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl bg-[#5B44BA] px-4 py-2 text-[13px] font-bold text-white shadow-[0_4px_14px_rgba(91,68,186,0.25)] hover:bg-[#4934a3] hover:shadow-[0_6px_18px_rgba(91,68,186,0.34)] transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <line x1="22" y1="2" x2="11" y2="13" />
-                      <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                    </svg>
-                    <span>Send</span>
-                  </button>
-                </div>
-              </form>
-            </div>
+            {/* 3. COMMENTS SECTION (SINGLE INSTANCE FROM MAIN) */}
+            <TaskComments
+              projectId={resolvedProjectId}
+              taskId={resolvedTaskId}
+              draft={
+                commentDraft?.userId === session.user?.userId
+                  ? (commentDraft?.text ?? '')
+                  : ''
+              }
+              onDraftChange={(text) => {
+                if (session.status === 'ready' && session.user) {
+                  setCommentDraft({ userId: session.user.userId, text });
+                }
+              }}
+              onSubmit={() => void handleCommentSubmit()}
+              isPosting={
+                commentPost?.userId === session.user?.userId &&
+                commentPost?.status === 'posting'
+              }
+              error={
+                commentPost?.userId === session.user?.userId &&
+                commentPost?.status === 'error'
+                  ? commentPost.message
+                  : ''
+              }
+              notice={
+                commentPost?.userId === session.user?.userId &&
+                commentPost?.status === 'saved'
+                  ? commentPost.message
+                  : ''
+              }
+            />
           </div>
         </div>
       </div>
@@ -1077,15 +914,28 @@ export default function TaskDetailPage() {
           confirmLabel="Delete task"
           isLoading={isDeleting}
           error={deleteError}
-          onCancel={() => {
-            if (!isDeleting) {
-              setIsDeleteDialogOpen(false);
-              setDeleteError('');
-            }
-          }}
-          onConfirm={() => void handleDeleteTask()}
+          onCancel={closeDeleteDialog}
+          onConfirm={() => void handleDelete()}
         />
       )}
     </>
+  );
+}
+
+export default function TaskDetailPage() {
+  const params = useParams<{
+    projectId: string;
+    taskId: string;
+  }>();
+
+  const projectId = params.projectId;
+  const taskId = params.taskId;
+
+  return (
+    <TaskDetailContent
+      key={`${projectId}-${taskId}`}
+      projectId={projectId}
+      taskId={taskId}
+    />
   );
 }
