@@ -5,7 +5,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 
@@ -65,6 +64,7 @@ export function useProtectedLoad<T>(
 
   const {
     session,
+    getLatestSession,
     refreshSession,
     replaceSession,
     updateSessionUser,
@@ -78,8 +78,8 @@ export function useProtectedLoad<T>(
 
   const [lastSuccess, setLastSuccess] =
     useState<LoadSuccess<T> | null>(null);
-
-  const lastRefreshAt = useRef(0);
+  const [focusRefresh, setFocusRefresh] =
+    useState<{ token: object } | null>(null);
 
   const currentUser = session.user;
 
@@ -105,36 +105,39 @@ export function useProtectedLoad<T>(
       return;
     }
 
-    lastRefreshAt.current = Date.now();
+    let lastRefreshAt = Date.now();
 
-    const refresh = (force = false) => {
+    function handleFocus() {
       const now = Date.now();
 
-      if (
-        !force &&
-        now - lastRefreshAt.current < 500
-      ) {
+      if (now - lastRefreshAt < 500) {
         return;
       }
 
-      lastRefreshAt.current = now;
-      void refreshSession();
-    };
+      lastRefreshAt = now;
 
-    function handleFocus() {
-      refresh();
+      const latestSession = getLatestSession();
+      if (latestSession.status === 'ready') {
+        // Rerun the load without making the current result stale for the UI.
+        setFocusRefresh({ token });
+      } else if (latestSession.status !== 'loading') {
+        void refreshSession();
+      }
     }
 
     function handleVisibilityChange() {
       if (document.visibilityState === 'visible') {
-        refresh();
+        handleFocus();
       }
     }
 
     function handlePageShow(
       event: PageTransitionEvent,
     ) {
-      refresh(event.persisted);
+      if (event.persisted) {
+        lastRefreshAt = Date.now();
+        void refreshSession();
+      }
     }
 
     window.addEventListener('focus', handleFocus);
@@ -165,7 +168,7 @@ export function useProtectedLoad<T>(
         handleVisibilityChange,
       );
     };
-  }, [revalidateOnFocus, refreshSession]);
+  }, [getLatestSession, refreshSession, revalidateOnFocus, token]);
 
   // โหลดข้อมูลเมื่อ Session พร้อมแล้วเท่านั้น
   useEffect(() => {
@@ -264,7 +267,10 @@ export function useProtectedLoad<T>(
         }
 
         // ตรวจ Session ก่อนเริ่มโหลดข้อมูล
-        if (revalidateOnFocus && verifyBeforeLoad) {
+        if (
+          revalidateOnFocus &&
+          (verifyBeforeLoad || focusRefresh?.token === token)
+        ) {
           const verified = await verifyCurrentSession();
 
           if (!verified || !isRequestCurrent()) {
@@ -394,6 +400,7 @@ export function useProtectedLoad<T>(
     };
   }, [
     token,
+    focusRefresh,
     load,
     sessionReady,
     sessionUserId,
