@@ -1,10 +1,10 @@
 import { Router, type Request, type Response } from "express";
-import type { ActivitiesResponse, MessageResponse, ProjectResponse, ProjectsResponse } from "../contracts/api.js";
+import type { MessageResponse, ProjectResponse, ProjectsResponse, TasksResponse } from "../contracts/api.js";
+import { mapTask } from "../mappers/task.js";
+import { listOverviewTasks } from "../services/taskDb.js";
 import { ApiError, notFound } from "../errors.js";
 import { requireAuth, requireProjectRole } from "../guards.js";
 import { countToNumber, mapProject } from "../mappers/project.js";
-import { mapActivity } from "../mappers/activity.js";
-import { listActivity } from "../services/activityDb.js";
 import { CHECK_VIOLATION, FOREIGN_KEY_VIOLATION, pgErrorInfo } from "../pgErrors.js";
 import { domainIdToNumber } from "../services/dbHelpers.js";
 import {
@@ -12,7 +12,7 @@ import {
   listProjectsForUser, updateProject, type ProjectChanges,
 } from "../services/projectDb.js";
 import {
-  activityQuerySchema, createProjectSchema, parseRequest, projectDatesAreValid, projectListQuerySchema,
+  createProjectSchema, parseRequest, projectDatesAreValid, projectListQuerySchema,
   updateProjectSchema,
 } from "../validation.js";
 
@@ -73,10 +73,11 @@ router.get("/:projectId", requireProjectRole("Member"), async (req: Request, res
   res.json({ success: true, project: mapProject(row, role) });
 });
 
-router.get("/:projectId/activity", requireProjectRole("Member"), async (req: Request, res: Response<ActivitiesResponse>) => {
-  const { limit } = parseRequest(activityQuerySchema, req.query);
-  const activities = await listActivity(req.projectAccess!.projectId, limit);
-  res.set("Cache-Control", "private, no-store").json({ success: true, activities: activities.map(mapActivity) });
+// GET /api/projects/:projectId/overview/tasks  (Owner, Member)
+// Top 5 tasks for the Overview tab: priority (High first), then nearest due date.
+router.get("/:projectId/overview/tasks", requireProjectRole("Member"), async (req: Request, res: Response<TasksResponse>) => {
+  const rows = await listOverviewTasks(req.projectAccess!.projectId);
+  res.set("Cache-Control", "private, no-store").json({ success: true, tasks: rows.map(mapTask) });
 });
 
 // PATCH /api/projects/:projectId  (Owner only)

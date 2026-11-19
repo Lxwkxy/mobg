@@ -4,11 +4,9 @@ Express 5 + TypeScript (ESM), a shared PostgreSQL pool and Better Auth 1.7.7.
 Implemented and database-backed: `GET /api/me`, `GET /api/users`, `GET /api/search`,
 project CRUD, project members (list/add/remove), project tasks (CRUD), `GET /api/tasks/mine`
 and `GET /api/dashboard`. Task details support listing and posting comments.
-The project overview and task details show recent task creation and comments
-through their activity endpoints.
 The pre-existing endpoints passed the W5 audit on Pai's seed (`npm run test:api-audit`, see
 [W5 backend report](../docs/w5-backend-report.md)). The web app calls the project, task,
-member, search, dashboard, My Tasks, comment, activity and `/api/me` endpoints.
+member, search, dashboard, My Tasks, comment and `/api/me` endpoints.
 Frontend Login uses Better Auth. Public signup, email verification and password reset
 are described in [account setup](../docs/account-registration.md).
 

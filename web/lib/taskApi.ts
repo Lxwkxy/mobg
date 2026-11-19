@@ -149,6 +149,14 @@ export const taskApi = {
     );
   },
 
+  // งาน 5 อันดับแรกสำหรับหน้า Overview: เรียงตาม priority (High ก่อน) แล้วตาม due date ที่ใกล้ที่สุด
+  async getOverviewTasks(projectId: number): Promise<Task[]> {
+    return fetchTaskList(
+      `/api/projects/${projectId}/overview/tasks`,
+      'The server returned an invalid overview tasks list.',
+    );
+  },
+
   async getTaskById(
     projectId: number,
     taskId: number,

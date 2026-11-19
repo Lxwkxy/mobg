@@ -75,6 +75,7 @@ for (const width of [375, 1440]) {
       await input.fill(`  ${content}  `);
       await submit.click();
       await section.getByRole('listitem').getByText(content, { exact: true }).waitFor();
+      assert.equal(await page.getByRole('region', { name: 'Activity' }).count(), 0);
       assert.equal(state.posts, 1);
       assert.equal(await input.inputValue(), '');
       assert.equal(await page.evaluate(() => window.commentInjected), undefined);

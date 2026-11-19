@@ -1,7 +1,7 @@
 # MobG web
 
 The Next.js frontend uses the Express API for accounts, projects, tasks,
-members, search, Dashboard, My Tasks, comments and activity. See the
+members, search, Dashboard, My Tasks and comments. See the
 [repository setup](../README.md#setup) to start the database and backend.
 
 From `web/`, copy `env.example` to `.env.local`, run `npm ci` and

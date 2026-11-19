@@ -6,13 +6,35 @@ unfinished tasks assigned to that user, sorted by priority and deadline. My Task
 shows the user's assignments. Dashboard links can also open the broader Project
 Tasks view, where the status editor is available to the Owner and assigned members.
 
-Project Overview and Task Details share the Activity panel. It shows recent task
-creation and comments from PostgreSQL. Task Details also has the comment form.
+Task Details has a comment form backed by PostgreSQL. Activity was removed from
+both views and the API on 2026-11-19 by team decision.
 Both views use the same session guards, and the API returns a field error for
 project, task and comment text containing NUL.
 
 ## Verification
 
+### Activity removal (2026-11-19)
+
+The team removed the Activity UI, API routes, query validation, shared types,
+mapper and database reader. Comments and task creation metadata are retained.
+The CI workflow and its required checks remain unchanged.
+
+- Web lint, typecheck and production build passed. Backend typecheck, test
+  typecheck and build passed.
+- The three CI browser suites passed 22/22 against the production build in Chrome,
+  including responsive Project Overview and comment posting/reloading with no Activity panel.
+- The full PostgreSQL suite passed 116 tests, with one optional account browser
+  test skipped. The optional real comment browser case was enabled and passed:
+  a Member posts through Express, the saved row is checked in PostgreSQL, and the
+  comment remains after reload. Both removed feed URLs return the standard `404`
+  for Owners and Members.
+- Database tests used a fresh database in an isolated PostgreSQL 18 cluster and
+  local Mailpit. The test database was dropped and the services stopped afterwards.
+  GitHub Actions itself has not been run for this change.
+
+### Original W5 verification
+
+The original verification below predates Activity removal.
 Verified on 2026-11-19 (Asia/Bangkok) using a Windows production build,
 Chromium, an isolated PostgreSQL 18 cluster, and Mailpit.
 
@@ -61,8 +83,8 @@ Outsider saw an empty project list. Screenshots from this rehearsal are
 1. Sign in as the seeded Owner. Open Dashboard and compare the counts with
    My Tasks. Open **MobG W5 Main Demo** and check its initial 20% progress.
 2. Open **Future Medium**, set the status to **Done**, and return to Project
-   Overview to see 40%. Post a comment and verify it appears in Task Details
-   and the project Activity panel after reopening the page.
+   Overview to see 40%. Post a comment and verify it remains in Task Details
+   after reopening the page.
 3. Sign out and sign in as Member. Open the Dashboard task total to see Project
    Tasks. Compare the status control on an assigned task with the read-only status
    on **Future Medium**. Sign in as Outsider separately to show the empty workspace.

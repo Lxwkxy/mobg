@@ -221,7 +221,7 @@ test("comment database failures return safe errors without saving a partial comm
   assert.equal((await api("owner", "DELETE", `${tasksUrl(shared)}/${taskId}`)).status, 200);
 });
 
-test("browser comments persist and reload through the real API and database", {
+test("browser comments persist through the real API and database after reloading", {
   skip: !process.env.COMMENTS_WEB_URL,
 }, async () => {
   // Browser coverage is optional; ordinary backend CI does not install root dependencies.
@@ -247,6 +247,7 @@ test("browser comments persist and reload through the real API and database", {
     });
     await page.goto(`${web}/projects/${shared}/tasks/${taskId}`);
     const section = page.getByRole("region", { name: "Comments" });
+    assert.equal(await page.getByRole("region", { name: "Activity" }).count(), 0);
     const content = "Browser to PostgreSQL: ตรวจงานของคนอื่นแล้ว";
     await section.getByLabel("Add a comment").fill(content);
     await section.getByRole("button", { name: "Post comment", exact: true }).click();
@@ -259,6 +260,8 @@ test("browser comments persist and reload through the real API and database", {
     await page.screenshot({ path: "../web/.next/task-comments-smoke.png", fullPage: true });
     await page.getByRole("link", { name: "Back to Project" }).click();
     await page.waitForURL(`**/projects/${shared}`);
+    await page.getByRole("heading", { name: task.body.task.projectName, exact: true }).waitFor();
+    assert.equal(await page.getByRole("region", { name: "Activity" }).count(), 0);
   } finally {
     await browser.close();
     await api("owner", "DELETE", `${tasksUrl(shared)}/${taskId}`);
@@ -515,6 +518,33 @@ test("only an Owner deletes; related rows are removed and repeats return 404", a
   assert.equal((await api("owner", "DELETE", url)).status, 404);
   assert.equal((await pool.query("SELECT 1 FROM comments WHERE task_id = $1", [id])).rowCount, 0);
   assert.equal((await pool.query("SELECT 1 FROM task_assignees WHERE task_id = $1", [id])).rowCount, 0);
+});
+
+test("overview tasks return the top 5 by priority, then nearest due date, for members only", async () => {
+  const project = await api("owner", "POST", "/api/projects",
+    { projectName: "Overview ordering", startDate: bangkokDatePlus(0), memberIds: [ids.member] });
+  assert.equal(project.status, 201);
+  const projectId: number = project.body.project.projectId;
+  const url = `/api/projects/${projectId}/overview/tasks`;
+  try {
+    assert.deepEqual((await api("member", "GET", url)).body, { success: true, tasks: [] });
+    const specs: [string, 1 | 2 | 3, number][] = [
+      ["low soon", 3, 1], ["medium later", 2, 20], ["high later", 1, 40], ["medium soon", 2, 5],
+      ["high soon", 1, 10], ["low later", 3, 50], ["medium last", 2, 90],
+    ];
+    for (const [taskTitle, priority, days] of specs) {
+      const res = await api("owner", "POST", tasksUrl(projectId),
+        { taskTitle, priority, dueDate: bangkokDatePlus(days), assigneeIds: [ids.owner] });
+      assert.equal(res.status, 201, taskTitle);
+    }
+    const res = await api("member", "GET", url);
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.tasks.map((t: { taskTitle: string }) => t.taskTitle),
+      ["high soon", "high later", "medium soon", "medium later", "medium last"]);
+    assert.equal((await api("outsider", "GET", url)).status, 404);
+  } finally {
+    await api("owner", "DELETE", `/api/projects/${projectId}`);
+  }
 });
 
 test("project summary reflects task changes made through the API", async () => {

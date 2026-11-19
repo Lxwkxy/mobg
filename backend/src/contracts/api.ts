@@ -51,18 +51,6 @@ export interface TaskComment {
   userId: number;
   userName: string;
 }
-interface ActivityBase {
-  activityId: string;
-  occurredAt: TimestampString;
-  actorId: number;
-  actorName: string;
-  taskId: number;
-  taskTitle: string;
-}
-export type Activity = ActivityBase & (
-  | { activityType: "task_created"; commentId: null; commentText: null }
-  | { activityType: "comment_added"; commentId: number; commentText: string }
-);
 export interface DashboardSummary {
   projectCount: number;
   taskCount: number;
@@ -97,7 +85,6 @@ export interface AddMemberRequest { userId: number }
 export interface CreateCommentRequest { commentText: string }
 export interface ProjectListQuery { status?: TaskStatus; page?: number; pageSize?: number }
 export interface TaskListQuery { status?: TaskStatus }
-export interface ActivityQuery { limit?: number }
 
 export type BusinessErrorCode =
   | "VALIDATION_ERROR" | "UNAUTHENTICATED" | "FORBIDDEN"
@@ -130,6 +117,5 @@ export type TasksResponse = ApiResponse<{ tasks: Task[] }>;
 export type TaskResponse = ApiResponse<{ task: Task }>;
 export type CommentsResponse = ApiResponse<{ comments: TaskComment[] }>;
 export type CommentResponse = ApiResponse<{ comment: TaskComment }>;
-export type ActivitiesResponse = ApiResponse<{ activities: Activity[] }>;
 export type DashboardResponse = ApiResponse<{ summary: DashboardSummary; highPriorityTasks: Task[] }>;
 export type MessageResponse = ApiResponse<{ message: string }>;

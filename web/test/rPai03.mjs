@@ -514,6 +514,7 @@ test('Project Overview wraps long content and preserves progress and back naviga
       await page.getByRole('heading', { name: project.projectName, exact: true }).waitFor();
       await page.getByText('67%', { exact: true }).waitFor();
       await fits(page, `Overview ${width}`);
+      assert.equal(await page.getByRole('region', { name: 'Activity' }).count(), 0);
       const back = page.getByRole('link', { name: 'Back to Projects', exact: true });
       await reachable(back);
       await page.screenshot({ path: `${output}/overview-${width}.png`, fullPage: true });
