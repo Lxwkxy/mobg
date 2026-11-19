@@ -123,29 +123,32 @@ function TaskDetailContent({
     sessionRef.current = session;
   }, [session]);
 
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [deleteError, setDeleteError] = useState('');
-
-  // Keep the draft while focus verification temporarily unmounts the protected view.
-  // Binding both userId and revision prevents stale drafts or statuses across logout/account switch.
+  // Keep draft and in-flight comment state across tab focus revalidation for the same account,
+  // while resetting them immediately on logout or switching to a different account.
   const [commentDraft, setCommentDraft] = useState<{
     userId: number | string;
-    revision: number;
+    generation: number;
     text: string;
   } | null>(null);
   const [commentPost, setCommentPost] = useState<{
     userId: number | string;
-    revision: number;
+    generation: number;
     status: 'posting' | 'saved' | 'error';
     message: string;
   } | null>(null);
+
+  const authGenerationRef = useRef(0);
+  const lastAuthenticatedUserIdRef = useRef<number | string | null>(null);
   const commentRequestSequenceRef = useRef(0);
   const activeCommentRequestRef = useRef<{
     token: number;
     userId: number | string;
-    revision: number;
+    generation: number;
   } | null>(null);
+
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   const mountedRef = useRef(false);
   const requestSequenceRef = useRef(0);
@@ -177,8 +180,62 @@ function TaskDetailContent({
     hideDataWhileRefreshing: true,
   });
 
+  // Track account switches and logouts without resetting on same-account focus revalidation.
+  useEffect(() => {
+    if (session.status === 'login-required' || session.status === 'no-profile') {
+      if (lastAuthenticatedUserIdRef.current !== null) {
+        lastAuthenticatedUserIdRef.current = null;
+        authGenerationRef.current += 1;
+      }
+      const nextGeneration = authGenerationRef.current;
+      commentRequestSequenceRef.current += 1;
+      activeCommentRequestRef.current = null;
+      Promise.resolve().then(() => {
+        if (!mountedRef.current) return;
+        setCommentDraft((current) =>
+          current && current.generation !== nextGeneration ? null : current,
+        );
+        setCommentPost((current) =>
+          current && current.generation !== nextGeneration ? null : current,
+        );
+      });
+      return;
+    }
+
+    if (session.status === 'ready' && session.user) {
+      const currentUserId = session.user.userId;
+      if (
+        lastAuthenticatedUserIdRef.current !== null &&
+        lastAuthenticatedUserIdRef.current !== currentUserId
+      ) {
+        authGenerationRef.current += 1;
+        commentRequestSequenceRef.current += 1;
+        activeCommentRequestRef.current = null;
+      }
+      lastAuthenticatedUserIdRef.current = currentUserId;
+      const activeGeneration = authGenerationRef.current;
+      Promise.resolve().then(() => {
+        if (!mountedRef.current) return;
+        setCommentDraft((current) =>
+          current &&
+          (current.userId !== currentUserId ||
+            current.generation !== activeGeneration)
+            ? null
+            : current,
+        );
+        setCommentPost((current) =>
+          current &&
+          (current.userId !== currentUserId ||
+            current.generation !== activeGeneration)
+            ? null
+            : current,
+        );
+      });
+    }
+  }, [session.status, session.user]);
+
   // Posting belongs to the route, which survives focus/session verification.
-  // Reconcile only the exact submitted draft and ignore responses from stale sessions.
+  // Wait for the original request of the same account even across tab focus revalidation.
   const handleCommentSubmit = async () => {
     const submittedDraft = commentDraft;
     if (
@@ -187,19 +244,19 @@ function TaskDetailContent({
       !session.user ||
       !submittedDraft?.text.trim() ||
       submittedDraft.userId !== session.user.userId ||
-      !isCurrentSessionRevision(submittedDraft.revision)
+      submittedDraft.generation !== authGenerationRef.current
     ) {
       return;
     }
 
     const userId = session.user.userId;
-    const requestRevision = session.revision;
+    const requestGeneration = authGenerationRef.current;
 
     const currentActive = activeCommentRequestRef.current;
     if (
       currentActive &&
       currentActive.userId === userId &&
-      isCurrentSessionRevision(currentActive.revision)
+      currentActive.generation === requestGeneration
     ) {
       return;
     }
@@ -208,7 +265,7 @@ function TaskDetailContent({
     activeCommentRequestRef.current = {
       token: requestToken,
       userId,
-      revision: requestRevision,
+      generation: requestGeneration,
     };
 
     const isCommentRequestCurrent = () => {
@@ -216,15 +273,17 @@ function TaskDetailContent({
       return (
         mountedRef.current &&
         commentRequestSequenceRef.current === requestToken &&
-        latestSession.status === 'ready' &&
-        latestSession.user?.userId === userId &&
-        isCurrentSessionRevision(requestRevision)
+        authGenerationRef.current === requestGeneration &&
+        latestSession.status !== 'login-required' &&
+        latestSession.status !== 'no-profile' &&
+        (latestSession.status !== 'ready' ||
+          latestSession.user?.userId === userId)
       );
     };
 
     setCommentPost({
       userId,
-      revision: requestRevision,
+      generation: requestGeneration,
       status: 'posting',
       message: '',
     });
@@ -237,7 +296,7 @@ function TaskDetailContent({
       setCommentDraft((current) => (current === submittedDraft ? null : current));
       setCommentPost({
         userId,
-        revision: requestRevision,
+        generation: requestGeneration,
         status: 'saved',
         message: 'Comment posted.',
       });
@@ -246,7 +305,7 @@ function TaskDetailContent({
       if (!isCommentRequestCurrent()) return;
       setCommentPost({
         userId,
-        revision: requestRevision,
+        generation: requestGeneration,
         status: 'error',
         message:
           cause instanceof Error
@@ -530,16 +589,14 @@ function TaskDetailContent({
   const activeDraft =
     validSessionUser &&
     commentDraft &&
-    commentDraft.userId === validSessionUser.userId &&
-    isCurrentSessionRevision(commentDraft.revision)
+    commentDraft.userId === validSessionUser.userId
       ? commentDraft.text
       : '';
 
   const activeCommentPost =
     validSessionUser &&
     commentPost &&
-    commentPost.userId === validSessionUser.userId &&
-    isCurrentSessionRevision(commentPost.revision)
+    commentPost.userId === validSessionUser.userId
       ? commentPost
       : null;
 
@@ -947,7 +1004,7 @@ function TaskDetailContent({
 
             {/* 3. COMMENTS SECTION */}
             <TaskComments
-              key={`${resolvedProjectId}-${resolvedTaskId}-${currentUserId ?? 'anon'}-${session.revision}`}
+              key={`${resolvedProjectId}-${resolvedTaskId}-${currentUserId ?? 'anon'}`}
               projectId={resolvedProjectId}
               taskId={resolvedTaskId}
               draft={activeDraft}
@@ -955,7 +1012,7 @@ function TaskDetailContent({
                 if (session.status === 'ready' && session.user) {
                   setCommentDraft({
                     userId: session.user.userId,
-                    revision: session.revision,
+                    generation: authGenerationRef.current,
                     text,
                   });
                 }
