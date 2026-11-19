@@ -181,6 +181,14 @@ function mapPaletteBorder(name, shade) {
   return BORDER.neutral;
 }
 
+function withAlpha(hex, pct) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgb(${r} ${g} ${b} / ${pct / 100})`;
+}
+
 // ---------- scan ----------
 function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
@@ -192,7 +200,7 @@ function walk(dir, out = []) {
 }
 
 const files = SCAN_DIRS.flatMap((d) => walk(join(root, d)));
-const tokenRe = /(?:[A-Za-z0-9-]+:)*(?:bg|text|border|border-[trblxy]|divide)-(?:\[#[0-9a-fA-F]{3,8}\]|[a-z]+-\d{2,3}|white)(?![\w/\[-])/g;
+const tokenRe = /(?:[A-Za-z0-9-]+:)*(?:bg|text|border|border-[trblxy]|divide)-(?:\[#[0-9a-fA-F]{3,8}\]|[a-z]+-\d{2,3}|white)(?:\/\d{1,3})?(?![\w/\[-])/g;
 const tokens = new Set();
 for (const f of files) {
   for (const m of readFileSync(f, 'utf8').matchAll(tokenRe)) tokens.add(m[0]);
@@ -219,10 +227,10 @@ for (const token of tokens) {
   if (variants.includes('dark')) continue; // author already handled dark
 
   const m = utility.match(
-    /^(bg|text|border|border-[trblxy]|divide)-(?:\[(#[0-9a-fA-F]{3,8})\]|([a-z]+)-(\d{2,3})|(white))$/,
+    /^(bg|text|border|border-[trblxy]|divide)-(?:\[(#[0-9a-fA-F]{3,8})\]|([a-z]+)-(\d{2,3})|(white))(?:\/(\d{1,3}))?$/,
   );
   if (!m) continue;
-  const [, kind, hex, palName, shadeStr, isWhite] = m;
+  const [, kind, hex, palName, shadeStr, isWhite, opacity] = m;
   const shade = shadeStr ? Number(shadeStr) : 0;
 
   let value = null;
@@ -242,6 +250,9 @@ for (const token of tokens) {
     value = isWhite ? null : hex ? mapBorderHex(hex) : mapPaletteBorder(palName, shade);
   }
   if (!value) continue;
+  // White overlays sit on purple banners; only bg-white/80-95 cards are handled (staticRules).
+  if (isWhite && opacity) continue;
+  if (opacity) value = withAlpha(value, Number(opacity));
 
   const unsupported = variants.filter((v) => !SUPPORTED_STATE.has(v) && !RESPONSIVE[v]);
   if (unsupported.length) {

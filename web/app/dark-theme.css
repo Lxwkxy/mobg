@@ -2,6 +2,7 @@
    Run `npm run gen:dark-theme` after adding new color classes. */
 
 html[data-theme="dark"] .bg-amber-100 { background-color: #4a3d22; }
+html[data-theme="dark"] .bg-amber-50\/70 { background-color: rgb(58 48 28 / 0.7); }
 html[data-theme="dark"] .bg-amber-50 { background-color: #3a301c; }
 html[data-theme="dark"] .bg-blue-100 { background-color: #243a63; }
 html[data-theme="dark"] .bg-blue-50 { background-color: #1c2c4d; }
@@ -25,6 +26,7 @@ html[data-theme="dark"] .bg-\[\#f4f1ff\] { background-color: #2e2a63; }
 html[data-theme="dark"] .bg-\[\#f4f2fa\] { background-color: #2e2a63; }
 html[data-theme="dark"] .bg-\[\#f6f3ff\] { background-color: #2e2a63; }
 html[data-theme="dark"] .bg-\[\#f6f4ff\] { background-color: #2e2a63; }
+html[data-theme="dark"] .bg-\[\#f7f5fd\]\/80 { background-color: rgb(46 42 99 / 0.8); }
 html[data-theme="dark"] .bg-\[\#f7f5fd\] { background-color: #2e2a63; }
 html[data-theme="dark"] .bg-\[\#f7f5ff\] { background-color: #2e2a63; }
 html[data-theme="dark"] .bg-\[\#f8f6fe\] { background-color: #2e2a63; }
@@ -35,7 +37,11 @@ html[data-theme="dark"] .bg-\[\#fef2f2\] { background-color: #3c2030; }
 html[data-theme="dark"] .bg-gray-100 { background-color: #3a3576; }
 html[data-theme="dark"] .bg-neutral-200 { background-color: #3a3576; }
 html[data-theme="dark"] .bg-red-100 { background-color: #4b283b; }
+html[data-theme="dark"] .bg-red-50\/30 { background-color: rgb(60 32 48 / 0.3); }
+html[data-theme="dark"] .bg-red-50\/40 { background-color: rgb(60 32 48 / 0.4); }
 html[data-theme="dark"] .bg-red-50 { background-color: #3c2030; }
+html[data-theme="dark"] .bg-rose-50\/40 { background-color: rgb(60 32 48 / 0.4); }
+html[data-theme="dark"] .bg-rose-50\/60 { background-color: rgb(60 32 48 / 0.6); }
 html[data-theme="dark"] .bg-rose-50 { background-color: #3c2030; }
 html[data-theme="dark"] .bg-slate-100 { background-color: #3a3576; }
 html[data-theme="dark"] .bg-violet-50 { background-color: #2e2a63; }
@@ -83,6 +89,7 @@ html[data-theme="dark"] .border-\[\#fecaca\] { border-color: #7a3350; }
 html[data-theme="dark"] .border-neutral-300 { border-color: #38336a; }
 html[data-theme="dark"] .border-red-200 { border-color: #7a3350; }
 html[data-theme="dark"] .border-rose-200 { border-color: #7a3350; }
+html[data-theme="dark"] .border-rose-300\/40 { border-color: rgb(122 51 80 / 0.4); }
 html[data-theme="dark"] .border-slate-200 { border-color: #38336a; }
 html[data-theme="dark"] .border-violet-100 { border-color: #38336a; }
 html[data-theme="dark"] .divide-\[\#d4c8ff\] > :not(:last-child) { border-color: #38336a; }
