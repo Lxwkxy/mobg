@@ -302,7 +302,44 @@ export default function Sidebar() {
   const isOpen = openPath === pathname;
   const menuId = useId();
   const toggleRef = useRef<HTMLButtonElement>(null);
+  const notchBackdropRef = useRef<HTMLDivElement>(null);
   const collapseLabel = isCollapsed ? 'Expand sidebar' : 'Collapse sidebar';
+
+  useEffect(() => {
+    const backdrop = notchBackdropRef.current;
+    if (!backdrop) return;
+
+    const header = document.querySelector('header');
+    let headerHeight = header ? header.offsetHeight : 72;
+
+    function syncNotchBackdrop() {
+      if (!backdrop) return;
+      const scrolled = Math.max(0, window.scrollY);
+      const offset = Math.min(scrolled, headerHeight);
+      backdrop.style.height = `${headerHeight}px`;
+      backdrop.style.transform = `translate3d(0, -${offset}px, 0)`;
+    }
+
+    syncNotchBackdrop();
+
+    window.addEventListener('scroll', syncNotchBackdrop, { passive: true });
+    window.addEventListener('resize', syncNotchBackdrop, { passive: true });
+
+    let observer: ResizeObserver | undefined;
+    if (header && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => {
+        headerHeight = header.offsetHeight;
+        syncNotchBackdrop();
+      });
+      observer.observe(header);
+    }
+
+    return () => {
+      window.removeEventListener('scroll', syncNotchBackdrop);
+      window.removeEventListener('resize', syncNotchBackdrop);
+      observer?.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     // Match the lg breakpoint used by the desktop sidebar.
@@ -352,11 +389,17 @@ export default function Sidebar() {
         isCollapsed ? 'lg:w-[104px]' : 'lg:w-[248px]'
       } rounded-none bg-[#5B44BA] lg:bg-transparent text-white border-b lg:border-b-0 border-white/15 shadow-[0_4px_18px_rgba(91,68,186,0.16)] lg:shadow-none lg:sticky lg:top-0 lg:h-screen lg:shrink-0 z-30 transition-[width] duration-[350ms] ease-[cubic-bezier(0.22,1,0.36,1)]`}
     >
-      {/* พื้นหลังสีขาวช่วง Top Bar เพื่อให้ช่องเว้ากลืนเป็นสีขาวเดียวกับ Top Bar */}
+      {/* แผ่นสีขาวด้านหลังช่องเว้าที่เลื่อนตามตำแหน่งของ Topbar แบบ 1:1 */}
       <div
         aria-hidden="true"
-        className="hidden lg:block pointer-events-none absolute inset-x-0 top-0 h-[72px] bg-white z-0"
-      />
+        className="hidden lg:block pointer-events-none absolute inset-0 overflow-hidden z-0"
+      >
+        <div
+          ref={notchBackdropRef}
+          style={{ height: '72px' }}
+          className="w-full bg-white border-b border-[#d4c8ff] will-change-transform"
+        />
+      </div>
 
       {/* พื้นหลัง Sidebar พร้อมรอยเว้าโค้งรับกับปุ่มย่อ/ขยายบนหน้าจอใหญ่ */}
       <div
