@@ -1329,7 +1329,7 @@ function CreateTaskForm({
               <Link
                 href={`/projects/${projectId}`}
                 aria-label="Back to Project"
-                className="mt-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 hover:border-white/40 transition-colors"
+                className="mt-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-[#5B44BA] shadow-[0_4px_14px_rgba(35,25,66,0.16)] hover:bg-[#f4f0ff] hover:text-[#452ea0] transition-all"
               >
                 <svg
                   width="18"
@@ -1337,7 +1337,7 @@ function CreateTaskForm({
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2.2"
+                  strokeWidth="2.4"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   aria-hidden="true"

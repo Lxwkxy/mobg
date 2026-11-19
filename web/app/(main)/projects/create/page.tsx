@@ -87,6 +87,7 @@ export default function CreateProjectPage() {
 
   const [projectName, setProjectName] = useState('');
   const [description, setDescription] = useState('');
+  const [minStartDate, setMinStartDate] = useState('');
   const [startDate, setStartDate] = useState('');
   const [dueDate, setDueDate] = useState('');
 
@@ -105,9 +106,11 @@ export default function CreateProjectPage() {
   const [errors, setErrors] = useState<FormErrors>({});
 
   function resetForm() {
+    const today = getBangkokToday();
     setProjectName('');
     setDescription('');
-    setStartDate(getBangkokToday());
+    setMinStartDate(today);
+    setStartDate(today);
     setDueDate('');
     setMemberIds([]);
     setMemberSearch('');
@@ -121,7 +124,9 @@ export default function CreateProjectPage() {
     async function initialize() {
       if (!active) return;
 
-      setStartDate(getBangkokToday());
+      const today = getBangkokToday();
+      setMinStartDate(today);
+      setStartDate(today);
 
       try {
         const currentUser = await getCurrentUser();
@@ -219,6 +224,7 @@ export default function CreateProjectPage() {
 
     const nextErrors: FormErrors = {};
     const trimmedName = projectName.trim();
+    const today = getBangkokToday();
 
     if (!trimmedName) {
       nextErrors.projectName = 'Please enter a project name.';
@@ -229,6 +235,8 @@ export default function CreateProjectPage() {
 
     if (!startDate) {
       nextErrors.startDate = 'Please select a start date.';
+    } else if (startDate < today) {
+      nextErrors.startDate = 'Start date cannot be earlier than today.';
     }
 
     if (!dueDate) {
@@ -438,7 +446,7 @@ export default function CreateProjectPage() {
                 }}
                 aria-disabled={isSaving}
                 tabIndex={isSaving ? -1 : undefined}
-                className={`mt-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 hover:border-white/40 transition-colors ${
+                className={`mt-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-[#5B44BA] shadow-[0_4px_14px_rgba(35,25,66,0.16)] hover:bg-[#f4f0ff] hover:text-[#452ea0] transition-all ${
                   isSaving ? 'pointer-events-none opacity-50' : ''
                 }`}
               >
@@ -448,7 +456,7 @@ export default function CreateProjectPage() {
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2.2"
+                  strokeWidth="2.4"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   aria-hidden="true"
@@ -642,6 +650,7 @@ export default function CreateProjectPage() {
                     type="date"
                     required
                     disabled={isSaving}
+                    min={minStartDate || undefined}
                     value={startDate}
                     onChange={(event) => {
                       setStartDate(event.target.value);
@@ -683,7 +692,11 @@ export default function CreateProjectPage() {
                     type="date"
                     required
                     disabled={isSaving}
-                    min={startDate ? getTomorrow(startDate) : undefined}
+                    min={
+                      startDate || minStartDate
+                        ? getTomorrow(startDate || minStartDate)
+                        : undefined
+                    }
                     value={dueDate}
                     onChange={(event) => {
                       setDueDate(event.target.value);

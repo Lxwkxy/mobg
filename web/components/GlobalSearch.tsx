@@ -142,7 +142,8 @@ function SearchField({ disabled }: { disabled: boolean }) {
             setQuery(event.target.value);
             search(event.target.value, true);
           }}
-          className="min-h-9 min-w-0 flex-1 bg-transparent text-base text-[#231942] placeholder:text-[#8c80ad] outline-none sm:text-sm"
+          style={{ outline: 'none', boxShadow: 'none' }}
+          className="min-h-9 min-w-0 flex-1 border-0 bg-transparent text-base text-[#231942] placeholder:text-[#8c80ad] outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none sm:text-sm"
         />
         <button
           type="submit"
