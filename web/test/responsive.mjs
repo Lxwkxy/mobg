@@ -191,6 +191,32 @@ test('My Tasks filter dropdowns support full keyboard navigation and focus resto
   } finally { await page.close(); }
 });
 
+test('Clicking My Tasks search closes the filter and keeps focus in search', async () => {
+  const { page } = await setup({ width: 1280, height: 800 });
+  try {
+    await page.goto(`${base}/mytasks`);
+    const task = page.getByRole('link', { name: assigned.taskTitle, exact: true });
+    await task.waitFor();
+
+    const status = page.getByRole('button', { name: 'Filter tasks by status' });
+    const options = page.getByRole('listbox', { name: 'Task status options' });
+    const search = page.getByRole('searchbox', { name: 'Search tasks', exact: true });
+    await status.click();
+    await options.waitFor();
+    await search.click();
+    await options.waitFor({ state: 'hidden' });
+    // Let any deferred focus restoration run before checking the active field.
+    await page.evaluate(() => new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
+    assert.equal(await search.evaluate((element) => element === document.activeElement), true);
+
+    await page.keyboard.type('no matching task');
+    assert.equal(await search.inputValue(), 'no matching task');
+    await task.waitFor({ state: 'hidden' });
+  } finally { await page.close(); }
+});
+
 test('Switching from Project Tasks to My Tasks resets project filter to All projects', async () => {
   const { page } = await setup({ width: 1280, height: 800 }, 'Member', true);
   try {

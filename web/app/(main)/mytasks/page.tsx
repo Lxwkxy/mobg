@@ -1036,7 +1036,7 @@ export default function MyTasksPage() {
             {projectOptions.length > 0 && (
               <KeyboardPopup
                 open={openDropdown === 'project'}
-                onClose={() => closeDropdownAndRestoreFocus('project')}
+                onClose={() => setOpenDropdown(null)}
                 className="relative w-full sm:w-auto sm:shrink-0"
               >
                 <button
@@ -1186,7 +1186,7 @@ export default function MyTasksPage() {
             {/* STATUS DROPDOWN */}
             <KeyboardPopup
               open={openDropdown === 'status'}
-              onClose={() => closeDropdownAndRestoreFocus('status')}
+              onClose={() => setOpenDropdown(null)}
               className="relative w-full sm:w-auto sm:shrink-0"
             >
               <button
@@ -1298,7 +1298,7 @@ export default function MyTasksPage() {
             {/* PRIORITY DROPDOWN */}
             <KeyboardPopup
               open={openDropdown === 'priority'}
-              onClose={() => closeDropdownAndRestoreFocus('priority')}
+              onClose={() => setOpenDropdown(null)}
               className="relative w-full sm:w-auto sm:shrink-0"
             >
               <button
@@ -1408,7 +1408,7 @@ export default function MyTasksPage() {
             {/* SORT DROPDOWN */}
             <KeyboardPopup
               open={openDropdown === 'sort'}
-              onClose={() => closeDropdownAndRestoreFocus('sort')}
+              onClose={() => setOpenDropdown(null)}
               className="relative w-full sm:w-auto sm:shrink-0"
             >
               <button
@@ -1831,12 +1831,7 @@ export default function MyTasksPage() {
                         {canEditTask(row) ? (
                           <KeyboardPopup
                             open={isStatusOpen}
-                            onClose={() => {
-                              setOpenStatusRowKey(null);
-                              requestAnimationFrame(() =>
-                                statusRowTriggerRefs.current[rowKey]?.focus(),
-                              );
-                            }}
+                            onClose={() => setOpenStatusRowKey(null)}
                             className="relative inline-block"
                           >
                             <button
