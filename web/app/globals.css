@@ -1,8 +1,20 @@
 @import "tailwindcss";
+@import "./dark-theme.css";
+
+/* The theme is chosen by the user (see ThemeToggle + the script in layout.tsx),
+   never by the OS setting. Make Tailwind's `dark:` variant follow it too. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  --background: #14122a;
+  --foreground: #ebe8fb;
+  color-scheme: dark;
 }
 
 html:has(dialog:modal) {
@@ -16,13 +28,6 @@ html:has(dialog:modal) {
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
@@ -33,6 +38,11 @@ body {
   outline: 2px solid #452ea0;
   outline-offset: 2px;
   box-shadow: 0 0 0 2px #fff;
+}
+
+html[data-theme="dark"] :where(a[href], button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline-color: #c2b8ff;
+  box-shadow: 0 0 0 2px #14122a;
 }
 
 .skip-link:not(:focus) {
@@ -54,4 +64,70 @@ body {
   background: white;
   color: #452ea0;
   font-weight: 700;
+}
+
+/* ---------- Dark theme extras (colors for classes live in dark-theme.css) ---------- */
+html[data-theme="dark"] input,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select {
+  color: #ebe8fb;
+}
+
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder {
+  color: #8d88bd;
+}
+
+html[data-theme="dark"] .theme-toggle {
+  border-color: #38336a;
+}
+
+/* Theme toggle icon: pure CSS so the right icon shows from the first paint. */
+.theme-icon-sun {
+  display: none;
+}
+
+html[data-theme="dark"] .theme-icon-sun {
+  display: block;
+}
+
+html[data-theme="dark"] .theme-icon-moon {
+  display: none;
+}
+
+/* Accessible name matches the theme from first paint. display:none keeps the
+   inactive label out of the accessibility tree. */
+.theme-label-dark {
+  display: none;
+}
+
+html[data-theme="dark"] .theme-label-dark {
+  display: inline;
+}
+
+html[data-theme="dark"] .theme-label-light {
+  display: none;
+}
+
+/* Softer sidebar in dark mode: a bright purple slab is tiring on a dark page. */
+html[data-theme="dark"] aside.bg-\[\#5B44BA\],
+html[data-theme="dark"] aside .bg-\[\#5B44BA\] {
+  background-color: #352b78;
+}
+
+html[data-theme="dark"] .dashboard-project-icon {
+  background-image: linear-gradient(to bottom right, #2e2a63, #1d1a3d);
+}
+
+@media (hover: hover) {
+  html[data-theme="dark"] .group:hover .dashboard-project-icon {
+    background-image: linear-gradient(to bottom right, #352b78, #5b44ba);
+    border-color: #5b44ba;
+    color: #fff;
+  }
+
+  html[data-theme="dark"] .mytasks-empty-clear-filters:hover {
+    background-color: #5b44ba;
+    color: #fff;
+  }
 }

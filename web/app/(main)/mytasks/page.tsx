@@ -1684,7 +1684,7 @@ export default function MyTasksPage() {
                     <button
                       type="button"
                       onClick={clearFilters}
-                      className="mt-4 inline-flex min-h-11 items-center rounded-xl border border-[#c7bbf5] bg-[#f1edff] hover:bg-[#5B44BA] px-4 py-2 text-[12.5px] font-semibold text-[#5B44BA] hover:text-white transition-colors cursor-pointer"
+                      className="mytasks-empty-clear-filters mt-4 inline-flex min-h-11 items-center rounded-xl border border-[#c7bbf5] bg-[#f1edff] hover:bg-[#5B44BA] px-4 py-2 text-[12.5px] font-semibold text-[#5B44BA] hover:text-white transition-colors cursor-pointer"
                     >
                       Clear filters
                     </button>

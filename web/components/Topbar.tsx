@@ -17,6 +17,7 @@ import {
 
 import GlobalSearch from '@/components/GlobalSearch';
 import KeyboardPopup from '@/components/ui/KeyboardPopup';
+import ThemeToggle from '@/components/ThemeToggle';
 
 import { logoutApi } from '@/lib/authService';
 import { useSession } from '@/lib/SessionProvider';
@@ -184,7 +185,9 @@ export default function Topbar() {
       </div>
 
       {/* USER ACCOUNT */}
-      <div className="min-w-0 max-w-full justify-self-end md:col-start-2 xl:col-start-3 flex items-center gap-5">
+      <div className="min-w-0 max-w-full justify-self-end md:col-start-2 xl:col-start-3 flex items-center gap-3 sm:gap-5">
+        <ThemeToggle />
+
         <KeyboardPopup
           className="relative min-w-0 max-w-full inline-block"
           ref={dropdownRef}
