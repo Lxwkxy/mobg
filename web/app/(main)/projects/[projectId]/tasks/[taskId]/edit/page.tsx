@@ -54,6 +54,15 @@ type SubmissionAccountStatus =
   | 'unavailable'
   | 'stale';
 
+type RawFormValues = {
+  taskTitle: string;
+  taskDescription: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dueDate: string;
+  assigneeIds: number[];
+};
+
 type InitialFormSnapshot = {
   taskTitle: string;
   taskDescription: string | null;
@@ -110,6 +119,25 @@ function haveSameAssigneeSet(
   return true;
 }
 
+function buildRawFormValues(data: EditTaskData): RawFormValues {
+  return {
+    taskTitle: data.task.taskTitle,
+    taskDescription: data.task.taskDescription ?? '',
+    status: data.task.status,
+    priority: data.task.priority,
+    dueDate: normalizeDateInput(data.task.dueDate),
+    assigneeIds: Array.from(
+      new Set(
+        data.task.assignees
+          .map((assignee) => assignee.userId)
+          .filter((id) =>
+            data.members.some((member) => member.userId === id),
+          ),
+      ),
+    ),
+  };
+}
+
 function EditTaskForm({
   projectId,
   taskId,
@@ -147,37 +175,39 @@ function EditTaskForm({
     [data.members],
   );
 
-  // เก็บค่าเริ่มต้นตอนเปิดฟอร์มครั้งแรกไว้เปรียบเทียบตอนส่ง PATCH
-  const [initialSnapshot] = useState<InitialFormSnapshot>(() => ({
-    taskTitle: data.task.taskTitle.trim(),
-    taskDescription: (data.task.taskDescription ?? '').trim() || null,
-    status: data.task.status,
-    priority: data.task.priority,
-    dueDate: normalizeDateInput(data.task.dueDate),
-    assigneeIds: Array.from(
-      new Set(
-        data.task.assignees
-          .map((assignee) => assignee.userId)
-          .filter((id) =>
-            data.members.some((member) => member.userId === id),
-          ),
-      ),
-    ),
-  }));
+  const latestRawValues = useMemo(
+    () => buildRawFormValues(data),
+    [data],
+  );
 
-  const [taskTitle, setTaskTitle] = useState(data.task.taskTitle);
+  // เก็บค่าเริ่มต้นตอนเปิดฟอร์มไว้เปรียบเทียบตอนส่ง PATCH และตอนกด Cancel
+  const [rawBaseline, setRawBaseline] = useState<RawFormValues>(
+    () => latestRawValues,
+  );
+
+  const initialSnapshot = useMemo<InitialFormSnapshot>(
+    () => ({
+      taskTitle: rawBaseline.taskTitle.trim(),
+      taskDescription: rawBaseline.taskDescription.trim() || null,
+      status: rawBaseline.status,
+      priority: rawBaseline.priority,
+      dueDate: rawBaseline.dueDate,
+      assigneeIds: rawBaseline.assigneeIds,
+    }),
+    [rawBaseline],
+  );
+
+  const [taskTitle, setTaskTitle] = useState(rawBaseline.taskTitle);
   const [taskDescription, setTaskDescription] = useState(
-    data.task.taskDescription ?? '',
+    rawBaseline.taskDescription,
   );
-  const [status, setStatus] = useState<TaskStatus>(data.task.status);
+  const [status, setStatus] = useState<TaskStatus>(rawBaseline.status);
   const [priority, setPriority] = useState<TaskPriority>(
-    data.task.priority,
+    rawBaseline.priority,
   );
-  const [dueDate, setDueDate] = useState(
-    normalizeDateInput(data.task.dueDate),
-  );
+  const [dueDate, setDueDate] = useState(rawBaseline.dueDate);
   const [assigneeIds, setAssigneeIds] = useState<number[]>(
-    () => initialSnapshot.assigneeIds,
+    () => rawBaseline.assigneeIds,
   );
 
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
@@ -192,6 +222,76 @@ function EditTaskForm({
   const isMountedRef = useRef(false);
   const submittingRef = useRef(false);
   const activeSubmissionRef = useRef<object | null>(null);
+  const isDiscardedRef = useRef(false);
+  const latestRawValuesRef = useRef(latestRawValues);
+
+  useLayoutEffect(() => {
+    latestRawValuesRef.current = latestRawValues;
+  }, [latestRawValues]);
+
+  const resetFormToInitial = useCallback(() => {
+    const baseline = latestRawValuesRef.current;
+    isDiscardedRef.current = true;
+    setRawBaseline(baseline);
+    setTaskTitle(baseline.taskTitle);
+    setTaskDescription(baseline.taskDescription);
+    setStatus(baseline.status);
+    setPriority(baseline.priority);
+    setDueDate(baseline.dueDate);
+    setAssigneeIds(baseline.assigneeIds);
+    setErrors({});
+    setIsStatusDropdownOpen(false);
+    setIsPriorityDropdownOpen(false);
+  }, []);
+
+  const handleCancel = useCallback(() => {
+    if (isSaving) return;
+    resetFormToInitial();
+    router.push(`/projects/${projectId}/tasks/${taskId}`);
+    router.refresh();
+  }, [isSaving, projectId, resetFormToInitial, router, taskId]);
+
+  // ซิงก์ค่าใหม่จากเซิร์ฟเวอร์เฉพาะช่องที่ผู้ใช้ยังไม่แก้ไข หรือหลังกดยกเลิก
+  useEffect(() => {
+    setRawBaseline((prevBaseline) => {
+      if (isDiscardedRef.current) {
+        setTaskTitle(latestRawValues.taskTitle);
+        setTaskDescription(latestRawValues.taskDescription);
+        setStatus(latestRawValues.status);
+        setPriority(latestRawValues.priority);
+        setDueDate(latestRawValues.dueDate);
+        setAssigneeIds(latestRawValues.assigneeIds);
+        return latestRawValues;
+      }
+
+      setTaskTitle((cur) =>
+        cur.trim() === prevBaseline.taskTitle.trim()
+          ? latestRawValues.taskTitle
+          : cur,
+      );
+      setTaskDescription((cur) =>
+        cur.trim() === prevBaseline.taskDescription.trim()
+          ? latestRawValues.taskDescription
+          : cur,
+      );
+      setStatus((cur) =>
+        cur === prevBaseline.status ? latestRawValues.status : cur,
+      );
+      setPriority((cur) =>
+        cur === prevBaseline.priority ? latestRawValues.priority : cur,
+      );
+      setDueDate((cur) =>
+        cur === prevBaseline.dueDate ? latestRawValues.dueDate : cur,
+      );
+      setAssigneeIds((cur) =>
+        haveSameAssigneeSet(cur, prevBaseline.assigneeIds)
+          ? latestRawValues.assigneeIds
+          : cur,
+      );
+
+      return latestRawValues;
+    });
+  }, [latestRawValues]);
 
   const validAssigneeIds = useMemo(
     () =>
@@ -203,12 +303,14 @@ function EditTaskForm({
 
   useEffect(() => {
     isMountedRef.current = true;
+    isDiscardedRef.current = false;
 
     return () => {
       isMountedRef.current = false;
       activeSubmissionRef.current = null;
+      resetFormToInitial();
     };
-  }, []);
+  }, [resetFormToInitial]);
 
   useEffect(() => {
     if (!isStatusDropdownOpen && !isPriorityDropdownOpen) return;
@@ -426,6 +528,8 @@ function EditTaskForm({
       return;
     }
 
+    isDiscardedRef.current = false;
+
     setAssigneeIds((current) =>
       current.includes(assigneeUserId)
         ? current.filter((id) => id !== assigneeUserId)
@@ -500,6 +604,7 @@ function EditTaskForm({
 
     // ถ้าไม่มีฟิลด์ไหนเปลี่ยนเลย ไม่ต้องยิง PATCH
     if (Object.keys(patchInput).length === 0) {
+      resetFormToInitial();
       router.push(`/projects/${projectId}/tasks/${taskId}`);
       return;
     }
@@ -720,7 +825,11 @@ function EditTaskForm({
               <Link
                 href="/projects"
                 onClick={(event) => {
-                  if (isSaving) event.preventDefault();
+                  if (isSaving) {
+                    event.preventDefault();
+                    return;
+                  }
+                  resetFormToInitial();
                 }}
                 aria-disabled={isSaving}
                 tabIndex={isSaving ? -1 : undefined}
@@ -736,7 +845,11 @@ function EditTaskForm({
               <Link
                 href={`/projects/${projectId}`}
                 onClick={(event) => {
-                  if (isSaving) event.preventDefault();
+                  if (isSaving) {
+                    event.preventDefault();
+                    return;
+                  }
+                  resetFormToInitial();
                 }}
                 aria-disabled={isSaving}
                 tabIndex={isSaving ? -1 : undefined}
@@ -752,7 +865,11 @@ function EditTaskForm({
               <Link
                 href={`/projects/${projectId}/tasks/${taskId}`}
                 onClick={(event) => {
-                  if (isSaving) event.preventDefault();
+                  if (isSaving) {
+                    event.preventDefault();
+                    return;
+                  }
+                  resetFormToInitial();
                 }}
                 aria-disabled={isSaving}
                 tabIndex={isSaving ? -1 : undefined}
@@ -774,7 +891,11 @@ function EditTaskForm({
                 href={`/projects/${projectId}/tasks/${taskId}`}
                 aria-label="Back to Task Detail"
                 onClick={(event) => {
-                  if (isSaving) event.preventDefault();
+                  if (isSaving) {
+                    event.preventDefault();
+                    return;
+                  }
+                  resetFormToInitial();
                 }}
                 aria-disabled={isSaving}
                 tabIndex={isSaving ? -1 : undefined}
@@ -895,6 +1016,7 @@ function EditTaskForm({
                 required
                 value={taskTitle}
                 onChange={(event) => {
+                  isDiscardedRef.current = false;
                   setTaskTitle(event.target.value);
                   clearError('taskTitle');
                 }}
@@ -931,6 +1053,7 @@ function EditTaskForm({
                 rows={4}
                 value={taskDescription}
                 onChange={(event) => {
+                  isDiscardedRef.current = false;
                   setTaskDescription(event.target.value);
                   clearError('taskDescription');
                 }}
@@ -1031,6 +1154,7 @@ function EditTaskForm({
                             role="option"
                             aria-selected={isSelected}
                             onClick={() => {
+                              isDiscardedRef.current = false;
                               setStatus(option.value);
                               clearError('status');
                               setIsStatusDropdownOpen(false);
@@ -1139,6 +1263,7 @@ function EditTaskForm({
                             role="option"
                             aria-selected={isSelected}
                             onClick={() => {
+                              isDiscardedRef.current = false;
                               setPriority(option.value);
                               clearError('priority');
                               setIsPriorityDropdownOpen(false);
@@ -1202,6 +1327,7 @@ function EditTaskForm({
                     required
                     value={dueDate}
                     onChange={(event) => {
+                      isDiscardedRef.current = false;
                       setDueDate(event.target.value);
                       clearError('dueDate');
                     }}
@@ -1241,11 +1367,7 @@ function EditTaskForm({
               <button
                 type="button"
                 disabled={isSaving}
-                onClick={() =>
-                  router.push(
-                    `/projects/${projectId}/tasks/${taskId}`,
-                  )
-                }
+                onClick={handleCancel}
                 className="min-h-11 rounded-xl border border-[#cfc9e8] bg-white px-5 py-2.5 text-[13.5px] font-semibold text-[#4a465c] transition-colors hover:border-[#9e8ce6] hover:bg-[#f6f3ff] hover:text-[#5B44BA] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Cancel

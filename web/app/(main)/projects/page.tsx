@@ -288,7 +288,11 @@ export default function ProjectsPage() {
   }, [allProjects, search, statusFilter, sortBy]);
 
   const handleConfirmDelete = async () => {
-    if (!projectToDelete || isDeleting) {
+    if (
+      !projectToDelete ||
+      projectToDelete.myRole !== 'Owner' ||
+      isDeleting
+    ) {
       return;
     }
 
@@ -1135,7 +1139,9 @@ export default function ProjectsPage() {
                 0,
                 Math.min(100, item.progressPercent),
               );
-              const isMenuOpen = openMenuProjectId === item.projectId;
+              const isOwner = item.myRole === 'Owner';
+              const isMenuOpen =
+                isOwner && openMenuProjectId === item.projectId;
 
               return (
                 <article
@@ -1185,72 +1191,74 @@ export default function ProjectsPage() {
                           {item.derivedStatus}
                         </span>
 
-                        {/* MORE OPTIONS DROPDOWN */}
-                        <div
-                          ref={isMenuOpen ? menuContainerRef : null}
-                          className="relative"
-                        >
-                          <button
-                            type="button"
-                            aria-label={`More options for ${item.projectName}`}
-                            aria-haspopup="menu"
-                            aria-expanded={isMenuOpen}
-                            onClick={() =>
-                              setOpenMenuProjectId((prev) =>
-                                prev === item.projectId ? null : item.projectId,
-                              )
-                            }
-                            className={`min-h-9 min-w-9 rounded-lg inline-flex items-center justify-center text-[#444444] cursor-pointer transition-colors ${
-                              isMenuOpen
-                                ? 'bg-[#f1eeff] text-[#5B44BA]'
-                                : 'hover:bg-[#f4f3f9]'
-                            }`}
+                        {/* MORE OPTIONS DROPDOWN (แสดงเฉพาะ Owner เท่านั้น) */}
+                        {isOwner && (
+                          <div
+                            ref={isMenuOpen ? menuContainerRef : null}
+                            className="relative"
                           >
-                            <svg
-                              width="18"
-                              height="18"
-                              viewBox="0 0 24 24"
-                              fill="currentColor"
-                              aria-hidden="true"
+                            <button
+                              type="button"
+                              aria-label={`More options for ${item.projectName}`}
+                              aria-haspopup="menu"
+                              aria-expanded={isMenuOpen}
+                              onClick={() =>
+                                setOpenMenuProjectId((prev) =>
+                                  prev === item.projectId ? null : item.projectId,
+                                )
+                              }
+                              className={`min-h-9 min-w-9 rounded-lg inline-flex items-center justify-center text-[#444444] cursor-pointer transition-colors ${
+                                isMenuOpen
+                                  ? 'bg-[#f1eeff] text-[#5B44BA]'
+                                  : 'hover:bg-[#f4f3f9]'
+                              }`}
                             >
-                              <circle cx="5" cy="12" r="1.8" />
-                              <circle cx="12" cy="12" r="1.8" />
-                              <circle cx="19" cy="12" r="1.8" />
-                            </svg>
-                          </button>
-
-                          {isMenuOpen && (
-                            <div
-                              role="menu"
-                              aria-label={`Actions for ${item.projectName}`}
-                              className="absolute right-0 top-full mt-1.5 z-20 min-w-[164px] rounded-xl border border-[#cfc9e8] bg-white py-1.5 shadow-[0_10px_28px_rgba(31,31,31,0.12)]"
-                            >
-                              <Link
-                                role="menuitem"
-                                href={`/projects/${item.projectId}/settings`}
-                                onClick={() => setOpenMenuProjectId(null)}
-                                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[13px] font-medium text-[#2b2b2b] hover:bg-[#f6f3ff] hover:text-[#5B44BA] transition-colors"
+                              <svg
+                                width="18"
+                                height="18"
+                                viewBox="0 0 24 24"
+                                fill="currentColor"
+                                aria-hidden="true"
                               >
-                                <span>Edit Project</span>
-                              </Link>
+                                <circle cx="5" cy="12" r="1.8" />
+                                <circle cx="12" cy="12" r="1.8" />
+                                <circle cx="19" cy="12" r="1.8" />
+                              </svg>
+                            </button>
 
-                              <div className="my-1 border-t border-[#f0f0f4]" />
-
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setOpenMenuProjectId(null);
-                                  setDeleteError('');
-                                  setProjectToDelete(item);
-                                }}
-                                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[13px] font-medium text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                            {isMenuOpen && (
+                              <div
+                                role="menu"
+                                aria-label={`Actions for ${item.projectName}`}
+                                className="absolute right-0 top-full mt-1.5 z-20 min-w-[164px] rounded-xl border border-[#cfc9e8] bg-white py-1.5 shadow-[0_10px_28px_rgba(31,31,31,0.12)]"
                               >
-                                <span>Delete</span>
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                                <Link
+                                  role="menuitem"
+                                  href={`/projects/${item.projectId}/settings`}
+                                  onClick={() => setOpenMenuProjectId(null)}
+                                  className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[13px] font-medium text-[#2b2b2b] hover:bg-[#f6f3ff] hover:text-[#5B44BA] transition-colors"
+                                >
+                                  <span>Edit Project</span>
+                                </Link>
+
+                                <div className="my-1 border-t border-[#f0f0f4]" />
+
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setOpenMenuProjectId(null);
+                                    setDeleteError('');
+                                    setProjectToDelete(item);
+                                  }}
+                                  className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[13px] font-medium text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                                >
+                                  <span>Delete</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1432,7 +1440,7 @@ export default function ProjectsPage() {
       </div>
 
       {/* DELETE CONFIRMATION MODAL */}
-      {projectToDelete && (
+      {projectToDelete && projectToDelete.myRole === 'Owner' && (
         <div
           role="dialog"
           aria-modal="true"

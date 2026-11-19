@@ -201,7 +201,7 @@ function readStoredDraft(
 }
 
 function removeStoredDraft(key: string) {
-  if (!key) return;
+  if (typeof window === 'undefined' || !key) return;
 
   try {
     window.sessionStorage.removeItem(key);
@@ -464,14 +464,24 @@ function ProjectSettingsForm({
 
   const baselineRef = useRef(baseline);
   const mountedRef = useRef(false);
+  const isDiscardedRef = useRef(false);
+
+  const discardDraft = useCallback(() => {
+    isDiscardedRef.current = true;
+    removeStoredDraft(draftKey);
+    setForm(baselineRef.current);
+    setFieldErrors({});
+    setSaveError('');
+  }, [draftKey]);
 
   useEffect(() => {
     mountedRef.current = true;
 
     return () => {
       mountedRef.current = false;
+      removeStoredDraft(draftKey);
     };
-  }, []);
+  }, [draftKey]);
 
   useEffect(() => {
     const latestForm = createProjectForm(project);
@@ -480,6 +490,12 @@ function ProjectSettingsForm({
     baselineRef.current = latestForm;
 
     startTransition(() => {
+      if (isDiscardedRef.current) {
+        setForm(latestForm);
+        setBaseline(latestForm);
+        return;
+      }
+
       setForm((currentForm) =>
         mergeProjectForm(
           currentForm,
@@ -493,6 +509,10 @@ function ProjectSettingsForm({
   }, [project]);
 
   useEffect(() => {
+    if (isDiscardedRef.current) {
+      return;
+    }
+
     if (project.myRole !== 'Owner') {
       removeStoredDraft(draftKey);
       return;
@@ -565,6 +585,8 @@ function ProjectSettingsForm({
     field: K,
     value: ProjectForm[K],
   ) {
+    isDiscardedRef.current = false;
+
     setForm((current) => ({
       ...current,
       [field]: value,
@@ -720,6 +742,7 @@ function ProjectSettingsForm({
           // ไม่ให้ปัญหา sessionStorage ขัดขวางการทำงานของหน้า
         }
       } else {
+        isDiscardedRef.current = true;
         removeStoredDraft(requestDraftKey);
       }
 
@@ -858,7 +881,7 @@ function ProjectSettingsForm({
         <SettingsBannerHeader
           project={project}
           disabled={isSaving}
-          onNavigateBack={() => removeStoredDraft(draftKey)}
+          onNavigateBack={discardDraft}
         />
 
         {/* MAIN SETTINGS FORM CARD */}
@@ -1095,7 +1118,7 @@ function ProjectSettingsForm({
                     return;
                   }
 
-                  removeStoredDraft(draftKey);
+                  discardDraft();
                 }}
                 aria-disabled={isSaving}
                 tabIndex={isSaving ? -1 : undefined}
