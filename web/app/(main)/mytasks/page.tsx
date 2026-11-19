@@ -144,8 +144,21 @@ export default function MyTasksPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // อ่านค่าตัวกรองและขอบเขตข้อมูลจาก URL query parameters
+  const isProjectScope = searchParams.get('scope') === 'projects';
+  const statusFilter = parseStatusParam(searchParams.get('status'));
+  const priorityFilter = parsePriorityParam(searchParams.get('priority'));
+  const overdueOnly = searchParams.get('overdue') === 'true';
+  const excludeDone = searchParams.get('excludeDone') === 'true';
+
   const [search, setSearch] = useState('');
-  const [projectFilter, setProjectFilter] = useState<number | 'ALL'>('ALL');
+  const [projectFilterState, setProjectFilterState] = useState<{
+    scope: boolean;
+    value: number | 'ALL';
+  }>({
+    scope: isProjectScope,
+    value: 'ALL',
+  });
   const [sortBy, setSortBy] = useState<
     'DEFAULT' | 'DUE_DATE' | 'PRIORITY' | 'NAME' | 'PROJECT'
   >('DEFAULT');
@@ -158,13 +171,41 @@ export default function MyTasksPage() {
   const [actionError, setActionError] = useState('');
 
   const filterBarRef = useRef<HTMLDivElement | null>(null);
+  const projectTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const statusTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const priorityTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const sortTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const statusRowTriggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
-  // อ่านค่าตัวกรองและขอบเขตข้อมูลจาก URL query parameters
-  const isProjectScope = searchParams.get('scope') === 'projects';
-  const statusFilter = parseStatusParam(searchParams.get('status'));
-  const priorityFilter = parsePriorityParam(searchParams.get('priority'));
-  const overdueOnly = searchParams.get('overdue') === 'true';
-  const excludeDone = searchParams.get('excludeDone') === 'true';
+  // รีเซ็ต projectFilter อัตโนมัติเมื่อขอบเขตงานเปลี่ยน (เช่น สลับจาก Project Tasks กลับเป็น My Tasks)
+  const projectFilter =
+    projectFilterState.scope === isProjectScope
+      ? projectFilterState.value
+      : 'ALL';
+
+  const setProjectFilter = useCallback(
+    (value: number | 'ALL') => {
+      setProjectFilterState({ scope: isProjectScope, value });
+    },
+    [isProjectScope],
+  );
+
+  const closeDropdownAndRestoreFocus = useCallback(
+    (dropdown: 'project' | 'status' | 'priority' | 'sort' | null) => {
+      setOpenDropdown(null);
+      if (!dropdown) return;
+      const triggerMap = {
+        project: projectTriggerRef.current,
+        status: statusTriggerRef.current,
+        priority: priorityTriggerRef.current,
+        sort: sortTriggerRef.current,
+      };
+      requestAnimationFrame(() => {
+        triggerMap[dropdown]?.focus();
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     if (openDropdown === null) return;
@@ -180,7 +221,7 @@ export default function MyTasksPage() {
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setOpenDropdown(null);
+        closeDropdownAndRestoreFocus(openDropdown);
       }
     };
 
@@ -190,7 +231,7 @@ export default function MyTasksPage() {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [openDropdown]);
+  }, [openDropdown, closeDropdownAndRestoreFocus]);
 
   useEffect(() => {
     if (openStatusRowKey === null) return;
@@ -202,9 +243,21 @@ export default function MyTasksPage() {
       }
     };
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        const currentKey = openStatusRowKey;
+        setOpenStatusRowKey(null);
+        requestAnimationFrame(() => {
+          statusRowTriggerRefs.current[currentKey]?.focus();
+        });
+      }
+    };
+
     document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
     };
   }, [openStatusRowKey]);
 
@@ -219,7 +272,9 @@ export default function MyTasksPage() {
       const next = new URLSearchParams(searchParams.toString());
 
       if (updates.scope !== undefined) {
-        if (updates.scope === 'projects') {
+        const nextIsProjectScope = updates.scope === 'projects';
+        setProjectFilterState({ scope: nextIsProjectScope, value: 'ALL' });
+        if (nextIsProjectScope) {
           next.set('scope', 'projects');
         } else {
           next.delete('scope');
@@ -926,7 +981,7 @@ export default function MyTasksPage() {
         >
           <div className="flex flex-wrap items-center gap-2.5">
             {/* SEARCH INPUT */}
-            <div className="flex min-h-10 min-w-[210px] flex-1 items-center gap-2.5 rounded-xl border border-[#cfc9e8] focus-within:border-[#5B44BA] bg-[#f8f6fe] focus-within:bg-white px-3.5 py-2 transition-colors">
+            <div className="flex min-h-11 w-full sm:min-w-[210px] sm:flex-1 items-center gap-2.5 rounded-xl border border-[#cfc9e8] focus-within:border-[#5B44BA] bg-[#f8f6fe] focus-within:bg-white px-3.5 py-2 transition-colors">
               <svg
                 width="15"
                 height="15"
@@ -957,7 +1012,7 @@ export default function MyTasksPage() {
                   type="button"
                   onClick={() => setSearch('')}
                   aria-label="Clear task search"
-                  className="shrink-0 h-5 w-5 rounded-full hover:bg-[#ece8fa] inline-flex items-center justify-center text-[#777777] hover:text-[#5B44BA] cursor-pointer transition-colors"
+                  className="shrink-0 h-6 w-6 rounded-full hover:bg-[#ece8fa] inline-flex items-center justify-center text-[#777777] hover:text-[#5B44BA] cursor-pointer transition-colors"
                 >
                   <svg
                     width="12"
@@ -981,37 +1036,30 @@ export default function MyTasksPage() {
             {projectOptions.length > 0 && (
               <KeyboardPopup
                 open={openDropdown === 'project'}
-                onClose={() => setOpenDropdown(null)}
-                className="relative shrink-0"
+                onClose={() => closeDropdownAndRestoreFocus('project')}
+                className="relative w-full sm:w-auto sm:shrink-0"
               >
-                <select
-                  aria-label="Filter by project"
-                  value={projectFilter === 'ALL' ? 'ALL' : String(projectFilter)}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setProjectFilter(val === 'ALL' ? 'ALL' : Number(val));
-                    setOpenDropdown(null);
-                  }}
-                  className="sr-only pointer-events-none"
-                >
-                  <option value="ALL">All projects</option>
-                  {projectOptions.map((proj) => (
-                    <option key={proj.projectId} value={String(proj.projectId)}>
-                      {proj.projectName}
-                    </option>
-                  ))}
-                </select>
-
                 <button
+                  ref={projectTriggerRef}
                   type="button"
-                  tabIndex={-1}
-                  aria-hidden="true"
+                  aria-label="Filter tasks by project"
+                  aria-haspopup="listbox"
+                  aria-expanded={openDropdown === 'project'}
                   onClick={() =>
                     setOpenDropdown((prev) =>
                       prev === 'project' ? null : 'project',
                     )
                   }
-                  className={`min-h-10 min-w-[140px] max-w-[200px] inline-flex items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2 text-[13px] font-medium outline-none cursor-pointer transition-all ${
+                  onKeyDown={(e) => {
+                    if (
+                      (e.key === 'ArrowDown' || e.key === 'ArrowUp') &&
+                      openDropdown !== 'project'
+                    ) {
+                      e.preventDefault();
+                      setOpenDropdown('project');
+                    }
+                  }}
+                  className={`min-h-11 w-full sm:w-auto sm:min-w-[140px] sm:max-w-[230px] inline-flex items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2 text-[13px] font-medium outline-none cursor-pointer transition-all focus-visible:border-[#5B44BA] focus-visible:ring-2 focus-visible:ring-[#5B44BA]/25 ${
                     openDropdown === 'project'
                       ? 'border-[#5B44BA] bg-white text-[#5B44BA] ring-2 ring-[#5B44BA]/15'
                       : projectFilter !== 'ALL'
@@ -1019,7 +1067,9 @@ export default function MyTasksPage() {
                         : 'border-[#cfc9e8] bg-[#f8f6fe] hover:bg-white hover:border-[#9e8ce6] text-[#3d3a4b]'
                   }`}
                 >
-                  <span className="truncate">{currentProjectLabel}</span>
+                  <span className="min-w-0 flex-1 text-left whitespace-normal break-words [overflow-wrap:anywhere] leading-snug">
+                    {currentProjectLabel}
+                  </span>
                   <svg
                     width="14"
                     height="14"
@@ -1044,18 +1094,22 @@ export default function MyTasksPage() {
                   <div
                     role="listbox"
                     aria-label="Project options"
-                    className="absolute left-0 top-full mt-1.5 z-30 max-h-64 min-w-[200px] max-w-[260px] overflow-y-auto rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
+                    className="absolute left-0 right-0 sm:right-auto sm:left-0 top-full mt-1.5 z-30 max-h-64 w-full sm:w-auto sm:min-w-[210px] sm:max-w-[280px] overflow-y-auto rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
                   >
                     <button
                       type="button"
                       role="option"
                       tabIndex={-1}
                       aria-selected={projectFilter === 'ALL'}
-                      onClick={() => {
+                      onClick={(e) => {
                         setProjectFilter('ALL');
-                        setOpenDropdown(null);
+                        if (e.detail === 0) {
+                          closeDropdownAndRestoreFocus('project');
+                        } else {
+                          setOpenDropdown(null);
+                        }
                       }}
-                      className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer ${
+                      className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer focus:bg-[#f1edff] focus:text-[#5B44BA] focus:outline-none ${
                         projectFilter === 'ALL'
                           ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
                           : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
@@ -1088,17 +1142,23 @@ export default function MyTasksPage() {
                           role="option"
                           tabIndex={-1}
                           aria-selected={isSelected}
-                          onClick={() => {
+                          onClick={(e) => {
                             setProjectFilter(proj.projectId);
-                            setOpenDropdown(null);
+                            if (e.detail === 0) {
+                              closeDropdownAndRestoreFocus('project');
+                            } else {
+                              setOpenDropdown(null);
+                            }
                           }}
-                          className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer ${
+                          className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer focus:bg-[#f1edff] focus:text-[#5B44BA] focus:outline-none ${
                             isSelected
                               ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
                               : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
                           }`}
                         >
-                          <span className="truncate">{proj.projectName}</span>
+                          <span className="min-w-0 flex-1 whitespace-normal break-words [overflow-wrap:anywhere] leading-snug">
+                            {proj.projectName}
+                          </span>
                           {isSelected && (
                             <svg
                               width="14"
@@ -1126,39 +1186,30 @@ export default function MyTasksPage() {
             {/* STATUS DROPDOWN */}
             <KeyboardPopup
               open={openDropdown === 'status'}
-              onClose={() => setOpenDropdown(null)}
-              className="relative shrink-0"
+              onClose={() => closeDropdownAndRestoreFocus('status')}
+              className="relative w-full sm:w-auto sm:shrink-0"
             >
-              <select
-                aria-label="Filter by status"
-                value={statusFilter}
-                onChange={(e) => {
-                  const val = parseStatusParam(e.target.value);
-                  updateQueryParams({
-                    status: val,
-                    ...(val === 'Done' ? { excludeDone: false } : {}),
-                  });
-                  setOpenDropdown(null);
-                }}
-                className="sr-only pointer-events-none"
-              >
-                {STATUS_FILTER_OPTIONS.map((option) => (
-                  <option key={option.value || 'ALL'} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-
               <button
+                ref={statusTriggerRef}
                 type="button"
-                tabIndex={-1}
-                aria-hidden="true"
+                aria-label="Filter tasks by status"
+                aria-haspopup="listbox"
+                aria-expanded={openDropdown === 'status'}
                 onClick={() =>
                   setOpenDropdown((prev) =>
                     prev === 'status' ? null : 'status',
                   )
                 }
-                className={`min-h-10 min-w-[138px] inline-flex items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2 text-[13px] font-medium outline-none cursor-pointer transition-all ${
+                onKeyDown={(e) => {
+                  if (
+                    (e.key === 'ArrowDown' || e.key === 'ArrowUp') &&
+                    openDropdown !== 'status'
+                  ) {
+                    e.preventDefault();
+                    setOpenDropdown('status');
+                  }
+                }}
+                className={`min-h-11 w-full sm:w-auto sm:min-w-[138px] inline-flex items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2 text-[13px] font-medium outline-none cursor-pointer transition-all focus-visible:border-[#5B44BA] focus-visible:ring-2 focus-visible:ring-[#5B44BA]/25 ${
                   openDropdown === 'status'
                     ? 'border-[#5B44BA] bg-white text-[#5B44BA] ring-2 ring-[#5B44BA]/15'
                     : statusFilter !== ''
@@ -1191,7 +1242,7 @@ export default function MyTasksPage() {
                 <div
                   role="listbox"
                   aria-label="Task status options"
-                  className="absolute left-0 top-full mt-1.5 z-30 min-w-[168px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
+                  className="absolute left-0 right-0 sm:right-auto sm:left-0 top-full mt-1.5 z-30 w-full sm:w-auto sm:min-w-[168px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
                 >
                   {STATUS_FILTER_OPTIONS.map((option) => {
                     const isSelected = statusFilter === option.value;
@@ -1202,16 +1253,20 @@ export default function MyTasksPage() {
                         role="option"
                         tabIndex={-1}
                         aria-selected={isSelected}
-                        onClick={() => {
+                        onClick={(e) => {
                           updateQueryParams({
                             status: option.value,
                             ...(option.value === 'Done'
                               ? { excludeDone: false }
                               : {}),
                           });
-                          setOpenDropdown(null);
+                          if (e.detail === 0) {
+                            closeDropdownAndRestoreFocus('status');
+                          } else {
+                            setOpenDropdown(null);
+                          }
                         }}
-                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer ${
+                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer focus:bg-[#f1edff] focus:text-[#5B44BA] focus:outline-none ${
                           isSelected
                             ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
                             : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
@@ -1243,43 +1298,30 @@ export default function MyTasksPage() {
             {/* PRIORITY DROPDOWN */}
             <KeyboardPopup
               open={openDropdown === 'priority'}
-              onClose={() => setOpenDropdown(null)}
-              className="relative shrink-0"
+              onClose={() => closeDropdownAndRestoreFocus('priority')}
+              className="relative w-full sm:w-auto sm:shrink-0"
             >
-              <select
-                aria-label="Filter by priority"
-                value={priorityFilter === '' ? '' : String(priorityFilter)}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  updateQueryParams({
-                    priority:
-                      val === '1' ? 1 : val === '2' ? 2 : val === '3' ? 3 : '',
-                    excludeDone: false,
-                  });
-                  setOpenDropdown(null);
-                }}
-                className="sr-only pointer-events-none"
-              >
-                {PRIORITY_FILTER_OPTIONS.map((option) => (
-                  <option
-                    key={String(option.value || 'ALL')}
-                    value={String(option.value)}
-                  >
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-
               <button
+                ref={priorityTriggerRef}
                 type="button"
-                tabIndex={-1}
-                aria-hidden="true"
+                aria-label="Filter tasks by priority"
+                aria-haspopup="listbox"
+                aria-expanded={openDropdown === 'priority'}
                 onClick={() =>
                   setOpenDropdown((prev) =>
                     prev === 'priority' ? null : 'priority',
                   )
                 }
-                className={`min-h-10 min-w-[138px] inline-flex items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2 text-[13px] font-medium outline-none cursor-pointer transition-all ${
+                onKeyDown={(e) => {
+                  if (
+                    (e.key === 'ArrowDown' || e.key === 'ArrowUp') &&
+                    openDropdown !== 'priority'
+                  ) {
+                    e.preventDefault();
+                    setOpenDropdown('priority');
+                  }
+                }}
+                className={`min-h-11 w-full sm:w-auto sm:min-w-[138px] inline-flex items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2 text-[13px] font-medium outline-none cursor-pointer transition-all focus-visible:border-[#5B44BA] focus-visible:ring-2 focus-visible:ring-[#5B44BA]/25 ${
                   openDropdown === 'priority'
                     ? 'border-[#5B44BA] bg-white text-[#5B44BA] ring-2 ring-[#5B44BA]/15'
                     : priorityFilter !== ''
@@ -1312,7 +1354,7 @@ export default function MyTasksPage() {
                 <div
                   role="listbox"
                   aria-label="Task priority options"
-                  className="absolute left-0 top-full mt-1.5 z-30 min-w-[168px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
+                  className="absolute left-0 right-0 sm:right-auto sm:left-0 top-full mt-1.5 z-30 w-full sm:w-auto sm:min-w-[168px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
                 >
                   {PRIORITY_FILTER_OPTIONS.map((option) => {
                     const isSelected = priorityFilter === option.value;
@@ -1323,14 +1365,18 @@ export default function MyTasksPage() {
                         role="option"
                         tabIndex={-1}
                         aria-selected={isSelected}
-                        onClick={() => {
+                        onClick={(e) => {
                           updateQueryParams({
                             priority: option.value,
                             excludeDone: false,
                           });
-                          setOpenDropdown(null);
+                          if (e.detail === 0) {
+                            closeDropdownAndRestoreFocus('priority');
+                          } else {
+                            setOpenDropdown(null);
+                          }
                         }}
-                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer ${
+                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer focus:bg-[#f1edff] focus:text-[#5B44BA] focus:outline-none ${
                           isSelected
                             ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
                             : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
@@ -1362,42 +1408,30 @@ export default function MyTasksPage() {
             {/* SORT DROPDOWN */}
             <KeyboardPopup
               open={openDropdown === 'sort'}
-              onClose={() => setOpenDropdown(null)}
-              className="relative shrink-0"
+              onClose={() => closeDropdownAndRestoreFocus('sort')}
+              className="relative w-full sm:w-auto sm:shrink-0"
             >
-              <select
-                aria-label="Sort tasks"
-                value={sortBy}
-                onChange={(e) => {
-                  setSortBy(
-                    e.target.value as
-                      | 'DEFAULT'
-                      | 'DUE_DATE'
-                      | 'PRIORITY'
-                      | 'NAME'
-                      | 'PROJECT',
-                  );
-                  setOpenDropdown(null);
-                }}
-                className="sr-only pointer-events-none"
-              >
-                {SORT_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-
               <button
+                ref={sortTriggerRef}
                 type="button"
-                tabIndex={-1}
-                aria-hidden="true"
+                aria-label="Sort tasks"
+                aria-haspopup="listbox"
+                aria-expanded={openDropdown === 'sort'}
                 onClick={() =>
                   setOpenDropdown((prev) =>
                     prev === 'sort' ? null : 'sort',
                   )
                 }
-                className={`min-h-10 min-w-[125px] inline-flex items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2 text-[13px] font-medium outline-none cursor-pointer transition-all ${
+                onKeyDown={(e) => {
+                  if (
+                    (e.key === 'ArrowDown' || e.key === 'ArrowUp') &&
+                    openDropdown !== 'sort'
+                  ) {
+                    e.preventDefault();
+                    setOpenDropdown('sort');
+                  }
+                }}
+                className={`min-h-11 w-full sm:w-auto sm:min-w-[125px] inline-flex items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2 text-[13px] font-medium outline-none cursor-pointer transition-all focus-visible:border-[#5B44BA] focus-visible:ring-2 focus-visible:ring-[#5B44BA]/25 ${
                   openDropdown === 'sort'
                     ? 'border-[#5B44BA] bg-white text-[#5B44BA] ring-2 ring-[#5B44BA]/15'
                     : sortBy !== 'DEFAULT'
@@ -1430,7 +1464,7 @@ export default function MyTasksPage() {
                 <div
                   role="listbox"
                   aria-label="Sort task options"
-                  className="absolute right-0 top-full mt-1.5 z-30 min-w-[165px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
+                  className="absolute left-0 right-0 sm:left-auto sm:right-0 top-full mt-1.5 z-30 w-full sm:w-auto sm:min-w-[165px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
                 >
                   {SORT_OPTIONS.map((option) => {
                     const isSelected = sortBy === option.value;
@@ -1441,11 +1475,15 @@ export default function MyTasksPage() {
                         role="option"
                         tabIndex={-1}
                         aria-selected={isSelected}
-                        onClick={() => {
+                        onClick={(e) => {
                           setSortBy(option.value);
-                          setOpenDropdown(null);
+                          if (e.detail === 0) {
+                            closeDropdownAndRestoreFocus('sort');
+                          } else {
+                            setOpenDropdown(null);
+                          }
                         }}
-                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer ${
+                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer focus:bg-[#f1edff] focus:text-[#5B44BA] focus:outline-none ${
                           isSelected
                             ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
                             : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
@@ -1479,7 +1517,7 @@ export default function MyTasksPage() {
               type="button"
               onClick={clearFilters}
               disabled={!hasActiveFilters}
-              className="min-h-10 shrink-0 rounded-xl border border-[#cfc9e8] bg-white px-4 py-2 text-[13px] font-medium text-[#4a465c] transition-colors hover:border-[#9e8ce6] hover:bg-[#f6f3ff] hover:text-[#5B44BA] cursor-pointer disabled:cursor-not-allowed disabled:border-[#e4e0f2] disabled:bg-[#fafafa] disabled:text-[#b5b2c2]"
+              className="min-h-11 w-full sm:w-auto shrink-0 rounded-xl border border-[#cfc9e8] bg-white px-4 py-2 text-[13px] font-medium text-[#4a465c] transition-colors hover:border-[#9e8ce6] hover:bg-[#f6f3ff] hover:text-[#5B44BA] focus-visible:border-[#5B44BA] focus-visible:ring-2 focus-visible:ring-[#5B44BA]/25 focus-visible:outline-none cursor-pointer disabled:cursor-not-allowed disabled:border-[#e4e0f2] disabled:bg-[#fafafa] disabled:text-[#b5b2c2]"
             >
               Clear filters
             </button>
@@ -1494,8 +1532,12 @@ export default function MyTasksPage() {
             </span>
             <button
               type="button"
-              onClick={() => updateQueryParams({ scope: 'mine' })}
-              className="font-bold underline hover:text-[#231942] cursor-pointer"
+              onClick={() => {
+                setProjectFilter('ALL');
+                setOpenDropdown(null);
+                updateQueryParams({ scope: 'mine' });
+              }}
+              className="min-h-11 inline-flex items-center font-bold underline hover:text-[#231942] cursor-pointer"
             >
               Show my assigned tasks only
             </button>
@@ -1642,7 +1684,7 @@ export default function MyTasksPage() {
                     <button
                       type="button"
                       onClick={clearFilters}
-                      className="mt-4 inline-flex min-h-10 items-center rounded-xl border border-[#c7bbf5] bg-[#f1edff] hover:bg-[#5B44BA] px-4 py-2 text-[12.5px] font-semibold text-[#5B44BA] hover:text-white transition-colors cursor-pointer"
+                      className="mt-4 inline-flex min-h-11 items-center rounded-xl border border-[#c7bbf5] bg-[#f1edff] hover:bg-[#5B44BA] px-4 py-2 text-[12.5px] font-semibold text-[#5B44BA] hover:text-white transition-colors cursor-pointer"
                     >
                       Clear filters
                     </button>
@@ -1677,7 +1719,7 @@ export default function MyTasksPage() {
                       </div>
 
                       {/* PROJECT */}
-                      <div className="flex items-center gap-2 text-[12.5px] text-[#3d3a4b]">
+                      <div className="flex items-start gap-2 text-[12.5px] text-[#3d3a4b]">
                         <span className="shrink-0 font-semibold text-[#888888] xl:sr-only">
                           Project:
                         </span>
@@ -1700,7 +1742,7 @@ export default function MyTasksPage() {
 
                         <Link
                           href={`/projects/${row.projectId}`}
-                          className="min-w-0 truncate font-medium hover:text-[#5B44BA] hover:underline transition-colors"
+                          className="min-w-0 flex-1 whitespace-normal break-words [overflow-wrap:anywhere] leading-snug font-medium hover:text-[#5B44BA] hover:underline transition-colors"
                         >
                           {row.projectName}
                         </Link>
@@ -1789,40 +1831,39 @@ export default function MyTasksPage() {
                         {canEditTask(row) ? (
                           <KeyboardPopup
                             open={isStatusOpen}
-                            onClose={() => setOpenStatusRowKey(null)}
+                            onClose={() => {
+                              setOpenStatusRowKey(null);
+                              requestAnimationFrame(() =>
+                                statusRowTriggerRefs.current[rowKey]?.focus(),
+                              );
+                            }}
                             className="relative inline-block"
                           >
-                            <select
-                              aria-label={`Change status for ${row.taskTitle}`}
-                              value={row.status}
-                              disabled={updatingTaskId !== null}
-                              onChange={(e) => {
-                                const nextStatus = parseStatusParam(e.target.value);
-                                if (nextStatus) {
-                                  setOpenStatusRowKey(null);
-                                  void handleStatusChange(row, nextStatus);
-                                }
-                              }}
-                              className="sr-only pointer-events-none"
-                            >
-                              {STATUS_OPTIONS.map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
-
                             <button
+                              ref={(el) => {
+                                statusRowTriggerRefs.current[rowKey] = el;
+                              }}
                               type="button"
-                              tabIndex={-1}
-                              aria-hidden="true"
+                              aria-label={`Change status for ${row.taskTitle}`}
+                              aria-haspopup="listbox"
+                              aria-expanded={isStatusOpen}
                               disabled={updatingTaskId !== null}
                               onClick={() =>
                                 setOpenStatusRowKey((prev) =>
                                   prev === rowKey ? null : rowKey,
                                 )
                               }
-                              className={`inline-flex min-h-8 items-center justify-between gap-2 rounded-full border px-3 py-1 text-[11.5px] font-semibold whitespace-nowrap outline-none transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 ${getStatusButtonClass(
+                              onKeyDown={(e) => {
+                                if (
+                                  (e.key === 'ArrowDown' ||
+                                    e.key === 'ArrowUp') &&
+                                  !isStatusOpen
+                                ) {
+                                  e.preventDefault();
+                                  setOpenStatusRowKey(rowKey);
+                                }
+                              }}
+                              className={`inline-flex min-h-8 items-center justify-between gap-2 rounded-full border px-3 py-1 text-[11.5px] font-semibold whitespace-nowrap outline-none transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-[#5B44BA]/35 disabled:cursor-not-allowed disabled:opacity-60 ${getStatusButtonClass(
                                 row.status,
                                 isStatusOpen,
                               )}`}
@@ -1861,11 +1902,18 @@ export default function MyTasksPage() {
                                       role="option"
                                       tabIndex={-1}
                                       aria-selected={isSelected}
-                                      onClick={() => {
+                                      onClick={(e) => {
                                         setOpenStatusRowKey(null);
                                         void handleStatusChange(row, option);
+                                        if (e.detail === 0) {
+                                          requestAnimationFrame(() =>
+                                            statusRowTriggerRefs.current[
+                                              rowKey
+                                            ]?.focus(),
+                                          );
+                                        }
                                       }}
-                                      className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[12.5px] transition-colors cursor-pointer ${
+                                      className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[12.5px] transition-colors cursor-pointer focus:bg-[#f1edff] focus:text-[#5B44BA] focus:outline-none ${
                                         isSelected
                                           ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
                                           : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
