@@ -2,9 +2,9 @@
 
 Keep your team's projects, tasks, and conversations in one place. Create projects, assign work, track progress, and discuss tasks with your teammates.
 
-This guide takes you from a fresh clone to your first project on **Windows, macOS, or Linux**. You'll run PostgreSQL with Docker, start the API and web app in two terminals, and receive account emails in your real inbox through your SMTP provider.
+This guide takes you from a fresh clone to your first project on **Windows, macOS, or Linux**. You'll run PostgreSQL with Docker, start the API and web app in two terminals, and open account emails in a local Mailpit inbox.
 
-[Get started](#setup) · [Use MobG](#using-mobg) · [Stop and restart](#stopping-and-starting-again) · [Troubleshooting](#troubleshooting)
+[Get started](#setup) · [Use MobG](#using-mobg) · [Stop and restart](#stopping-and-starting-again) · [Troubleshooting](#troubleshooting) · [Development references](#development-references)
 
 ## Before you start
 
@@ -13,8 +13,6 @@ Install these tools:
 - **Git** to download the project.
 - **Node.js 24**, including npm. This matches the version used by the project's CI.
 - **Docker with Docker Compose v2**. On Windows and macOS, start Docker Desktop; on Windows, use Linux containers. On Linux, use Docker Engine with the Compose plugin, or Docker Desktop. Your user must be able to run `docker compose`.
-
-You'll also need **SMTP access from an email provider** and an email inbox you can open. The provider sends verification and password reset emails. Each person running their own copy supplies their own SMTP settings.
 
 Use **PowerShell on Windows** or **Terminal with bash/zsh on macOS and Linux**. All shared command blocks below work in these shells; the file-copy step has separate instructions. You don't need a separate PostgreSQL installation.
 
@@ -25,6 +23,7 @@ Make sure these local ports are available:
 | Web app | `3000` | The MobG interface |
 | API | `5000` | Login and application data |
 | PostgreSQL | `5433` | Your database |
+| Mailpit | `8025`, `1025` | Local inbox and SMTP capture |
 
 ## Setup
 
@@ -90,34 +89,18 @@ NEXT_PUBLIC_AUTH_URL=http://localhost:5000
 
 Keep the browser URLs as `localhost` throughout this local setup so login cookies and email links work together. Your `.env` and `.env.local` files are ignored by Git; keep your passwords and secret in those local files.
 
-### 3. Connect real email delivery
+### 3. Choose where account email goes
 
-In your email provider's SMTP settings, find the server hostname, port, username, and password or SMTP token. Verify the sender address or domain as required by the provider. If you use your own domain, add the SPF and DKIM records your provider supplies.
+For local testing, set `AUTH_MAIL_MODE=mailpit` in the root `.env` and start
+the inbox from the project root.
 
-Update these entries in the same root `.env` file:
-
-```dotenv
-AUTH_MAIL_MODE=smtp
-SMTP_HOST=smtp.your-provider.example
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_FROM="MobG <no-reply@your-domain.example>"
-SMTP_USER=your_smtp_username
-SMTP_PASSWORD=your_smtp_password_or_token
+```sh
+docker compose -p mobg-mail -f compose.mail.yml up -d
 ```
 
-**Replace every example value with your provider's actual settings.** The `.example` addresses above are placeholders and cannot deliver mail. Use an approved sender in `SMTP_FROM` and the SMTP credentials your provider issues. A provider may require an app password or SMTP token rather than your usual account password.
-
-| Your provider's connection type | `SMTP_PORT` | `SMTP_SECURE` |
-|---|---|---|
-| STARTTLS | `587` | `false` |
-| TLS from the start | `465` | `true` |
-
-Use the combination specified by your provider. Port `587` with `false` still upgrades to encrypted TLS; MobG requires that upgrade. Set both `SMTP_USER` and `SMTP_PASSWORD` for authenticated SMTP. If your provider explicitly offers a relay without authentication, leave both empty.
-
-If the provider restricts delivery to approved recipients while your account is in a sandbox, approve the inbox you plan to register with or enable normal delivery first. Restart the API whenever you change these settings.
-
-Account emails will go to the real address entered during registration or password reset. For this local setup, open their links **on the computer running MobG**: a `localhost` link opened on a phone points to the phone, not your computer.
+[Mailpit](http://localhost:8025) captures verification and reset messages locally.
+You can register with an address such as `you@example.test`. To deliver messages
+to a real inbox, use the [SMTP setup guide](docs/account-registration.md#real-email-delivery).
 
 ### 4. Install the app
 
@@ -179,18 +162,16 @@ You now have one terminal running the API and another running the web app. Docke
 
 If the web app starts on a different port because `3000` is busy, press `Ctrl+C`, free port `3000`, and start it again. The login and email settings above expect that port.
 
-### 8. Create your account and check email delivery
+### 8. Create and verify your account
 
 1. Open [Create an account](http://localhost:3000/register).
-2. Enter your name, **a real email address you can access**, and a password of 8–128 characters. Confirm your password and submit the form.
-3. Open your normal email inbox and look for **Verify your MobG email**. Check spam or junk if it hasn't arrived.
+2. Enter your name, an email address, and a password of 8–128 characters. For Mailpit, use a test address such as `you@example.test`. For SMTP, use an inbox you can access. Confirm your password and submit the form.
+3. Open [Mailpit](http://localhost:8025) or your SMTP inbox and look for **Verify your MobG email**.
 4. Open the verification link on the computer running MobG, then return to [Login](http://localhost:3000/login) and sign in.
 
 Once you reach the Dashboard, your account is ready. An empty workspace is normal: your account starts without projects. A fresh database has no ready-made login accounts; use the one you just created. You don't need to run a SQL seed or import demo data.
 
 Verification links expire after one hour. If a link expires, use the verification page to request another email. If no email arrives, check the troubleshooting table below; a successful submission alone does not confirm delivery.
-
-To check the full email flow, log out, choose **Forgot password**, and follow the reset email in the same inbox. Sign in with the new password when you're done.
 
 ## Using MobG
 
@@ -216,7 +197,7 @@ Deleting a task or project asks for confirmation. Cancel keeps it; confirming pe
 
 ### Reset your password
 
-Choose **Forgot password** on the Login page, enter your account's email, and open **Reset your MobG password** in your real inbox. Follow the link on the computer running MobG to choose a new password, then sign in again. The reset link expires after 30 minutes and can be used once. Resetting your password signs out existing sessions.
+Choose **Forgot password** on the Login page, enter your account's email, and open **Reset your MobG password** in the same inbox you used to verify your account. Follow the link on the computer running MobG to choose a new password, then sign in again. The reset link expires after 30 minutes and can be used once. Resetting your password signs out existing sessions.
 
 ## Stopping and starting again
 
@@ -228,6 +209,8 @@ Press `Ctrl+C` in each app terminal. Then, from the project root, stop the datab
 docker compose stop db
 ```
 
+If you started Mailpit, stop it with `docker compose -p mobg-mail -f compose.mail.yml stop`.
+
 Your database stays in Docker's saved volume. Avoid `docker compose down -v` if you want to keep your accounts and work: the `-v` option deletes that volume.
 
 ### Next time
@@ -238,6 +221,8 @@ Start Docker, then run these commands from the project root:
 docker compose up -d db
 docker compose exec -T db pg_isready -U postgres -d mobg_db
 ```
+
+If you use Mailpit, start it again with `docker compose -p mobg-mail -f compose.mail.yml up -d`.
 
 Wait for `accepting connections`, repeating the last command if needed. Then open two terminals at the project root:
 
@@ -267,10 +252,17 @@ After pulling updates, run `npm ci` in any app whose lockfile changed. If new mi
 | The API cannot connect to PostgreSQL | Check `docker compose ps`, port `5433`, and the database settings in root `.env`. An existing Docker volume keeps its original password; editing `.env` alone does not change it. |
 | A database table is missing | From `backend/`, run `npm run db:migrate -- --database mobg_db` and confirm it succeeds. |
 | An error mentions `BETTER_AUTH_SECRET` | Remove the example secret entry from root `.env`, run `npm run setup:auth-secret` in `backend/`, and restart the API. The helper does not replace an existing entry. |
-| Registration says account email is unavailable | Check `AUTH_MAIL_MODE=smtp`, the SMTP host, sender, port, and TLS settings. Set both SMTP credentials when required, then restart the API. |
-| A verification or reset email never arrives | Check spam, the email address you entered, and your provider's delivery logs. Confirm the sender is verified, credentials are valid, and recipient restrictions or sending limits aren't blocking delivery. Look for `[auth-mail] SMTP delivery failed` in the API terminal. After correcting settings and restarting the API, request a new email. |
+| Registration says account email is unavailable | Check `AUTH_MAIL_MODE` in the root `.env` and restart the API after changing it. If you use real email, check the [SMTP settings](docs/account-registration.md#real-email-delivery). |
+| A verification or reset email never arrives | For Mailpit, check [the local inbox](http://localhost:8025) and confirm the Mailpit container is running. For real email, check spam and your SMTP provider's delivery logs. Request a fresh email after resolving any delivery error. |
 | An email link won't open the app | Keep both app terminals running and open the link on the computer hosting MobG. Localhost links won't reach that computer from another device. |
 | A verification or reset link is invalid or expired | Request a fresh link from the verification or Forgot password page and use the newest email. A reset link cannot be reused. |
 | You cannot sign in after registering | Verify your email first, then use the password you chose. If you reset it, use the new password. |
 | The web app cannot load data, or shows a CORS error | Check the API health page. Use `http://localhost:3000` for the web app and `http://localhost:5000` for the API, matching both settings files. Restart the affected app after editing its settings. |
 | A teammate or task is missing | Check which account you're using, whether it belongs to the project, and whether a search or filter is active. My Tasks only lists your assignments. |
+
+## Development references
+
+- [Backend commands and tests](backend/README.md)
+- [API contract](backend/API-CONTRACT.md)
+- [Web checks](web/README.md)
+- [Database operations and demo data](database/README.md)

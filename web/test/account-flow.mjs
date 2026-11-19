@@ -69,6 +69,13 @@ try {
   // 1. Responsive layout tests
   // --------------------------------------------------
 
+  const authPages = [
+    { route: 'register', heading: 'Create your account', submit: 'Create account' },
+    { route: 'forgot-password', heading: 'Forgot your password?', submit: 'Send reset link' },
+    { route: 'verify-email', heading: 'Check your email', submit: 'Resend verification email' },
+    { route: 'reset-password', heading: 'Choose a new password' },
+  ];
+
   for (const [width, height] of [
     [320, 740],
     [390, 430],
@@ -77,21 +84,16 @@ try {
   ]) {
     await page.setViewportSize({ width, height });
 
-    for (const route of [
-      'register',
-      'forgot-password',
-      'verify-email',
-      'reset-password',
-    ]) {
+    for (const { route, heading, submit } of authPages) {
       await page.goto(`${base}/${route}`);
 
-      await page.locator('main h1').waitFor();
+      const main = page.getByRole('main');
+      await main.getByRole('heading', { name: heading, exact: true }).waitFor();
 
       await fits(page);
 
-      const action = page.locator('main button[type=submit]');
-
-      if (await action.count()) {
+      if (submit) {
+        const action = main.getByRole('button', { name: submit, exact: true });
         await action.scrollIntoViewIfNeeded();
 
         const box = await action.boundingBox();
@@ -227,16 +229,13 @@ try {
   // 5. Login Email Validation Tests
   // --------------------------------------------------
 
-  const emailInput = form.getByLabel('Email address');
-
-  const passwordInput = form.getByLabel('Password', {
-    exact: true,
-  });
-
   const loginButton = page.getByRole('button', {
     name: 'Log in',
     exact: true,
   });
+  const loginForm = page.locator('form').filter({ has: loginButton });
+  const emailInput = loginForm.getByLabel('Email address');
+  const passwordInput = loginForm.getByLabel('Password', { exact: true });
 
   const emailError = page.locator('#login-email-error');
   const liveRegion = page.locator('[aria-live="polite"]');
@@ -531,13 +530,13 @@ try {
 
   await page.waitForURL('**/forgot-password');
 
-  await form.getByLabel('Email address').fill(email);
-
-  await page
-    .getByRole('button', {
-      name: 'Send reset link',
-    })
-    .click();
+  const sendResetLink = page.getByRole('button', {
+    name: 'Send reset link',
+    exact: true,
+  });
+  const forgotForm = page.locator('form').filter({ has: sendResetLink });
+  await forgotForm.getByLabel('Email address').fill(email);
+  await sendResetLink.click();
 
   await page
     .locator('main')
@@ -599,18 +598,9 @@ try {
 
   await page.waitForURL('**/login');
 
-  await form.getByLabel('Email address').fill(email);
-
-  await form
-    .getByLabel('Password', { exact: true })
-    .fill(newPassword);
-
-  await page
-    .getByRole('button', {
-      name: 'Log in',
-      exact: true,
-    })
-    .click();
+  await emailInput.fill(email);
+  await passwordInput.fill(newPassword);
+  await loginButton.click();
 
   await page.waitForURL('**/dashboard');
 

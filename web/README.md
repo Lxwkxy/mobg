@@ -4,16 +4,38 @@ The Next.js frontend uses the Express API for accounts, projects, tasks,
 members, search, Dashboard, My Tasks and comments. See the
 [repository setup](../README.md#setup) to start the database and backend.
 
-From `web/`, copy `env.example` to `.env.local`, run `npm ci` and
-`npm run dev`, then open [localhost:3000](http://localhost:3000).
-Use the same hostname consistently for the frontend, API and Better Auth.
+From `web/`, run `npm run lint`, `npm run typecheck` and `npm run build`
+to check the frontend. Development and production builds use Webpack.
+Geist fonts ship with the local package.
 
-`npm run lint`, `npm run typecheck` and `npm run build` run the web checks.
-Development and production builds use Webpack. Geist fonts ship with the local
-package and the build can run without reaching Google Fonts.
+## Browser checks
 
-The [W5 frontend verification](../docs/w5-frontend-verification.md) has the
-Playwright commands, screenshots output location and demo steps.
+From the repository root, install the browser test dependencies with `npm ci`.
+The local suites use Google Chrome. Set up `web/.env.local` as described
+in the [repository setup](../README.md#2-create-your-local-settings-files).
+Install the web dependencies with `npm ci` from `web/`.
+
+Build and start the production web server in one terminal from the repository root.
+
+```sh
+npm --prefix web run build
+npm --prefix web run start -- --hostname 127.0.0.1 --port 3100
+```
+
+Run the browser checks from the repository root in another terminal.
+
+```powershell
+$env:RESPONSIVE_BASE_URL = 'http://127.0.0.1:3100'
+$env:COMMENTS_WEB_URL = 'http://127.0.0.1:3100'
+$env:RESPONSIVE_OUTPUT = 'web/.next/responsive'
+node --test web/test/rPai03.mjs web/test/responsive.mjs web/test/task-comments.mjs
+```
+
+These checks use API fixtures and write responsive screenshots to
+`web/.next/responsive/`. The backend guide covers the
+[real API comment check](../backend/README.md#tests).
+
+## Keyboard controls
 
 Use Tab and Shift+Tab to move between controls, and Enter or Space to activate
 them. The first Tab on a workspace page reveals **Skip to main content**.

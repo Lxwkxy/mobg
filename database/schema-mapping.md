@@ -4,9 +4,6 @@ This document maps database columns to the application's UI data requirements.
 
 ## Users and Login Data
 
-Updated by Pai for Better Auth on 2026-10-11. The bcrypt/account-lookup
-agreement of 2026-10-10 is superseded for new authentication.
-
 | Data | Column | Type | Allows NULL | Notes |
 |---|---|---|---|---|
 | MobG user ID | users.user_id | BIGINT | No | Existing numeric identity and domain foreign keys retained |
@@ -22,7 +19,7 @@ Password hashes belong to auth_accounts.password; Better Auth handles hashing.
 
 The link is nullable so existing project/member/task/comment data remains valid.
 Public signup is enabled with verification and automatic creation of a new profile
-under migration 007. W2 seed provisioning still uses Better Auth and explicitly
+under migration 007. Seed provisioning uses Better Auth and explicitly
 attaches the returned ID to the intended domain row. Do not cast
 an auth ID to a number, automatically link by email, or duplicate the demo user.
 Resolve normalized-email collisions before provisioning. Existing password
@@ -30,15 +27,15 @@ placeholders and custom sessions are not automatically migrated.
 The FK uses ON DELETE RESTRICT to prevent deleting an auth account linked to a
 domain user without an explicit reconciliation step.
 
-### Domain Profile Lookup Contract (W2)
+### Domain Profile Lookup Contract
 
 findDomainUserByAuthId(authUserId: string) returns
 { user_id: string, user_name: string, email: string, auth_user_id: string }
 or null. Input must come from a validated Better Auth session.
 Propagate database errors; null means no linked domain row.
-Book rejects unlinked sessions with 403 and validates the MobG BIGINT before
+The API rejects unlinked sessions with 403 and validates the MobG BIGINT before
 conversion. The business user profile remains { userId: number, userName, email }.
-Types and W2 implementation: backend/src/services/authDb.ts.
+See `backend/src/services/authDb.ts` for the implementation.
 
 ## Projects
 
@@ -83,7 +80,7 @@ Types and W2 implementation: backend/src/services/authDb.ts.
 Primary key: (project_id, user_id).
 Each user can appear only once within the same project.
 
-### Confirmed Creator Membership Rule
+### Creator Membership Rule
 
 - When creating a project, set projects.created_by from the user identity verified by the backend's Login mechanism.
 - Insert a project_members row for the creator with role Owner.
@@ -93,17 +90,14 @@ Each user can appear only once within the same project.
 - Return creation success only after all required inserts commit.
 - projects.created_by records who created the project; project_members.role describes the user's project membership role.
 - The existing foreign keys do not automatically create the creator's membership row. The project-creation function must do this explicitly.
-- The demo seed inserts the creator as Owner. W2 createProjectWithMembers implements the general rule in backend/src/services/projectDb.ts.
-- These initial membership rules and the Owner/Member role values are accepted by Pai. The complete permission matrix and member-removal policy in PR #5 require separate team confirmation; they are not approved by this account/schema agreement.
+- The demo seed inserts the creator as Owner. `createProjectWithMembers` in `backend/src/services/projectDb.ts` implements the same rule.
 
-### Confirmed Membership Lookup Contract
-
-Status: accepted by Pai from Book's PR #5 on 2026-10-10; implemented in W2.
+### Membership Lookup Contract
 
 Function name: findProjectMembership
 
 Input:
-- project_id: number, positive safe integer validated by Book
+- project_id: number, positive safe integer validated by the API
 - user_id: number, positive safe integer from verified Login state
 
 Return when membership exists:
@@ -118,9 +112,8 @@ Database failures:
 - Propagate the error to the backend; do not return null.
 
 Responsibilities:
-- Pai reads project_members using both IDs.
-- For authorization checks, Book supplies the current user ID from verified Login state, not a client-supplied identity claim.
-- Book applies the agreed permission rules using the returned role.
+- For authorization checks, the API supplies the current user ID from the validated session.
+- The API applies project permissions using the returned role.
 - Returning a membership proves membership only; it does not itself authorize every operation.
 - A null result means no matching membership; it does not distinguish a nonexistent project from a nonmember without another lookup.
 
@@ -132,7 +125,7 @@ Owner/Member values. Unknown roles must not be granted permissions.
 
 - Keep BIGINT database values as decimal strings inside DB results; do not
   change pg's global BIGINT parser or silently round a large ID.
-- Book maps DB snake_case results to public camelCase fields and converts IDs
+- The API maps DB snake_case results to public camelCase fields and converts IDs
   to numbers only after validating `Number.isSafeInteger(id)` and `id > 0`.
 - Incoming numeric IDs must satisfy the same positive-safe-integer rule.
   URL string IDs must be validated in full before conversion; partial parsing
@@ -151,14 +144,12 @@ Columns: token (unique), expires_at, ip_address, user_agent, created_at and upda
 The token is Better Auth's value; do not impose the old token_hash/SHA-256 contract.
 Indexes cover user_id and expires_at. The configured session lifetime is seven days.
 
-Better Auth validates sessions. Book obtains session.user.id using getSession and
+Better Auth validates sessions. The API obtains session.user.id using getSession and
 resolves users.auth_user_id before checking project membership.
-Pai does not implement custom createSession/findSessionUser/deleteSession functions.
 The session table proves identity only, not project permissions.
 
 Migration 004 and legacy sessions remain unchanged as history. They are not read
 by Better Auth. Existing custom sessions are not converted into active auth sessions.
-W2 implements refresh/logout/expiry flows and provisioning; W1 only prepares schema.
 
 ## Task Assignees
 
@@ -185,7 +176,7 @@ A task can have multiple assignees.
 When a task is deleted, its comments are deleted automatically
 because comments.task_id uses ON DELETE CASCADE.
 
-## Confirmed Project Date Requirements
+## Project Date Requirements
 
 - Every project must have a start date.
 - New projects default to the current date in Asia/Bangkok; users can choose another date.
@@ -194,7 +185,7 @@ because comments.task_id uses ON DELETE CASCADE.
 - Project end dates remain optional. When provided, the end date must be strictly later than the start date; the same date is rejected.
 - Migration 003 backfills existing demo records using their creation date in Asia/Bangkok. This is a migration policy for demo data, not evidence of the actual historical start date.
 
-## Confirmed Task Requirements
+## Task Requirements
 
 | Requirement | Rule |
 |---|---|
@@ -206,7 +197,7 @@ because comments.task_id uses ON DELETE CASCADE.
 These requirements apply when creating and updating tasks.
 The last assignee cannot be removed without assigning a replacement.
 
-## Confirmed Task Status Mapping
+## Task Status Mapping
 
 | Meaning | Database status_name | UI label |
 |---|---|---|
@@ -218,11 +209,9 @@ The last assignee cannot be removed without assigning a replacement.
 - New tasks start in the To Do status. The backend must supply its actual status_id when inserting a task; the schema does not currently define a default for tasks.status_id.
 - Retrieve status IDs from task_statuses; do not assume fixed numeric IDs.
 - Display Doing as In progress in the UI.
-- Replace Not started with To do in the create-task form's initial-status text.
-- Not started is not a separate fourth status.
-- This section records the agreed display mapping and initial-state rule; frontend and API implementation remain pending.
+- The create-task form shows To do as the initial status.
 
-## Confirmed Assignee UI Behavior
+## Assignee UI Behavior
 
 - Create/Edit Task forms support selecting multiple project members with checkboxes in a dropdown.
 - Selected users are shown as removable name chips.
@@ -231,16 +220,8 @@ The last assignee cannot be removed without assigning a replacement.
 - Use a consistent ordering when choosing the first two users.
 - Assignee count is based on distinct users assigned to that task.
 - Every task must retain at least one assignee, and every selected user must be a project member.
-- This is a confirmed UI requirement; frontend/API implementation remains pending.
 
-## Activity removed
-
-The team removed Activity from the product scope on 2026-11-19. Project Overview
-and Task Details do not show an activity feed, and activity API routes are removed.
-Task creation metadata and task comments remain in their existing tables; no
-schema migration or data deletion is required. The earlier basic-feed scope is superseded.
-
-## Confirmed Project Progress
+## Project Progress
 
 For each project:
 
@@ -251,14 +232,12 @@ For each project:
 - Examples: 4/10 tasks = 40 percent; 8/12 tasks = 67 percent.
 - Multiple assignees do not increase a task's contribution to either count.
 - Compute progress from tasks and statuses; do not persist a separate progress column.
-- The formula is confirmed; query/API/frontend integration remains pending.
 
-W4 defines Dashboard as all tasks in current Owner/Member projects, regardless of
+Dashboard includes all tasks in current Owner/Member projects, regardless of
 assignment. High priority means priority 1 and not Done; overdue means before the
 current Asia/Bangkok date and not Done. My Tasks additionally requires assignment.
-See [the W4 handoff](../docs/w4-pai-handoff.md) for the accepted scope and signatures.
 
-## Confirmed Derived Project Status
+## Derived Project Status
 
 Derive project status from all tasks belonging to the project.
 Apply the following rules in order:
@@ -275,31 +254,15 @@ Apply the following rules in order:
 - Count each distinct task once, regardless of the number of assignees.
 - Recalculate from task data when reading projects; the frontend must refresh relevant project data after task status changes.
 - Filter/response contracts are recorded in backend/API-CONTRACT.md section 11.1.
-- W2 DB functions calculate these fields and filter before paging. API/frontend integration remains pending.
 
-## Implementation Status
+## Task and membership invariants
 
-- Migration 002 enforces NOT NULL on tasks.due_date.
-- Migration 003 adds projects.start_date, its default and NOT NULL constraint, and the project end-date constraint.
-- Migration 004 defines the legacy sessions table; it is retained as history and unused by Better Auth.
-- Migration 005 supplies Better Auth tables and the nullable unique domain link. Better Auth owns runtime authentication/session operations.
-- W2 implements profile/membership lookup, project CRUD/list/counts and user/member lists. See ../docs/w2-pai-handoff.md and ../docs/w2-pai-verification.md for evidence and pending API/browser flows.
-- The composite primary key prevents duplicate task-user assignments.
-- W4 public task/member writers enforce minimum assignees and current membership
-  under a shared project lock. These are service invariants, not schema constraints;
-  arbitrary SQL can still violate them. The W5 auditor detects such violations.
-- W3 implements task list/detail/create/update/delete in `backend/src/services/taskDb.ts`
-  against migrations 001–005; no new migration is required. Task/assignee/comment
-  cascade, rollback, Bangkok overdue and project summaries are tested directly.
-  W4 adds transaction rechecks for minimum assignees/membership, including Done tasks;
-  Backend validation and actor authorization are still required.
-  The task HTTP routes are implemented in `backend/src/routes/tasks.ts` and covered by
-  automated HTTP tests ([W3 API verification](../docs/w3-verification.md)); browser CRUD
-  has not been checked yet. See [W3 handoff](../docs/w3-pai-handoff.md) and
-  [DB verification](../docs/w3-pai-verification.md); these supersede older pending
-  DB implementation notes above without claiming UI completion.
+The composite primary key prevents duplicate task-user assignments. Task and
+membership services enforce assignment and current membership rules under a
+shared project lock. Run `npm run db:verify -- --database NAME` to audit these
+relationships after direct SQL changes.
 
-## W5 provisioning metadata and observed schema
+## Demo fixture metadata and schema
 
 Migration 006 adds `demo_seed_runs(seed_key TEXT PRIMARY KEY, reference_date DATE
 NOT NULL, fixture JSONB NOT NULL)`. Its one `mobg-w5-v1` record stores selected domain
@@ -316,7 +279,7 @@ Business “DB functions” remain TypeScript functions in `services/`:
 | Module | Operations |
 |---|---|
 | `authDb.ts` | `findDomainUserByAuthId` |
-| `projectDb.ts` | Membership/profile lists, project CRUD/list/progress; add/remove member with W4 reasons |
+| `projectDb.ts` | Membership/profile lists, project CRUD/list/progress; add/remove member |
 | `taskDb.ts` | Task list/detail/CRUD, My Tasks and important-task list |
 | `dashboardDb.ts` | `getDashboardSummary` |
 | `dbHelpers.ts` | Safe numeric ID conversion, transactions and shared project locking |
@@ -327,10 +290,6 @@ domain creators; project members join projects to users; task assignees join tas
 to users; tasks reference statuses. Project deletion cascades tasks/members and then
 task comments/assignees. Creator/status references restrict deletion. Legacy sessions
 are retained and unused. `auth_verifications` is keyed independently.
-
-Observed versions and checks (including restore equality) are in the
-[W5 report](../docs/w5-db-verification.md); older pending notes above are historical,
-not evidence that W4 DB implementation is absent.
 
 ## Example Joined Task Record
 
@@ -368,20 +327,3 @@ JOIN users AS u
     ON t.created_by = u.user_id
 ORDER BY t.task_id;
 ```
-
-## UI Review Notes
-
-Source: the MobG.pdf wireframe reviewed during Week 1.
-
-Reviewed screens: Dashboard, Projects, Create Project, Project Settings,
-Project Overview, Task List, Create Task, Edit Task, Task Details, and My Tasks.
-
-| Item | Finding | Status / next action |
-|---|---|---|
-| Project start date | The UI has a user-selectable Start date; it is separate from the record creation timestamp. | Resolved by the confirmed project date rules and migration 003. |
-| Project end date | End date in the forms corresponds to projects.due_date. | Optional; must be strictly later than start_date when provided. |
-| Task status labels | The UI displays To do, In progress, and Done; the DB retains To Do, Doing, and Done. | Confirmed: new tasks start in To Do; replace the create-form label Not started with To do. Frontend/API implementation remains pending. |
-| Multiple assignees | Task lists show two assignees and +N; Task Details shows all assignees. | Confirmed: multi-select dropdown with removable name chips in Create/Edit forms. Frontend/API implementation remains pending. |
-| Activity history | Removed from product scope on 2026-11-19. | No feed, API, or additional table; task metadata and comments remain. |
-| Progress and counts | Project progress is rounded Done-task count divided by distinct total-task count, multiplied by 100; zero tasks gives 0 percent. | W2 project summary retained. W4 Dashboard counts all tasks in current member projects; High = priority 1 excluding Done. User delegated scope choice and confirmed priority/list rules on 2026-11-08; Book/Bar integration pending. |
-| Project status filter | Project status is derived from the statuses of its tasks. | DB calculation and filter before pagination implemented in W2. API/frontend integration pending. |

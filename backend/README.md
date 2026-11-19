@@ -1,121 +1,46 @@
 # MobG Backend
 
-Express 5 + TypeScript (ESM), a shared PostgreSQL pool and Better Auth 1.7.7.
-Implemented and database-backed: `GET /api/me`, `GET /api/users`, `GET /api/search`,
-project CRUD, project members (list/add/remove), project tasks (CRUD), `GET /api/tasks/mine`
-and `GET /api/dashboard`. Task details support listing and posting comments.
-The pre-existing endpoints passed the W5 audit on Pai's seed (`npm run test:api-audit`, see
-[W5 backend report](../docs/w5-backend-report.md)). The web app calls the project, task,
-member, search, dashboard, My Tasks, comment and `/api/me` endpoints.
-Frontend Login uses Better Auth. Public signup, email verification and password reset
-are described in [account setup](../docs/account-registration.md).
+The Express API uses TypeScript, PostgreSQL, and Better Auth. Follow the
+[repository setup](../README.md#setup) to run it locally. For seeded Owner,
+Member and Outsider accounts, follow the [isolated demo setup](../database/README.md#prepare-a-persistent-isolated-demonstration-database).
 
-## Quick start (one flow)
+## Commands
 
-A teammate can follow this to get a running API with three accounts and demo data.
-Use PowerShell. Start in the repository root (the folder with `compose.yml`).
-Variable names come from [`.env.example`](../.env.example).
-
-1. Create `.env` only if it does not exist yet. An existing `.env` keeps its real values;
-   do not overwrite it (an existing Docker volume keeps its original DB password):
-
-   ```powershell
-   if (!(Test-Path .env)) { Copy-Item .env.example .env }
-   ```
-
-   If you just created it, edit `.env` privately: set `POSTGRES_PASSWORD` and delete the
-   `BETTER_AUTH_SECRET=change_me...` placeholder line. Keep `POSTGRES_HOST=127.0.0.1`,
-   `POSTGRES_PORT=5433`, `PORT=5000`, `CORS_ORIGIN=http://localhost:3000`,
-   `BETTER_AUTH_URL=http://localhost:5000`. If `.env` already existed, only check that
-   these keys are present and that `BETTER_AUTH_SECRET` is not the placeholder.
-2. Start PostgreSQL (repository root): `docker compose up -d`.
-3. Install and create the auth secret (it keeps an existing real secret):
-
-   ```powershell
-   cd backend
-   npm ci
-   npm run setup:auth-secret
-   cd ..
-   ```
-
-4. **Back in the repository root**, make a demo database with Pai's seed (accounts Owner /
-   Member / Outsider): follow
-   [database/README.md → isolated demonstration database](../database/README.md#prepare-a-persistent-isolated-demonstration-database)
-   in this same terminal. It starts at the root and ends inside `backend/` with
-   `$env:POSTGRES_DB` set; `set-seed-env.ps1` asks for the three passwords without showing them.
-5. In that same terminal (still in `backend/`, `$env:POSTGRES_DB` still set), start the API:
-   `npm run dev`. Check `http://localhost:5000/api/health` → `{"status":"OK",...}`.
-6. **Open a second PowerShell terminal in the repository root** for the web app (the first
-   one keeps running the API):
-
-   ```powershell
-   cd web
-   if (!(Test-Path .env.local)) { Copy-Item env.example .env.local }
-   npm ci
-   npm run dev
-   ```
-
-   Open `http://localhost:3000/login`, sign in as the seeded Owner
-   (`demo-member@example.test` with the default SQL seed), open
-   **MobG W5 Main Demo** (progress 20%), change "Future Medium" to Done (40%), then Log out.
-   The same flow by API with curl is in [API contract → section 1](API-CONTRACT.md#1-login--logout--current-user).
-7. Optional automatic check of every endpoint, from `backend/` in any terminal:
-   `npm run test:api-audit` (prints `N/N checks PASS`; it uses its own temporary database).
-
-Close the first terminal (or `Remove-Item Env:POSTGRES_DB`) before normal development on `mobg_db`.
-
-## Local setup
-
-Use Node.js 22 or newer (the implementation environment uses Node.js 24).
-Copy the repository root `.env.example` to `.env` and set your database credentials.
-For an existing `.env`, add `BETTER_AUTH_URL` and `BETTER_AUTH_SECRET`, and set
-`CORS_ORIGIN=http://localhost:3000` for Next.js.
-
-From the repository root, install backend dependencies first. If you just copied
-`.env.example`, open `.env` privately and remove only the `BETTER_AUTH_SECRET` line
-whose value is the example placeholder. Keep any existing real secret unchanged.
-Then generate the missing secret without displaying it:
-
-```powershell
-cd backend
-npm ci
-npm run setup:auth-secret
-```
-
-Keep the secret private. Never put it in a `NEXT_PUBLIC_` variable.
-`BETTER_AUTH_URL=http://localhost:5000` is the API origin, without `/api/auth`.
-`CORS_ORIGIN` must be the exact frontend origin; use localhost consistently for both apps.
-
-Start PostgreSQL and follow [database setup](../database/README.md), through migration 007.
-Set up SMTP for real registration and password reset emails. Start Mailpit for the
-registration HTTP tests. See [account email setup](../docs/account-registration.md#real-email-delivery).
-The backend does not apply migrations automatically.
-
-From `backend/`:
-
-```powershell
-npm ci
-npm run dev
-```
-
-Commands:
+Run from `backend/`.
 
 | Command | Purpose |
 |---|---|
-| `npm run dev` | Run TypeScript with tsx and restart on source edits (no type checking) |
-| `npm run typecheck` | TypeScript diagnostics without emitting files |
-| `npm run build` | Compile src into dist |
-| `npm start` | Run compiled dist/server.js; build first |
-| `npm run check-db` | Read the demo project using src/check-db.ts; requires the DB |
-| `npm run db:status -- --database NAME` | Inspect the exact target's migration structure |
-| `npm run db:verify -- --database NAME` | Read-only relationship audit and independent W4 summary oracle |
-| `npm run seed:demo -- --database NAME --w5` | Provision/verify accounts and seed W5 in a separate `mobg_w5_demo_*` DB |
-| `npm run db:backup -- --database SOURCE --restore-database NEW_NAME` | Private backup plus verified restore to a new `mobg_w5_restore_*` DB |
-| `npm run test:demo-rehearsal` | Disposable W5 setup, native auth, seed rerun and Docker backup/restore |
-| `npm run test:api-audit [-- --out FILE]` | W5 API audit: fresh `mobg_w5_demo_audit_*` DB with Pai's seed, real server, 170 HTTP checks; removes its DB |
+| `npm run dev` | Start the API and restart on source edits |
+| `npm run typecheck` | Check source types |
+| `npm run typecheck:tests` | Check test types |
+| `npm run build` then `npm start` | Compile and run the API from `dist/` |
+| `npm run check-db` | Check the database connection and list projects |
+| `npm run test:db` | Run the database and HTTP suites |
+| `npm run test:api-audit` | Exercise the API against a disposable seeded database |
+| `npm run test:demo-rehearsal` | Rehearse demo setup, authentication, and backup/restore with Docker |
 
-Run `npm run typecheck` before committing; `npm run dev` does not report type errors.
-`GET /api/health` is a server health endpoint, not a database or Login check.
+`GET /api/health` checks whether the server is running. Use `npm run check-db`
+to check its database connection.
+
+## Tests
+
+Start PostgreSQL with the root `.env` configured. The test runner creates a
+temporary database and removes it after the run. To run one suite, pass its
+filename, for example `npm run test:db -- taskRoutes.test.ts`. Start Mailpit
+before running the [registration checks](../docs/account-registration.md#checks).
+
+To save an API audit report, run `npm run test:api-audit -- --out FILE` and
+choose a local output path. The audit creates and removes its own database.
+
+For the optional real browser-to-database comment check, install the root
+Playwright dependency with `npm ci` and have Google Chrome installed. Start the [web test server](../web/README.md#browser-checks)
+and run the task route suite with its URL.
+
+```powershell
+# From backend/, with the web server already running
+$env:COMMENTS_WEB_URL = 'http://127.0.0.1:3100'
+npm run test:db -- taskRoutes.test.ts
+```
 
 ## Source layout
 
@@ -129,7 +54,7 @@ Run `npm run typecheck` before committing; `npm run dev` does not report type er
 | `src/errors.ts`, `src/pgErrors.ts` | `ApiError` and PostgreSQL error helpers |
 | `src/mappers/` | DB rows to public DTOs (BIGINT strings to numbers, dates, roles) |
 | `src/routes/` | `me.ts`, `users.ts`, `projects.ts`, `members.ts`, `tasks.ts`, `myTasks.ts`, `dashboard.ts`, `search.ts` |
-| `src/services/` | Pai's database functions (`authDb.ts`, `projectDb.ts`, `taskDb.ts`, `dashboardDb.ts`, `searchDb.ts`, `dbHelpers.ts`) |
+| `src/services/` | Database services (`authDb.ts`, `projectDb.ts`, `taskDb.ts`, `dashboardDb.ts`, `searchDb.ts`, `dbHelpers.ts`) |
 | `src/provisioning/`, `src/seed-accounts.ts` | Account provisioning (not part of the serving app) |
 
 ## Authentication and permissions
@@ -156,7 +81,7 @@ Nested routers that read `:projectId` from a parent path (for example tasks unde
 project-scoped (for example `/api/tasks/mine`) use only `requireAuth`.
 
 Create test accounts with the
-[account provisioning procedure](../docs/w2-account-provisioning.md). The SQL demo
+[account provisioning procedure](../database/README.md#provision-or-recover-a-single-account). The SQL demo
 seed is domain data only and cannot log in.
 
 ## Shared pool
@@ -169,35 +94,11 @@ The server closes this pool on shutdown; standalone scripts close it themselves.
 ## Troubleshooting
 
 - Missing/placeholder auth secret: generate a secret and add it to root .env.
-- Missing auth tables: apply migration 005 after 001-004, then restart the backend.
+- Missing auth tables: run `npm run db:migrate -- --database NAME` against your configured database, then restart the API.
 - Browser CORS: match CORS_ORIGIN, Better Auth trusted origin and Next.js URL.
 - Connection errors: check Docker, root .env and PostgreSQL port (default 5433).
 - 401 from every protected route while testing with curl: the cookie file path may be
   wrong (curl silently ignores a missing `-b` file), or the sign-in request lacked
   `-H "Origin: http://localhost:3000"`.
 - 403 from `/api/me`: the signed-in auth user is not linked to a `users` row.
-- Login unavailable: W1 mock users and the SQL demo hash are not Better Auth accounts.
-
-## Further reading
-
-[API contract](API-CONTRACT.md), [schema mapping](../database/schema-mapping.md),
-[W1 scope](../docs/better-auth-w1.md), [W2 verification](../docs/w2-verification.md),
-[frontend handoff](../docs/w2-frontend-handoff.md).
-
-W3 task DB reads/CRUD are in `src/services/taskDb.ts`, and the task HTTP routes are in
-`src/routes/tasks.ts` (mounted at `/api/projects/:projectId/tasks`, mapper in
-`src/mappers/task.ts`). The API is covered by automated HTTP tests; browser CRUD has not
-been checked yet. See [W3 Pai handoff](../docs/w3-pai-handoff.md) for DB signatures and the
-joint checklist, [W3 DB verification](../docs/w3-pai-verification.md) and
-[W3 API verification](../docs/w3-verification.md) for actual test results.
-
-From `backend`, run `npm run test:db -- taskDb.test.ts` for the task DB tests,
-`npm run test:db -- taskRoutes.test.ts` for the task HTTP tests (they start `src/server.ts`
-on a random port against the isolated database), or `npm run test:db` for the full suite. Both create and verify a uniquely named
-`mobg_w2_test_<pid>_<random>` database before fixtures run, and remove only that
-database afterward. The W2 prefix is retained for compatibility with existing tests.
-
-W5 seed and backup prerequisites, exact target checks, private password entry,
-retention/recovery and cleanup are in the [database guide](../database/README.md).
-Actual results and remaining Book/Bar/manual dependencies are in the
-[W5 verification record](../docs/w5-db-verification.md).
+- Login unavailable for SQL-seeded users: provision credentials using the [database guide](../database/README.md#prepare-a-persistent-isolated-demonstration-database).
