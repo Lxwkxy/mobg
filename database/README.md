@@ -1,76 +1,30 @@
 # MobG Database / Docker guide
 
-Use this guide with [account provisioning](../docs/w2-account-provisioning.md),
-[schema mapping](schema-mapping.md) and the [W5 verification record](../docs/w5-db-verification.md).
-Historical results remain in `docs/w1-verification.md` through `docs/w4-pai-verification.md`.
+Follow the [repository setup](../README.md#setup) to configure the root `.env`,
+start PostgreSQL and migrate the development database. See the
+[schema mapping](schema-mapping.md) for tables and data rules.
 
-## Prerequisites and configuration
+The commands below use PowerShell. Run Compose from the repository root unless
+the example explicitly changes directories. Isolated tests and restore require a
+PostgreSQL role that can create databases. The backup check also reads
+`pg_control_system()` to verify the cluster identity.
 
-- Docker Desktop running Linux containers; Docker Compose v2 or newer.
-- Node.js 22+ and npm; verified versions are recorded in the W5 report.
-- PowerShell commands below start in the repository root. PostgreSQL runs in Docker;
-  Express/Next.js run on the host. No separate host PostgreSQL installation is needed.
-- Use a PostgreSQL role allowed to create databases for isolated tests and restore.
-  The backup check also reads `pg_control_system()` to verify the cluster identity.
+## Inspect and migrate an existing database
 
-```powershell
-if (!(Test-Path .env)) { Copy-Item .env.example .env }
-# Edit .env privately; retain existing credentials for an existing volume.
-# For a freshly copied example, remove ONLY the BETTER_AUTH_SECRET placeholder
-# line in your editor before the helper below. Keep an existing real secret.
-cd backend
-npm ci
-npm run setup:auth-secret
-cd ..
-```
-
-The secret helper creates a missing secret without displaying it; it does not
-replace an existing key. If it reports an existing example placeholder, remove only
-that placeholder line privately in your editor and rerun the helper. Never print `.env`, run
-`docker compose config` into shared logs, or paste passwords into commands/chat.
-
-| Root `.env` variable | Purpose / local example |
-|---|---|
-| `POSTGRES_DB` | Normal development database, `mobg_db` |
-| `POSTGRES_USER` | DB role, normally `postgres` |
-| `POSTGRES_PASSWORD` | Private DB password; initial volume credentials remain authoritative |
-| `POSTGRES_HOST` | Host connection, `127.0.0.1` |
-| `POSTGRES_PORT` | Published host port, `5433`; container port is `5432` |
-| `PORT` | Express port, `5000` |
-| `CORS_ORIGIN` | Exact browser origin, `http://localhost:3000` |
-| `BETTER_AUTH_URL` | Express origin, `http://localhost:5000`, without `/api/auth` |
-| `BETTER_AUTH_SECRET` | Private random value of at least 32 characters; never `NEXT_PUBLIC_*` |
-
-The Node loader reads root `.env`; process environment overrides it. This is how
-tests select a separate DB without editing `.env`. Close the test terminal or remove
-its `POSTGRES_DB` override before normal development. Changing `.env` does not reset
-the password or database inside an existing volume.
-
-## Start, connect and migrate
+From `backend/`, with PostgreSQL running, replace `mobg_db` with the exact
+configured database name.
 
 ```powershell
-docker compose up -d
-docker compose ps
-docker compose exec -T db pg_isready -U postgres -d mobg_db
-cd backend
 npm run db:status -- --database mobg_db
-```
-
-Replace the role/database examples with the actual configured names. `db:status`
-is a structural inspection, not a historical migration ledger. On a new or explicitly
-selected database, apply only missing migrations; a partial schema stops for repair:
-
-```powershell
 npm run db:migrate -- --database mobg_db
-npm run check-db
 npm run db:verify -- --database mobg_db
-npm run dev
 ```
 
-Review the target and status first. For the W5 rehearsal, use the isolated
-database steps below. `check-db` reads projects through the same Node `pg` pool as
-Express. Use it to confirm the host-to-container connection. A newly migrated,
-empty database returns no projects.
+Inspect the reported target and migration state before applying changes.
+Migration status is derived from the database structure. A partial schema
+requires repair before the tool applies more migrations. A process-level
+`POSTGRES_DB` overrides the root `.env`. Clear it or use a fresh terminal to
+return to your development database.
 
 | Migration | Result |
 |---|---|
@@ -82,11 +36,9 @@ empty database returns no projects.
 | 006 | `demo_seed_runs`: W5 fixture IDs, reference date and non-secret business snapshot |
 | 007 | Public registration kind and transactional MobG profile creation trigger |
 
-006 adds provisioning metadata only. It does not change W4 business rules, auth
-credentials or API/UI features. In the combined account branch, account provisioning
-requires 001–005 and 007; W5 seeding requires all seven. Never delete the metadata
-to force reseeding changed data. Public signup/reset also need the local mail inbox:
-see [account setup](../docs/account-registration.md).
+Single-account provisioning requires migrations 001–005 and 007.
+Demo seeding requires all seven. Keep the demo metadata so seed reruns can
+check the saved fixture against current data.
 
 If an earlier checkout already applied the registration SQL under the old 006 filename,
 use `db:status` / `db:migrate`: structural detection recognizes it as 007 and does not
@@ -100,8 +52,10 @@ check intentionally refuses a different server: use that server's `pg_dump` and
 ## Prepare a persistent, isolated demonstration database
 
 Use a **new** `mobg_w5_demo_*` name. `createdb` fails if it already exists; do not
-drop/recreate an existing target. Start Compose before setting the override.
+drop/recreate an existing target. Start PostgreSQL with Compose before setting the override.
 Keep the selected database for the demonstration; it is separate from `mobg_db`.
+If you configured a different PostgreSQL user, replace `postgres` in the commands
+with that user.
 
 ```powershell
 # Repository root, same PowerShell terminal throughout
@@ -143,7 +97,7 @@ Existing account passwords are not changed by rerunning seed.
 
 W5 seed also retains the W2 Shared/Private projects and adds Main Demo, Completed,
 Empty and DELETE Sandbox. It prints actual project/task IDs; do not assume IDs from
-another database. See the W5 report for the task matrix and demo sequence.
+another database.
 
 On rerun, the recorded W2 and W5 IDs and business fixtures must still match before
 any legacy project seed or account creation can run. Changed
@@ -151,7 +105,7 @@ task fields, memberships, comments, deleted tasks/projects or a changed explicit
 reference date cause a nonzero exit and preserve edits. W5 fixture creation is one
 transaction; account provisioning/W2 fixtures are separate existing operations.
 Do not treat the whole CLI as one transaction after a provisioning failure: use the
-existing private reconciliation procedure. The W5 seed uses a maintenance table lock;
+[private reconciliation procedure](#provision-or-recover-a-single-account). The W5 seed uses a maintenance table lock;
 stop API/other writers during seeding.
 
 The initial reference date is retained. The unfinished task due two days earlier
@@ -165,16 +119,58 @@ raw-task calculations to Dashboard, My Tasks, High-priority and project function
 Run on an idle DB; service calls use separate queries, so concurrent edits can cause
 a mismatch. Unlinked legacy users are reported separately, not silently provisioned.
 
-To compare the browser with this demo database, follow the
-[Backend Quick start](../backend/README.md#quick-start-one-flow) from the step that
-starts the API. Open **MobG W5 Main Demo** as Member, change **Future Medium** from
-**To do** to **Done**, and reopen the project to check that progress goes from 20%
-to 40%. Rerun `db:verify` against the same demo database after saving. Use a fresh
-demo database for each run from the original 20% state.
+### Try the demo in the browser
+
+Start the API with `npm run dev` in the same terminal so it uses the demo database.
+In a separate terminal, start the web app using the [repository setup](../README.md#7-start-the-web-app).
+Sign in at `/login` using the seeded accounts and the passwords entered during
+provisioning. With the default seed, the Owner email is `demo-member@example.test`.
+
+1. As Owner, open **MobG W5 Main Demo**. Set **Future Medium** to **Done** and
+   check that project progress increases from 20% to 40%. Add a comment and
+   reopen the task to check that it persists.
+2. As Member, compare the status control on an assigned task with the read-only
+   status of a task assigned only to the Owner. The Outsider sees an empty
+   project list.
+3. As Owner, use **MobG W5 DELETE Sandbox** to try cancelling and confirming
+   task deletion. Keep Main Demo for the other checks.
+
+Use a fresh demo database to repeat the flow from its initial state. Before
+returning to normal development, stop the demo API and close its terminal or
+clear the overrides in PowerShell.
 
 ```powershell
-Remove-Item Env:SEED_OWNER_PASSWORD,Env:SEED_MEMBER_PASSWORD,Env:SEED_OUTSIDER_PASSWORD -ErrorAction SilentlyContinue
+Remove-Item Env:POSTGRES_DB,Env:SEED_DOMAIN_USER_ID,Env:SEED_OWNER_PASSWORD,Env:SEED_MEMBER_PASSWORD,Env:SEED_OUTSIDER_PASSWORD -ErrorAction SilentlyContinue
 ```
+
+## Provision or recover a single account
+
+Use this when an existing SQL-seeded profile needs Better Auth credentials or
+when a test account needs a new profile. From `backend/`, use a dedicated
+terminal and set the inputs privately in that terminal:
+
+- Existing profile uses `SEED_DOMAIN_USER_ID`.
+- New profile uses `SEED_NAME` and `SEED_EMAIL`. Keep `SEED_DOMAIN_USER_ID` unset.
+- Both modes use `SEED_PASSWORD` for initial provisioning. Clear it or close the
+  terminal after the command finishes.
+
+```powershell
+npm run seed:accounts -- --database YOUR_EXACT_DATABASE_NAME
+```
+
+A credential/link failure can leave a reconciliation file in the ignored
+`.seed-reconciliation/` directory. Keep the file and inspect it privately.
+Fix the cause of the domain write failure and confirm the same database, target
+and `verified_creation: true` before retrying with the original target inputs.
+
+```powershell
+npm run seed:accounts -- --database YOUR_EXACT_DATABASE_NAME --recover
+```
+
+Recovery validates the account ID, email, credential and domain link. It uses
+the saved credential and removes the record after success. An unverified
+record or mismatched account requires manual reconciliation. Preserve the
+account and the record while investigating.
 
 ## Backup and verified restore
 
@@ -235,45 +231,17 @@ npm run db:verify -- --database $recoveredDb
 Keep this recovered database for inspection; this procedure does not delete it. For
 Login checks, use the original account passwords via hidden input, and run `check:demo`.
 The automated rehearsal verifies byte-equivalent logical content; the manual recovery
-path verifies integrity but cannot compare with an unavailable source. The manual
-operator procedure has not been tried by a teammate.
+path verifies the recovered database's integrity.
 
-## Repeatable verification
+## Database checks
 
-From `backend/`:
-
-```powershell
-npm run typecheck
-npm run typecheck:tests
-npm run build
-npm run test:db
-npm run test:demo-rehearsal
-```
-
-`test:db` creates `mobg_w2_test_<pid>_<random>` and runs DB tests plus the existing
-task HTTP suite. The prefix is historical. `test:demo-rehearsal` needs Docker and
-creates `mobg_w5_demo_<pid>_<random>` with disposable in-memory passwords, runs W5
-CLI twice, native Login/Logout, the independent oracle and backup/restore. Both
-remove only databases created by that invocation; the rehearsal retains its private
-backup. This does not prove browser integration or teammate setup.
-
-## Stop/start without deleting data
-
-From the repository root in a terminal without the test `POSTGRES_DB` override:
-
-```powershell
-docker compose stop db
-docker compose start db
-docker compose ps
-```
-
-`docker compose down` removes containers/network but keeps the named `mobg_pgdata`
-volume; `docker compose up -d` reuses it. No migration/seed is needed on each restart.
+See the [backend test commands](../backend/README.md#tests) for disposable
+database checks and the API audit.
 
 ## Destructive operations — outside normal setup
 
-- `docker compose down -v` deletes the volume and its database data. It is **not**
-  part of setup, testing, backup or recovery, and was not run for W5.
+- `docker compose down -v` deletes the volume and its database data. Use
+  `docker compose stop db` to keep your data between sessions.
 - Never reset/drop `mobg_db` or restore over an existing development/shared database.
 - To remove an intentionally retained test database later, first inspect its exact
   name and ownership; delete only that test resource. Automated scripts already

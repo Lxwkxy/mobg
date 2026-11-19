@@ -159,7 +159,7 @@ try {
     check("me", "member", "GET /api/me", "numeric MobG id of session", await api("member", "GET", "/api/me"), 200, undefined,
       (b) => b.user.userId === R.member_id);
 
-    // ---- Dashboard on the untouched fixture (expected = Pai's table in docs/w5-db-verification.md)
+    // ---- Dashboard counts for the untouched seed fixture
     // Order: projects/tasks/todo/inProgress/done/overdue/highPriority.
     const summary = (expected: number[]) => (b: any) => {
       const s = b.summary;
