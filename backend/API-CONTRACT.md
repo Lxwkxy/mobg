@@ -7,8 +7,7 @@ The previous bcrypt/custom-session agreement from Book's PR #5 is superseded for
 authentication. This update records Pai's requested implementation direction; it
 does not claim renewed confirmation from Bar and Book. Existing confirmed business
 rules in sections 5-11 are retained. Dashboard scope and priority rules were resolved for W4 on 2026-11-08 (see section 10.9).
-As of W2-Book-01/02: /api/me, /api/users, project CRUD and the project member list are database-backed behind session guards. As of W3-Book-01/02: the project task endpoints (section 10.6, except `GET /api/tasks/mine`) are implemented behind the same guards and covered by automated HTTP tests; they have not been checked from the web UI yet. As of W4-Book: `GET /api/tasks/mine`, member add/remove and `GET /api/dashboard` are implemented over Pai's W4 DB functions and covered by automated HTTP tests; they have not been checked from the web UI yet. Task comments (section 10.7) are now implemented and verified through the web UI, HTTP API and an isolated PostgreSQL database; see [comments verification](../docs/comments-verification.md). Activity remains contract-only. See docs/w2-verification.md, docs/w3-verification.md, docs/w4-pai-verification.md and docs/w4-verification.md.
-As of W5-Book-01 (2026-11-16): every W1–W4 endpoint was audited against Pai's W5 seed with `npm run test:api-audit` (170/170 checks: success, invalid input, unknown ID, empty result, no permission, logout, expired session) and this document was checked against the code. Projects/tasks/members/search/`/api/me` were also walked from the web UI; Dashboard and My Tasks pages still use mock data. Results: docs/w5-backend-report.md and docs/w5-api-audit-results.md.
+Project and task CRUD, member management, Dashboard, My Tasks, search, comments and activity use PostgreSQL. The web app uses these routes for its live data. See the [frontend verification](../docs/w5-frontend-verification.md), [comment verification](../docs/comments-verification.md) and [original W5 backend audit](../docs/w5-backend-report.md).
 
 ## 0. Running the Backend
 
@@ -51,8 +50,9 @@ Better Auth checks `Origin` on POST, so send the web origin:
 $OutputEncoding = [System.Text.UTF8Encoding]::new($false)   # pipe UTF-8 (5.1 defaults to ASCII)
 $o = 'http://localhost:3000'; $api = 'http://localhost:5000'
 
-$secure = Read-Host 'Password for mobg-member@example.test' -AsSecureString
-@{ email = 'mobg-member@example.test'; password = [System.Net.NetworkCredential]::new('', $secure).Password } |
+$ownerEmail = 'demo-member@example.test' # Use the seeded Owner's email if different.
+$secure = Read-Host "Password for $ownerEmail" -AsSecureString
+@{ email = $ownerEmail; password = [System.Net.NetworkCredential]::new('', $secure).Password } |
   ConvertTo-Json -Compress |
   curl.exe -s -c cookies.txt -H "Origin: $o" -H 'Content-Type: application/json' --data-binary '@-' "$api/api/auth/sign-in/email"
 Remove-Variable secure
@@ -196,7 +196,8 @@ unknown project from a nonmember; both are denied by the business guard.
 |---|:---:|:---:|:---:|---|
 | Create Project | ✅ (Assigned Owner role) | - | - | [Confirmed] |
 | Read Project / Tasks / Member List | ❌ | ✅ | ✅ | [Confirmed by team] |
-| Create / Edit Task (including status and assignees) | ❌ | ✅ | ✅ | [Confirmed by team] |
+| Create Task | ❌ | ✅ | ✅ | [Confirmed by team] |
+| Edit Task (including status and assignees) | ❌ | ✅ Only when assigned to the task | ✅ | See §10.6 |
 | Delete Task | ❌ | ❌ | ✅ | [Confirmed by team] |
 | Edit / Delete Project | ❌ | ❌ | ✅ | [Confirmed by team] |
 | Add / Remove Members | ❌ | ❌ | ✅ | [Confirmed by team] |
@@ -242,6 +243,7 @@ API sends and receives priority as numeric values (`1 | 2 | 3`). The frontend ha
 
 Every business route validates URL IDs, query and body with the zod schemas in `src/validation.ts`
 through `parseRequest`. Bad values return 400 VALIDATION_ERROR with `details[{ field, message }]`.
+Project names and descriptions, task titles and descriptions, and comments reject NUL characters.
 Unknown query/body fields and repeated query keys are rejected (strict objects), so a client cannot
 add `userId`, `createdBy`, `role` or `status` on create to act as someone else. Strings are trimmed
 for names/titles; passwords are never touched. Pagination defaults to page 1/pageSize 10 and caps
@@ -408,7 +410,7 @@ For validation errors the top-level message may be generic ("Request validation 
 
 ## 10. Endpoint Contracts (business rules confirmed previously; auth revised by Pai)
 
-Status: implemented in W2: 10.3 users, 10.4 projects, GET 10.5 member list, and GET /api/me. Implemented in W3: the project task endpoints of 10.6. Implemented in W4: `GET /api/tasks/mine`, POST/DELETE in 10.5, and 10.9 Dashboard (definitions resolved for this W4 task). Comment HTTP endpoints are now implemented; activity HTTP endpoints remain contracts.
+The business routes below are implemented, including comments and activity.
 
 **Conventions**
 - Base path `/api`. Requests and responses are JSON.
@@ -440,8 +442,8 @@ Status: implemented in W2: 10.3 users, 10.4 projects, GET 10.5 member list, and 
 | GET | `/api/tasks/mine` | Logged in | My Tasks (assigned to me) | `listTasksForAssignee` |
 | GET | `/api/projects/:projectId/tasks/:taskId/comments` | Owner, Member | Comments of a task | `findProjectMembership`, `getTaskById`, `listCommentsByTask` |
 | POST | `/api/projects/:projectId/tasks/:taskId/comments` | Owner, Member | Add a comment | `findProjectMembership`, `getTaskById`, `createComment` |
-| GET | `/api/projects/:projectId/activity` | Owner, Member | Project activity feed | `findProjectMembership`, `listActivityByProject` |
-| GET | `/api/projects/:projectId/tasks/:taskId/activity` | Owner, Member | Task activity feed | `findProjectMembership`, `getTaskById`, `listActivityByTask` |
+| GET | `/api/projects/:projectId/activity` | Owner, Member | Project activity feed | `findProjectMembership`, `listActivity` |
+| GET | `/api/projects/:projectId/tasks/:taskId/activity` | Owner, Member | Task activity feed | `findProjectMembership`, `getTaskById`, `listActivity` |
 | GET | `/api/dashboard` | Logged in | Dashboard counts and high-priority tasks | `getDashboardSummary`, `listHighPriorityTasks` |
 
 ### 10.2 Auth
@@ -482,7 +484,8 @@ Project object:
   "derivedStatus": "In progress",
   "progressPercent": 40,
   "totalTasks": 10,
-  "completedTasks": 4
+  "completedTasks": 4,
+  "highPriorityTaskCount": 3
 }
 ```
 
@@ -490,6 +493,7 @@ Project object:
 - `status` optional: `To do | In progress | Done`. Applied before pagination.
 - `page` default `1`; `pageSize` default `10`, maximum `50`. Invalid values → `400 VALIDATION_ERROR`.
 - Order: newest first (`createdAt` descending, then `projectId` descending).
+- `highPriorityTaskCount` includes all priority-1 tasks in the project, including completed tasks.
 
 ```json
 // 200
@@ -678,7 +682,8 @@ Activity object:
 
 - `activityType` is `task_created` or `comment_added`. `commentId` and `commentText` are `null` for `task_created`. `activityId` is `<activityType>:<source row id>` and is unique, for use as a list key.
 - `GET /api/projects/:projectId/activity?limit=20` combines entries of all tasks in the project. `GET .../tasks/:taskId/activity?limit=20` returns that task's creation entry and comments.
-- `limit` default `20`, maximum `100`. Order: newest first by `occurredAt`, then `activityType`, then source row id descending.
+- `limit` is an integer from `1` to `100` and defaults to `20`. Order: newest first by `occurredAt`, then `activityType` ascending, then source row id descending.
+- Empty projects return `200` with an empty list. Missing projects, inaccessible projects and tasks outside the requested project return `404`.
 - Response: `{ "success": true, "activities": [ ... ] }`
 
 ### 10.9 Dashboard
@@ -795,8 +800,7 @@ Member add/remove implementations live in `projectDb.ts`; rejection task lists a
 |---|---|---|
 | `listCommentsByTask(task_id)` | task id | `[{ comment_id, comment_text, comment_created_at, user_id, user_name }]` oldest first |
 | `createComment({ project_id, task_id, user_id, comment_text })` | `user_id` from the session; project/task scope and membership rechecked under the project lock | the created comment row (same shape), or `null` if access/task was lost |
-| `listActivityByProject(project_id, limit)` | ids and limit | `[activity]` |
-| `listActivityByTask(task_id, limit)` | ids and limit | `[activity]` |
+| `listActivity(projectId, limit, taskId?)` | Project ID, limit and optional task ID | `[activity]` |
 | `getDashboardSummary(user_id)` | session user | `{ project_count, task_count, todo_count, in_progress_count, done_count, overdue_count, high_priority_count }` over the user's projects, each task counted once |
 
 `activity` row: `{ activity_type, occurred_at, actor_id, actor_name, task_id, task_title, comment_id, comment_text }`. `activity_type` is `task_created` (source `tasks`, actor `created_by`, time `task_create_date`) or `comment_added` (source `comments`). `comment_id` and `comment_text` are `null` for `task_created`. Order: `occurred_at` descending, then `activity_type`, then the source row id descending.
@@ -813,6 +817,6 @@ Member add/remove implementations live in `projectDb.ts`; rejection task lists a
    | `GET /api/search` | Implemented; W5 audit PASS; used by the web Topbar |
    | `GET /api/projects`, `POST /api/projects`, `GET/PATCH/DELETE /api/projects/:projectId`, `GET /api/projects/:projectId/members` | Implemented, database-backed, Owner/Member guards; W5 audit PASS; list/detail walked from the web UI |
    | Project task endpoints in section 10.6 (`GET` list/detail, `POST`, `PATCH`, `DELETE` under `/api/projects/:projectId/tasks`) | Implemented, database-backed, Owner/Member guards; automated HTTP tests (docs/w3-verification.md) and W5 audit PASS; list/detail/edit walked from the web UI |
-   | `GET /api/tasks/mine`, `POST/DELETE /api/projects/:projectId/members`, `GET /api/dashboard` | Implemented (W4), database-backed, session guards; automated HTTP tests (docs/w4-verification.md) and W5 audit PASS. Dashboard numbers equal Pai's DB table. Web Dashboard/My Tasks pages still use mock data |
+   | `GET /api/tasks/mine`, `POST/DELETE /api/projects/:projectId/members`, `GET /api/dashboard` | Implemented, database-backed, covered by automated HTTP tests and used by the web app |
    | `GET/POST /api/projects/:projectId/tasks/:taskId/comments` | Implemented and database-backed; Owner/Member guards; verified with HTTP tests, browser tests and a real browser-to-PostgreSQL flow. See [comments verification](../docs/comments-verification.md) |
-   | Activity endpoints in section 10.8 | Contract defined; no endpoint implementation yet |
+   | Activity endpoints in section 10.8 | Implemented, database-backed and used by Project Overview and Task Details |

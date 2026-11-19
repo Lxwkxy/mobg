@@ -32,6 +32,7 @@ export function mapProject(row: ProjectRow, myRole?: string): Project {
     progressPercent: row.progress_percent,
     totalTasks: countToNumber(row.total_tasks),
     completedTasks: countToNumber(row.completed_tasks),
+    highPriorityTaskCount: countToNumber(row.high_priority_task_count),
   };
 }
 

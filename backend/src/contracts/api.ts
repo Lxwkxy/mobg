@@ -23,6 +23,7 @@ export interface Project {
   progressPercent: number;
   totalTasks: number;
   completedTasks: number;
+  highPriorityTaskCount: number; // All priority-1 tasks, including Done.
 }
 export interface Task {
   taskId: number;

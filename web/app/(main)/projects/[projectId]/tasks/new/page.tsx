@@ -1,5 +1,7 @@
 'use client';
 
+import KeyboardPopup from '@/components/ui/KeyboardPopup';
+
 import {
   useCallback,
   useEffect,
@@ -1466,7 +1468,7 @@ function CreateTaskForm({
                   Priority <span className="text-rose-500">*</span>
                 </label>
 
-                <div ref={priorityDropdownRef} className="relative">
+                <KeyboardPopup open={visiblePriorityOpen} onClose={() => setIsPriorityOpen(false)} ref={priorityDropdownRef} className="relative">
                   <button
                     id="priority"
                     type="button"
@@ -1524,6 +1526,7 @@ function CreateTaskForm({
                             key={option.value}
                             type="button"
                             role="option"
+                            tabIndex={-1}
                             aria-selected={isSelected}
                             onClick={() => {
                               setPriority(option.value);
@@ -1567,7 +1570,7 @@ function CreateTaskForm({
                       })}
                     </div>
                   )}
-                </div>
+                </KeyboardPopup>
 
                 {errors.priority && (
                   <p className="mt-1.5 text-[12px] font-medium text-red-600">

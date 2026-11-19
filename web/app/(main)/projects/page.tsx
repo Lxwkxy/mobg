@@ -1,11 +1,12 @@
 'use client';
 
+import KeyboardPopup from '@/components/ui/KeyboardPopup';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 import { projectApi } from '@/lib/projectApi';
-import { taskApi } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import ProtectedState from '@/components/ProtectedState';
 import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
@@ -13,10 +14,6 @@ import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
 import type { ProjectItem } from '@/types';
 
 type ProjectStatusFilter = ProjectItem['derivedStatus'] | 'ALL';
-
-type ProjectCardItem = ProjectItem & {
-  highPriorityTasks: number;
-};
 
 const ITEMS_PER_PAGE = 10;
 
@@ -71,10 +68,10 @@ const formatDate = (date: string) => {
   return `${Number(day)} ${monthLabel} ${year}`;
 };
 
-// ดึงโปรเจกต์ทั้งหมดของผู้ใช้ พร้อมนับจำนวนงาน High priority (priority === 1) ในแต่ละโปรเจกต์
+// Search and sort cover all projects, including projects outside the visible page.
 async function loadAllProjects(
   status: ProjectStatusFilter,
-): Promise<ProjectCardItem[]> {
+): Promise<ProjectItem[]> {
   const allProjects: ProjectItem[] = [];
   let page = 1;
   const pageSize = 50;
@@ -88,37 +85,14 @@ async function loadAllProjects(
 
     allProjects.push(...result.projects);
 
-    if (result.projects.length < pageSize) {
+    if (page >= result.pagination.totalPages) {
       break;
     }
 
     page += 1;
   }
 
-  if (allProjects.length === 0) {
-    return [];
-  }
-
-  return Promise.all(
-    allProjects.map(async (project) => {
-      if (project.totalTasks === 0) {
-        return {
-          ...project,
-          highPriorityTasks: 0,
-        };
-      }
-
-      const tasks = await taskApi.getTasks(project.projectId);
-      const highPriorityTasks = tasks.filter(
-        (task) => task.priority === 1,
-      ).length;
-
-      return {
-        ...project,
-        highPriorityTasks,
-      };
-    }),
-  );
+  return allProjects;
 }
 
 // พื้นหลังลายแพตเทิร์นชุดเดียวกับหน้า Dashboard (GPU-cached Data URI)
@@ -136,7 +110,7 @@ export default function ProjectsPage() {
   // State สำหรับเมนู ••• และหน้าต่างยืนยันการลบโปรเจกต์
   const [openMenuProjectId, setOpenMenuProjectId] = useState<number | null>(null);
   const [projectToDelete, setProjectToDelete] =
-    useState<ProjectCardItem | null>(null);
+    useState<ProjectItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
 
@@ -226,8 +200,8 @@ export default function ProjectsPage() {
     retry,
   } = useProtectedLoad(load, {
     revalidateOnFocus: true,
+    verifyBeforeLoad: false, // The Topbar already verifies session on navigation to Projects.
     hideDataWhileRefreshing: false,
-    revalidateOnRoute: '/projects',
   });
 
   const allProjects = useMemo(() => data ?? [], [data]);
@@ -850,7 +824,7 @@ export default function ProjectsPage() {
             </div>
 
             {/* CUSTOM STATUS DROPDOWN */}
-            <div ref={statusDropdownRef} className="relative min-w-0">
+            <KeyboardPopup open={openFilterDropdown === 'status'} onClose={() => setOpenFilterDropdown(null)} ref={statusDropdownRef} className="relative min-w-0">
               <button
                 type="button"
                 aria-label="Project status"
@@ -903,6 +877,7 @@ export default function ProjectsPage() {
                         key={option.value}
                         type="button"
                         role="option"
+                        tabIndex={-1}
                         aria-selected={isSelected}
                         onClick={() => {
                           setStatusFilter(option.value);
@@ -936,10 +911,10 @@ export default function ProjectsPage() {
                   })}
                 </div>
               )}
-            </div>
+            </KeyboardPopup>
 
             {/* CUSTOM SORT BY DROPDOWN */}
-            <div ref={sortDropdownRef} className="relative min-w-0">
+            <KeyboardPopup open={openFilterDropdown === 'sort'} onClose={() => setOpenFilterDropdown(null)} ref={sortDropdownRef} className="relative min-w-0">
               <button
                 type="button"
                 aria-label="Sort projects"
@@ -992,6 +967,7 @@ export default function ProjectsPage() {
                         key={option.value}
                         type="button"
                         role="option"
+                        tabIndex={-1}
                         aria-selected={isSelected}
                         onClick={() => {
                           setSortBy(option.value);
@@ -1025,7 +1001,7 @@ export default function ProjectsPage() {
                   })}
                 </div>
               )}
-            </div>
+            </KeyboardPopup>
 
             {/* CLEAR FILTERS BUTTON */}
             <button
@@ -1175,7 +1151,7 @@ export default function ProjectsPage() {
 
                         {/* MORE OPTIONS DROPDOWN (แสดงเฉพาะ Owner เท่านั้น) */}
                         {isOwner && (
-                          <div
+                          <KeyboardPopup open={isMenuOpen} onClose={() => setOpenMenuProjectId(null)}
                             ref={isMenuOpen ? menuContainerRef : null}
                             className="relative"
                           >
@@ -1216,6 +1192,7 @@ export default function ProjectsPage() {
                               >
                                 <Link
                                   role="menuitem"
+                                  tabIndex={-1}
                                   href={`/projects/${item.projectId}/settings`}
                                   onClick={() => setOpenMenuProjectId(null)}
                                   className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[13px] font-medium text-[#2b2b2b] hover:bg-[#f6f3ff] hover:text-[#5B44BA] transition-colors"
@@ -1228,6 +1205,7 @@ export default function ProjectsPage() {
                                 <button
                                   type="button"
                                   role="menuitem"
+                                  tabIndex={-1}
                                   onClick={() => {
                                     setOpenMenuProjectId(null);
                                     setDeleteError('');
@@ -1239,7 +1217,7 @@ export default function ProjectsPage() {
                                 </button>
                               </div>
                             )}
-                          </div>
+                          </KeyboardPopup>
                         )}
                       </div>
                     </div>
@@ -1357,7 +1335,7 @@ export default function ProjectsPage() {
 
                         <div className="flex flex-col">
                           <strong className="text-[13px] font-extrabold text-[#1f1f1f] leading-tight tabular-nums">
-                            {item.highPriorityTasks}
+                            {item.highPriorityTaskCount}
                           </strong>
                           <span className="mt-0.5 text-[11px] text-[#777777] leading-tight">
                             High priority

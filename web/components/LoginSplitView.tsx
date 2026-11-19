@@ -627,6 +627,7 @@ export default function LoginSplitView({
               {/* Slide 0: Create Your Account */}
               <div
                 aria-hidden={activeView !== 'register'}
+                inert={activeView !== 'register'}
                 className={`flex w-1/3 shrink-0 justify-center px-6 transition-opacity duration-500 ease-out sm:px-12 [@media(max-height:500px)_and_(max-width:1023px)]:px-[14px] ${
                   activeView === 'register'
                     ? 'visible opacity-100'
@@ -816,6 +817,7 @@ export default function LoginSplitView({
               {/* Slide 1: User Login */}
               <div
                 aria-hidden={activeView !== 'login'}
+                inert={activeView !== 'login'}
                 className={`flex w-1/3 shrink-0 justify-center px-6 transition-opacity duration-500 ease-out sm:px-12 [@media(max-height:500px)_and_(max-width:1023px)]:px-[14px] ${
                   activeView === 'login'
                     ? 'visible opacity-100'
@@ -1003,6 +1005,7 @@ export default function LoginSplitView({
               {/* Slide 2: Forgot Your Password */}
               <div
                 aria-hidden={activeView !== 'forgot'}
+                inert={activeView !== 'forgot'}
                 className={`flex w-1/3 shrink-0 justify-center px-6 transition-opacity duration-500 ease-out sm:px-12 [@media(max-height:500px)_and_(max-width:1023px)]:px-[14px] ${
                   activeView === 'forgot'
                     ? 'visible opacity-100'

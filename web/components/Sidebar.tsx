@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 function MobGLogo() {
   return (
@@ -289,6 +289,31 @@ export default function Sidebar() {
   const isOpen = openPath === pathname;
   const menuId = useId();
   const toggleRef = useRef<HTMLButtonElement>(null);
+  const collapseLabel = isCollapsed ? 'Expand sidebar' : 'Collapse sidebar';
+
+  useEffect(() => {
+    // Match the lg breakpoint used by the desktop sidebar.
+    const desktop = window.matchMedia('(min-width: 64rem)');
+    function handleShortcut(event: KeyboardEvent) {
+      if (!desktop.matches || event.defaultPrevented || event.isComposing ||
+        !event.ctrlKey || event.altKey || event.shiftKey || event.metaKey ||
+        event.key.toLowerCase() !== 'b') {
+        return;
+      }
+
+      const target = event.target;
+      if (target instanceof HTMLElement &&
+        (target.isContentEditable || target.closest('input, textarea, select'))) {
+        return;
+      }
+
+      event.preventDefault();
+      if (!event.repeat) setIsCollapsed((previous) => !previous);
+    }
+
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, []);
 
   const navItems = [
     { name: 'Overview', href: '/dashboard' },
@@ -301,6 +326,9 @@ export default function Sidebar() {
 
   return (
     <aside
+      onBlur={(event) => {
+        if (isOpen && !event.currentTarget.contains(event.relatedTarget)) setOpenPath(null);
+      }}
       onKeyDown={(event) => {
         if (event.key === 'Escape' && isOpen) {
           setOpenPath(null);
@@ -314,7 +342,9 @@ export default function Sidebar() {
       {/* ปุ่มพับเข้า-กางออกบนหน้าจอใหญ่ */}
       <button
         type="button"
-        aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        aria-label={collapseLabel}
+        aria-keyshortcuts="Control+B"
+        title={`${collapseLabel} (Ctrl+B)`}
         aria-expanded={!isCollapsed}
         onClick={() => setIsCollapsed((prev) => !prev)}
         className="hidden lg:flex items-center justify-center w-7 h-7 rounded-full bg-white border border-[#e2d9ff] shadow-md text-[#5B44BA] hover:bg-[#f5f1ff] absolute -right-3.5 top-6 z-30 cursor-pointer transition-colors duration-200"

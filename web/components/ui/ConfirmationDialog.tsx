@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useId,
   useRef,
   type KeyboardEvent,
   type SyntheticEvent,
@@ -13,6 +14,8 @@ type ConfirmationDialogProps = {
   description: string;
   itemName: string;
   confirmLabel?: string;
+  pendingLabel?: string;
+  irreversible?: boolean;
   isLoading?: boolean;
   error?: string;
   onCancel: () => void;
@@ -25,6 +28,8 @@ export default function ConfirmationDialog({
   description,
   itemName,
   confirmLabel = 'Delete',
+  pendingLabel = 'Deleting...',
+  irreversible = true,
   isLoading = false,
   error = '',
   onCancel,
@@ -33,6 +38,8 @@ export default function ConfirmationDialog({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const titleId = useId();
+  const descriptionId = useId();
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -55,7 +62,12 @@ export default function ConfirmationDialog({
         dialog.close();
       }
 
-      previousFocusRef.current?.focus();
+      const previous = previousFocusRef.current;
+      if (previous?.isConnected && !previous.matches(':disabled')) {
+        previous.focus();
+      } else {
+        document.getElementById('main-content')?.focus({ preventScroll: true });
+      }
       previousFocusRef.current = null;
     };
   }, [open]);
@@ -121,8 +133,8 @@ export default function ConfirmationDialog({
           onCancel();
         }
       }}
-      aria-labelledby="confirmation-dialog-title"
-      aria-describedby="confirmation-dialog-description"
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
       aria-modal="true"
       className="fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-[470px] max-h-[calc(100dvh-2rem)] overflow-hidden rounded-[24px] border border-[#e5e0f5] bg-white p-0 text-center shadow-[0_20px_50px_rgba(15,15,25,0.22)] backdrop:bg-black/45 backdrop:backdrop-blur-[1px] [overflow-wrap:anywhere]"
     >
@@ -148,7 +160,7 @@ export default function ConfirmationDialog({
           </div>
 
           <h2
-            id="confirmation-dialog-title"
+            id={titleId}
             className="text-[22px] sm:text-[24px] font-extrabold tracking-tight text-[#1f1f1f]"
           >
             {title}
@@ -159,13 +171,13 @@ export default function ConfirmationDialog({
           </p>
 
           <p
-            id="confirmation-dialog-description"
+            id={descriptionId}
             className="mt-3 text-[13px] leading-relaxed text-[#777777]"
           >
-            {description}{' '}
-            <span className="font-medium text-rose-600">
-              This action cannot be undone.
-            </span>
+            {description}
+            {irreversible && (
+              <span className="font-medium text-rose-600"> This action cannot be undone.</span>
+            )}
           </p>
 
           {error && (
@@ -211,7 +223,7 @@ export default function ConfirmationDialog({
                 <path d="M21 12a9 9 0 1 1-6.219-8.56" />
               </svg>
             )}
-            <span>{isLoading ? 'Deleting...' : confirmLabel}</span>
+            <span>{isLoading ? pendingLabel : confirmLabel}</span>
           </button>
         </div>
       </div>

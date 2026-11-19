@@ -12,6 +12,7 @@ export interface ProjectRow {
   project_id: string; project_name: string; project_description: string | null;
   start_date: string; due_date: string | null; project_create_date: Date;
   created_by: string; creator_name: string; total_tasks: string; completed_tasks: string;
+  high_priority_task_count: string;
   progress_percent: number; derived_status: TaskStatus;
 }
 export interface UserProjectRow extends ProjectRow { my_role: string }
@@ -38,6 +39,7 @@ const projectData = `
 WITH task_counts AS (
   SELECT t.project_id, COUNT(*) AS total_tasks,
     COUNT(*) FILTER (WHERE s.status_name = 'Done') AS completed_tasks,
+    COUNT(*) FILTER (WHERE t.priority = 1) AS high_priority_task_count,
     COUNT(*) FILTER (WHERE s.status_name = 'To Do') AS todo_tasks
   FROM tasks t JOIN task_statuses s ON s.status_id = t.status_id GROUP BY t.project_id
 ), project_data AS (
@@ -46,6 +48,7 @@ WITH task_counts AS (
     u.user_name AS creator_name,
     COALESCE(c.total_tasks, 0::bigint) AS total_tasks,
     COALESCE(c.completed_tasks, 0::bigint) AS completed_tasks,
+    COALESCE(c.high_priority_task_count, 0::bigint) AS high_priority_task_count,
     CASE WHEN COALESCE(c.total_tasks, 0) = 0 THEN 0
       ELSE ROUND(100.0 * c.completed_tasks / c.total_tasks)::integer END AS progress_percent,
     CASE WHEN COALESCE(c.total_tasks, 0) = 0 OR c.todo_tasks = c.total_tasks THEN 'To do'

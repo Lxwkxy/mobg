@@ -512,7 +512,7 @@ try {
     .click();
 
   await page
-    .getByRole('button', {
+    .getByRole('menuitem', {
       name: /Log out/,
     })
     .click();

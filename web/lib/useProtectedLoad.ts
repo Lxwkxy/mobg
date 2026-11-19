@@ -44,7 +44,7 @@ type LoadSuccess<T> = {
 export type ProtectedLoadOptions = {
   revalidateOnFocus?: boolean;
   hideDataWhileRefreshing?: boolean;
-  revalidateOnRoute?: string;
+  verifyBeforeLoad?: boolean;
 };
 
 function toLoadStatus(
@@ -60,6 +60,7 @@ export function useProtectedLoad<T>(
   const {
     revalidateOnFocus = false,
     hideDataWhileRefreshing = false,
+    verifyBeforeLoad = true,
   } = options;
 
   const {
@@ -71,7 +72,6 @@ export function useProtectedLoad<T>(
   } = useSession();
 
   const [attempt, setAttempt] = useState(0);
-  const [mountValidated, setMountValidated] = useState(false);
 
   const [result, setResult] =
     useState<LoadResult<T> | null>(null);
@@ -98,27 +98,6 @@ export function useProtectedLoad<T>(
     }),
     [load, attempt, session.revision],
   );
-
-  // ตรวจ Session ก่อนโหลดข้อมูลครั้งแรก
-  useEffect(() => {
-    if (!revalidateOnFocus) {
-      return;
-    }
-
-    let cancelled = false;
-
-    lastRefreshAt.current = Date.now();
-
-    void refreshSession().then(() => {
-      if (!cancelled) {
-        setMountValidated(true);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [revalidateOnFocus, refreshSession]);
 
   // ตรวจ Session เมื่อกลับมาเปิดแท็บหรือหน้าต่าง
   useEffect(() => {
@@ -190,13 +169,6 @@ export function useProtectedLoad<T>(
 
   // โหลดข้อมูลเมื่อ Session พร้อมแล้วเท่านั้น
   useEffect(() => {
-    if (
-      revalidateOnFocus &&
-      !mountValidated
-    ) {
-      return;
-    }
-
     if (!sessionReady || sessionUserId === null) {
       return;
     }
@@ -287,8 +259,12 @@ export function useProtectedLoad<T>(
 
     async function run(): Promise<Outcome<T>> {
       try {
+        if (!isRequestCurrent()) {
+          return { status: 'error' };
+        }
+
         // ตรวจ Session ก่อนเริ่มโหลดข้อมูล
-        if (revalidateOnFocus) {
+        if (revalidateOnFocus && verifyBeforeLoad) {
           const verified = await verifyCurrentSession();
 
           if (!verified || !isRequestCurrent()) {
@@ -390,7 +366,8 @@ export function useProtectedLoad<T>(
       }
     }
 
-    void run().then((outcome) => {
+    // An effect superseded in the same render cycle should not start a request.
+    void Promise.resolve().then(run).then((outcome) => {
       if (!isRequestCurrent()) {
         return;
       }
@@ -422,7 +399,7 @@ export function useProtectedLoad<T>(
     sessionUserId,
     session.revision,
     revalidateOnFocus,
-    mountValidated,
+    verifyBeforeLoad,
     replaceSession,
     updateSessionUser,
     isCurrentSessionRevision,

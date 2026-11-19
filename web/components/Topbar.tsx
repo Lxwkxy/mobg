@@ -16,6 +16,7 @@ import {
 } from 'next/navigation';
 
 import GlobalSearch from '@/components/GlobalSearch';
+import KeyboardPopup from '@/components/ui/KeyboardPopup';
 
 import { logoutApi } from '@/lib/authService';
 import { useSession } from '@/lib/SessionProvider';
@@ -184,9 +185,11 @@ export default function Topbar() {
 
       {/* USER ACCOUNT */}
       <div className="min-w-0 max-w-full justify-self-end md:col-start-2 xl:col-start-3 flex items-center gap-5">
-        <div
+        <KeyboardPopup
           className="relative min-w-0 max-w-full inline-block"
           ref={dropdownRef}
+          open={Boolean(isOpen)}
+          onClose={() => setOpenRevision(null)}
         >
           <button
             type="button"
@@ -201,6 +204,7 @@ export default function Topbar() {
             }}
             disabled={!canShowUser}
             aria-expanded={Boolean(isOpen)}
+            aria-haspopup="menu"
             className="max-w-full min-h-11 flex items-center gap-2.5 py-1.5 pl-1.5 pr-3.5 rounded-full bg-[#faf9ff] border border-[#e7e1ff] hover:bg-[#f2eeff] hover:border-[#d7ccff] transition-all duration-200 cursor-pointer disabled:opacity-60 disabled:cursor-wait"
           >
             <div className="shrink-0 w-[34px] h-[34px] rounded-full bg-[#ede7ff] text-[#5B44BA] flex items-center justify-center">
@@ -243,7 +247,7 @@ export default function Topbar() {
           </button>
 
           {isOpen && user && (
-            <div className="absolute top-[calc(100%+8px)] right-0 bg-white border border-[#e6e0ff] rounded-2xl shadow-[0_12px_28px_rgba(91,68,186,0.12)] w-[200px] p-2 z-[99999]">
+            <div role="menu" aria-label="Account actions" className="absolute top-[calc(100%+8px)] right-0 bg-white border border-[#e6e0ff] rounded-2xl shadow-[0_12px_28px_rgba(91,68,186,0.12)] w-[200px] p-2 z-[99999]">
               {user.email && (
                 <div className="p-2 text-[12px] text-[#6e6487] border-b border-[#f2eeff] mb-1.5 break-all">
                   {user.email}
@@ -261,6 +265,8 @@ export default function Topbar() {
 
               <button
                 type="button"
+                role="menuitem"
+                tabIndex={-1}
                 onClick={() => void handleLogout()}
                 disabled={isLoggingOut}
                 className="w-full p-2 text-left text-[#dc2626] text-[13px] font-medium rounded-xl hover:bg-[#fef2f2] flex items-center gap-2 cursor-pointer transition-colors disabled:opacity-60"
@@ -272,7 +278,7 @@ export default function Topbar() {
               </button>
             </div>
           )}
-        </div>
+        </KeyboardPopup>
       </div>
 
       {/* LOGIN SUCCESS แต่ยังไม่มี MOBG PROFILE */}

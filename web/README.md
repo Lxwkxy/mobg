@@ -1,36 +1,21 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MobG web
 
-## Getting Started
+The Next.js frontend uses the Express API for accounts, projects, tasks,
+members, search, Dashboard, My Tasks, comments and activity. See the
+[repository setup](../README.md#setup) to start the database and backend.
 
-First, run the development server:
+From `web/`, copy `env.example` to `.env.local`, run `npm ci` and
+`npm run dev`, then open [localhost:3000](http://localhost:3000).
+Use the same hostname consistently for the frontend, API and Better Auth.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+`npm run lint`, `npm run typecheck` and `npm run build` run the web checks.
+Development and production builds use Webpack. Geist fonts ship with the local
+package and the build can run without reaching Google Fonts.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The [W5 frontend verification](../docs/w5-frontend-verification.md) has the
+Playwright commands, screenshots output location and demo steps.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Use Tab and Shift+Tab to move between controls, and Enter or Space to activate
+them. The first Tab on a workspace page reveals **Skip to main content**.
+Arrow keys navigate menus, search results and project tabs. Escape closes
+open menus and confirmation dialogs. On desktop, Ctrl+B toggles the sidebar.

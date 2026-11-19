@@ -33,7 +33,8 @@ export const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY
     return !value.startsWith("0000") && Number.isFinite(timestamp)
       && new Date(timestamp).toISOString().slice(0, 10) === value;
   }, "Expected a real calendar date");
-const descriptionSchema = z.string().nullable();
+const databaseText = z.string().regex(/^[^\0]*$/u, "Text cannot contain NUL characters");
+const descriptionSchema = databaseText.nullable();
 const memberIdsSchema = z.array(idSchema)
   .refine((ids) => new Set(ids).size === ids.length, "IDs must be distinct");
 const assigneeIdsSchema = memberIdsSchema.min(1, "At least one assignee is required");
@@ -45,7 +46,7 @@ export const projectListQuerySchema = z.strictObject({
 });
 export const taskListQuerySchema = z.strictObject({ status: statusSchema.optional() });
 export const searchQuerySchema = z.strictObject({
-  q: z.string().trim().min(1).max(200).refine((value) => !value.includes("\0"), "Invalid search text"),
+  q: databaseText.trim().min(1).max(200),
 });
 export const activityQuerySchema = z.strictObject({
   limit: urlIdSchema.pipe(z.number().max(100)).default(20),
@@ -58,7 +59,7 @@ export function projectDatesAreValid(startDate: string, dueDate: string | null |
   return dueDate == null || dueDate > startDate;
 }
 const projectFields = {
-  projectName: z.string().trim().min(1).max(150),
+  projectName: databaseText.trim().min(1).max(150),
   startDate: dateSchema,
   projectDescription: descriptionSchema.optional(),
   dueDate: dateSchema.nullable().optional(),
@@ -76,7 +77,7 @@ export const updateProjectSchema: z.ZodType<UpdateProjectRequest> =
       path: ["dueDate"], message: "dueDate must be later than startDate",
     });
 const taskFields = {
-  taskTitle: z.string().trim().min(1).max(200),
+  taskTitle: databaseText.trim().min(1).max(200),
   taskDescription: descriptionSchema.optional(),
   priority: prioritySchema,
   dueDate: dateSchema,
@@ -88,7 +89,7 @@ export const updateTaskSchema: z.ZodType<UpdateTaskRequest> = z.strictObject({
 }).partial().refine((body) => Object.keys(body).length > 0, "At least one editable field is required");
 export const addMemberSchema: z.ZodType<AddMemberRequest> = z.strictObject({ userId: idSchema });
 export const createCommentSchema: z.ZodType<CreateCommentRequest> = z.strictObject({
-  commentText: z.string().trim().min(1),
+  commentText: databaseText.trim().min(1),
 });
 // Shape validation only. Membership, stored dates, Owner permissions and DB constraints
 // remain the responsibility of W2/W3 services and guards, before any database write.

@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { handleResultKeys } from '@/lib/keyboardNavigation';
+
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import ProtectedState from '@/components/ProtectedState';
@@ -91,6 +93,8 @@ export default function CreateProjectPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [memberIds, setMemberIds] = useState<number[]>([]);
   const [memberSearch, setMemberSearch] = useState('');
+  const memberSearchId = useId();
+  const memberResultsId = useId();
   const [isMemberDropdownOpen, setIsMemberDropdownOpen] =
     useState(false);
 
@@ -713,7 +717,7 @@ export default function CreateProjectPage() {
             <div className="mb-7">
               <div className="mb-1.5 flex items-center justify-between gap-2">
                 <label
-                  htmlFor="memberSearch"
+                  htmlFor={memberSearchId}
                   className="block text-[13px] font-bold text-[#2b2838]"
                 >
                   Project members
@@ -764,7 +768,7 @@ export default function CreateProjectPage() {
                           disabled={isSaving}
                           aria-label={`Remove ${member.userName}`}
                           onClick={() => toggleMember(Number(member.userId))}
-                          className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full text-[#6a57b8] transition-colors hover:bg-[#ded4ff] hover:text-[#35208a] cursor-pointer disabled:pointer-events-none disabled:opacity-50"
+                          className="shrink-0 inline-flex h-11 w-11 items-center justify-center rounded-full text-[#6a57b8] transition-colors hover:bg-[#ded4ff] hover:text-[#35208a] cursor-pointer disabled:pointer-events-none disabled:opacity-50"
                         >
                           <svg
                             width="12"
@@ -788,7 +792,20 @@ export default function CreateProjectPage() {
               )}
 
               {/* SEARCH INPUT & DROPDOWN */}
-              <div className="relative">
+              <div
+                className="relative"
+                data-member-picker
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.nativeEvent.isComposing && isMemberDropdownOpen && !isSaving && event.target instanceof HTMLInputElement) {
+                    event.preventDefault();
+                    return;
+                  }
+                  handleResultKeys(event, memberResultsId, () => setIsMemberDropdownOpen(false));
+                }}
+                onBlur={(event) => {
+                  if (isMemberDropdownOpen && !isSaving && !event.currentTarget.contains(event.relatedTarget)) setIsMemberDropdownOpen(false);
+                }}
+              >
                 <div
                   className={`flex min-h-11 items-center gap-2.5 rounded-xl border px-3.5 transition-all ${
                     errors.members
@@ -812,7 +829,8 @@ export default function CreateProjectPage() {
                   </svg>
 
                   <input
-                    id="memberSearch"
+                    id={memberSearchId}
+                    aria-controls={isMemberDropdownOpen && !isSaving ? memberResultsId : undefined}
                     type="text"
                     disabled={isSaving}
                     value={memberSearch}
@@ -821,11 +839,6 @@ export default function CreateProjectPage() {
                       setMemberSearch(event.target.value);
                       setIsMemberDropdownOpen(true);
                       clearFieldError('members');
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Escape') {
-                        setIsMemberDropdownOpen(false);
-                      }
                     }}
                     placeholder="Search members by name or email..."
                     autoComplete="off"
@@ -861,13 +874,15 @@ export default function CreateProjectPage() {
                   <>
                     <button
                       type="button"
+                      tabIndex={-1}
+                      aria-hidden="true"
                       aria-label="Close member search results"
                       onClick={() => setIsMemberDropdownOpen(false)}
                       className="fixed inset-0 z-10 cursor-default"
                     />
 
                     <div
-                      id="member-search-results"
+                      id={memberResultsId}
                       className="absolute z-20 mt-2 max-h-64 w-full overflow-y-auto overscroll-contain rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
                     >
                       {filteredUsers.length === 0 ? (
@@ -881,7 +896,8 @@ export default function CreateProjectPage() {
                           <button
                             key={user.userId}
                             type="button"
-                            onClick={() => {
+                            onClick={(event) => {
+                              event.currentTarget.closest('[data-member-picker]')?.querySelector('input')?.focus();
                               toggleMember(Number(user.userId));
                               setMemberSearch('');
                               setIsMemberDropdownOpen(true);

@@ -1,8 +1,12 @@
 'use client';
 
+import KeyboardPopup from '@/components/ui/KeyboardPopup';
+import { getNextItemIndex } from '@/lib/keyboardNavigation';
+
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -28,6 +32,7 @@ import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import { useSession } from '@/lib/SessionProvider';
 import ProtectedState from '@/components/ProtectedState';
 import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
+import ActivityFeed from '@/components/ActivityFeed';
 
 import type {
   ProjectItem,
@@ -39,6 +44,7 @@ import type {
 const emptySubscribe = () => () => {};
 
 type DetailTab = 'overview' | 'tasks' | 'members';
+const detailTabs: DetailTab[] = ['overview', 'tasks', 'members'];
 
 type ProjectOverviewBundle = {
   project: ProjectItem;
@@ -152,6 +158,14 @@ export default function ProjectDetailPage() {
   } = useSession();
 
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
+  const tabIdPrefix = useId();
+  const tabId = (tab: DetailTab) => `${tabIdPrefix}-tab-${tab}`;
+  const panelId = (tab: DetailTab) => `${tabIdPrefix}-panel-${tab}`;
+
+  function selectAndFocusTab(tab: DetailTab) {
+    document.getElementById(tabId(tab))?.focus();
+    setActiveTab(tab);
+  }
   const [taskSearch, setTaskSearch] = useState('');
   const [taskPriorityFilter, setTaskPriorityFilter] = useState<'ALL' | 1 | 2 | 3>('ALL');
   const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatus | 'ALL'>('ALL');
@@ -870,7 +884,7 @@ export default function ProjectDetailPage() {
             </div>
 
             {/* CUSTOM STATUS DROPDOWN */}
-            <div className="relative shrink-0">
+            <KeyboardPopup open={openTaskDropdown === 'status'} onClose={() => setOpenTaskDropdown(null)} className="relative shrink-0">
               <button
                 type="button"
                 aria-label="Filter tasks by status"
@@ -923,6 +937,7 @@ export default function ProjectDetailPage() {
                         key={option.value}
                         type="button"
                         role="option"
+                        tabIndex={-1}
                         aria-selected={isSelected}
                         onClick={() => {
                           setTaskStatusFilter(option.value);
@@ -955,10 +970,10 @@ export default function ProjectDetailPage() {
                   })}
                 </div>
               )}
-            </div>
+            </KeyboardPopup>
 
             {/* CUSTOM SORT DROPDOWN */}
-            <div className="relative shrink-0">
+            <KeyboardPopup open={openTaskDropdown === 'sort'} onClose={() => setOpenTaskDropdown(null)} className="relative shrink-0">
               <button
                 type="button"
                 aria-label="Sort tasks"
@@ -1011,6 +1026,7 @@ export default function ProjectDetailPage() {
                         key={option.value}
                         type="button"
                         role="option"
+                        tabIndex={-1}
                         aria-selected={isSelected}
                         onClick={() => {
                           setTaskSortBy(option.value);
@@ -1043,7 +1059,7 @@ export default function ProjectDetailPage() {
                   })}
                 </div>
               )}
-            </div>
+            </KeyboardPopup>
 
             {/* CLEAR FILTER BUTTON */}
             <button
@@ -1156,7 +1172,7 @@ export default function ProjectDetailPage() {
             </div>
 
             {/* CUSTOM PRIORITY DROPDOWN */}
-            <div className="relative shrink-0">
+            <KeyboardPopup open={openTaskDropdown === 'priority'} onClose={() => setOpenTaskDropdown(null)} className="relative shrink-0">
               <button
                 type="button"
                 aria-label="Filter tasks by priority"
@@ -1209,6 +1225,7 @@ export default function ProjectDetailPage() {
                         key={String(option.value)}
                         type="button"
                         role="option"
+                        tabIndex={-1}
                         aria-selected={isSelected}
                         onClick={() => {
                           setTaskPriorityFilter(option.value);
@@ -1241,10 +1258,10 @@ export default function ProjectDetailPage() {
                   })}
                 </div>
               )}
-            </div>
+            </KeyboardPopup>
 
             {/* CUSTOM STATUS DROPDOWN */}
-            <div className="relative shrink-0">
+            <KeyboardPopup open={openTaskDropdown === 'status'} onClose={() => setOpenTaskDropdown(null)} className="relative shrink-0">
               <button
                 type="button"
                 aria-label="Filter tasks by status"
@@ -1297,6 +1314,7 @@ export default function ProjectDetailPage() {
                         key={option.value}
                         type="button"
                         role="option"
+                        tabIndex={-1}
                         aria-selected={isSelected}
                         onClick={() => {
                           setTaskStatusFilter(option.value);
@@ -1329,10 +1347,10 @@ export default function ProjectDetailPage() {
                   })}
                 </div>
               )}
-            </div>
+            </KeyboardPopup>
 
             {/* CUSTOM SORT DROPDOWN */}
-            <div className="relative shrink-0">
+            <KeyboardPopup open={openTaskDropdown === 'sort'} onClose={() => setOpenTaskDropdown(null)} className="relative shrink-0">
               <button
                 type="button"
                 aria-label="Sort tasks"
@@ -1385,6 +1403,7 @@ export default function ProjectDetailPage() {
                         key={option.value}
                         type="button"
                         role="option"
+                        tabIndex={-1}
                         aria-selected={isSelected}
                         onClick={() => {
                           setTaskSortBy(option.value);
@@ -1417,7 +1436,7 @@ export default function ProjectDetailPage() {
                   })}
                 </div>
               )}
-            </div>
+            </KeyboardPopup>
 
             {/* CLEAR FILTER BUTTON */}
             <button
@@ -1614,7 +1633,7 @@ export default function ProjectDetailPage() {
         <div className="mt-4 border-t border-[#ece8f8] pt-3.5 text-center">
           <button
             type="button"
-            onClick={() => setActiveTab('tasks')}
+            onClick={() => selectAndFocusTab('tasks')}
             className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-[#5B44BA] hover:text-[#422c9c] transition-colors cursor-pointer"
           >
             <span>View all {filteredTasks.length} tasks</span>
@@ -1801,15 +1820,15 @@ export default function ProjectDetailPage() {
                     &gt;
                   </span>
                   {activeTab === 'overview' ? (
-                    <span className="font-bold text-white break-words">
+                    <span className="min-w-0 max-w-full font-bold text-white [overflow-wrap:anywhere]">
                       {displayedProject.projectName}
                     </span>
                   ) : (
                     <>
                       <button
                         type="button"
-                        onClick={() => setActiveTab('overview')}
-                        className="font-medium hover:text-white transition-colors cursor-pointer break-words"
+                        onClick={() => selectAndFocusTab('overview')}
+                        className="min-w-0 max-w-full text-left font-medium hover:text-white transition-colors cursor-pointer [overflow-wrap:anywhere]"
                       >
                         {displayedProject.projectName}
                       </button>
@@ -1846,7 +1865,7 @@ export default function ProjectDetailPage() {
                   </Link>
 
                   <div className="min-w-0">
-                    <h1 className="text-[28px] sm:text-[34px] font-extrabold leading-tight tracking-tight text-white break-words">
+                    <h1 className="text-[28px] sm:text-[34px] font-extrabold leading-tight tracking-tight text-white [overflow-wrap:anywhere]">
                       {displayedProject.projectName}
                     </h1>
                     <p className="mt-1 whitespace-pre-wrap text-[14px] leading-relaxed text-white/85">
@@ -1862,7 +1881,17 @@ export default function ProjectDetailPage() {
                 <div
                   role="tablist"
                   aria-label="Project sections"
-                  className="flex items-center gap-7 overflow-x-auto"
+                  onKeyDown={(event) => {
+                    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                    const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+                    const current = tabs.findIndex((tab) => tab === event.target);
+                    if (current < 0) return;
+                    event.preventDefault();
+                    const next = tabs[getNextItemIndex(event.key, current, tabs.length)];
+                    next?.focus();
+                    next?.click();
+                  }}
+                  className="flex min-w-0 max-w-full items-center gap-4 overflow-x-auto sm:gap-7"
                 >
                   {(
                     [
@@ -1878,7 +1907,10 @@ export default function ProjectDetailPage() {
                         key={tab.id}
                         type="button"
                         role="tab"
+                        id={tabId(tab.id)}
+                        aria-controls={panelId(tab.id)}
                         aria-selected={isSelected}
+                        tabIndex={isSelected ? 0 : -1}
                         onClick={() => setActiveTab(tab.id)}
                         className={`relative inline-flex items-center gap-2 whitespace-nowrap px-0.5 pb-3 text-[14.5px] transition-colors cursor-pointer ${
                           isSelected
@@ -1934,7 +1966,7 @@ export default function ProjectDetailPage() {
                       <span>Edit Project</span>
                     </Link>
 
-                    <div ref={headerMenuRef} className="relative">
+                    <KeyboardPopup open={isHeaderMenuOpen} onClose={() => setIsHeaderMenuOpen(false)} ref={headerMenuRef} className="relative">
                       <button
                         type="button"
                         aria-label="Project options"
@@ -1968,6 +2000,7 @@ export default function ProjectDetailPage() {
                         >
                           <Link
                             role="menuitem"
+                            tabIndex={-1}
                             href={`/projects/${projectId}/members`}
                             onClick={() => setIsHeaderMenuOpen(false)}
                             className="flex w-full items-center gap-2.5 rounded-xl px-3.5 py-2 text-[13px] font-medium text-[#2b2b2b] hover:bg-[#f6f3ff] hover:text-[#5B44BA] transition-colors"
@@ -1980,6 +2013,7 @@ export default function ProjectDetailPage() {
                           <button
                             type="button"
                             role="menuitem"
+                            tabIndex={-1}
                             disabled={isDeleting}
                             onClick={() => {
                               setIsHeaderMenuOpen(false);
@@ -1991,7 +2025,7 @@ export default function ProjectDetailPage() {
                           </button>
                         </div>
                       )}
-                    </div>
+                    </KeyboardPopup>
                   </div>
                 )}
               </div>
@@ -1999,7 +2033,16 @@ export default function ProjectDetailPage() {
           </div>
 
           {/* 2-COLUMN LAYOUT ON OVERVIEW; FULL WIDTH ON TASKS & MEMBERS */}
-          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_316px]">
+          {detailTabs.filter((tab) => tab !== activeTab).map((tab) => (
+            <div key={tab} role="tabpanel" id={panelId(tab)} aria-labelledby={tabId(tab)} hidden />
+          ))}
+          <div
+            role="tabpanel"
+            id={panelId(activeTab)}
+            aria-labelledby={tabId(activeTab)}
+            tabIndex={0}
+            className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_316px]"
+          >
             {/* LEFT / MAIN TAB CONTENT */}
             <div
               className={`min-w-0 ${
@@ -2352,7 +2395,7 @@ export default function ProjectDetailPage() {
 
                     <button
                       type="button"
-                      onClick={() => setActiveTab('members')}
+                      onClick={() => selectAndFocusTab('members')}
                       className="inline-flex items-center gap-1 text-[12px] font-semibold text-[#5B44BA] hover:text-[#422c9c] transition-colors cursor-pointer"
                     >
                       <span>View all</span>
@@ -2409,7 +2452,7 @@ export default function ProjectDetailPage() {
                       {extraMembersCount > 0 && (
                         <button
                           type="button"
-                          onClick={() => setActiveTab('members')}
+                          onClick={() => selectAndFocusTab('members')}
                           className="flex w-full items-center gap-2.5 pt-0.5 text-left text-[12.5px] font-semibold text-[#5B44BA] hover:text-[#422c9c] transition-colors cursor-pointer"
                         >
                           <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#dcd4fa] bg-[#f6f3ff] text-[13px] font-bold tracking-wider text-[#5B44BA]">
@@ -2421,6 +2464,7 @@ export default function ProjectDetailPage() {
                     </div>
                   )}
                 </div>
+                <ActivityFeed projectId={projectId} />
               </aside>
             )}
           </div>

@@ -92,15 +92,15 @@ Proposed demo sequence for the team:
 2. Compare Main Demo's five tasks to progress 20%; inspect Completed 100% and Empty 0%.
 3. Show the shared overdue task counts only once despite two assignees, the task due
    today is not overdue, and High Done is excluded from important tasks.
-4. Compare My Tasks to all-project Dashboard scope using the W4 API. Member sees
-   some tasks assigned only to Owner in Dashboard, while My Tasks includes only
-   their assignments. Both corresponding web pages still use mock data.
-5. Use a fresh demo database and sign in as Member. In Main Demo, change
+4. Compare My Tasks to all-project Dashboard scope in the web app. Dashboard summary
+   includes tasks across the Member's projects, while My Tasks includes only their
+   assignments. Dashboard's Important Tasks also uses their own assignments.
+5. Use a fresh demo database and sign in as Owner. In Main Demo, change
    **Future Medium** from **To do** to **Done**. Reopen the project and check that
    completed tasks increase from 1/5 to 2/5 and progress from 20% to 40%. Compare
    the task status and completed count with PostgreSQL, then run `db:verify`.
 6. Use **only** `MobG W5 DELETE Sandbox` / `DELETE ME - sandbox task` for deletion.
-   Cancel first (manual browser check still pending), then delete; verify its comment/
+   Cancel first, then delete; verify its comment/
    assignees cascade and Main Demo remains intact. Delete the sandbox project last.
 7. Backup and restore into a new test DB, verify, then use a fresh demo DB for another
    run; the seed intentionally rejects a changed/deleted recorded fixture.

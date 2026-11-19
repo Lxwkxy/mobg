@@ -2,12 +2,12 @@
 
 Team project for managing projects, tasks, members and comments.
 
-## Stack and status (W5 database preparation)
+## Stack and status
 
 | Part | Technology / status |
 |---|---|
-| Frontend | Next.js, TypeScript, Tailwind. Login, account flows and project list/create/overview use APIs; Dashboard and My Tasks still use mocks |
-| Backend | Express 5, TypeScript, ESM. Session guards, `GET /api/me`, `GET /api/users`, project CRUD/members, project tasks, My Tasks, Dashboard and task comment GET/POST are implemented and database-backed; activity is contract-only |
+| Frontend | Next.js, TypeScript, Tailwind. Account flows, Dashboard, My Tasks, projects, tasks, members, search, comments and activity use the API |
+| Backend | Express 5, TypeScript, ESM. Session and project role guards cover database-backed project, task, member, comment, activity, Dashboard, My Tasks and search routes |
 | Authentication | Better Auth 1.7.7. Public registration, email verification and password reset; existing provisioned accounts remain supported |
 | Database | PostgreSQL 17 in Docker. Migrations 001-005 for core/auth, 006 for W5 seed metadata, 007 for public registration; each developer applies missing migrations to their own database |
 | Identity | Better Auth string IDs link to numeric MobG users through `users.auth_user_id` |
@@ -35,8 +35,9 @@ It can also be started manually from the Actions tab after the workflow reaches
 the default branch. Both jobs use Node.js 24 and install from their lockfiles with
 `npm ci`:
 
-- **Web checks**: ESLint, generated Next.js route types and TypeScript, then a
-  production build.
+- **Web checks**: ESLint, generated Next.js route types and TypeScript, a
+  production build, and Playwright checks for responsive layouts, task permissions,
+  comments and activity.
 - **Backend checks**: TypeScript for source and tests, a production build, then
   database tests against a temporary PostgreSQL 17 service.
 
@@ -79,8 +80,4 @@ reports results; enforcing them requires that GitHub setting.
 - [Database setup](database/README.md)
 - [Schema mapping](database/schema-mapping.md)
 - [W5 demo, backup/restore and verification evidence](docs/w5-db-verification.md)
-
-Next: connect the task screens to the task API (W3-Bar-01/02) and check the web flow
-together; members management, comments, activity, My Tasks and Dashboard follow in W4.
-Responsive changes for available pages are merged; unavailable screens and real flows
-remain dependencies. W5 DB tooling does not implement Book/Bar features.
+- [W5 frontend verification and demo](docs/w5-frontend-verification.md)
