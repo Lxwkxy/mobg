@@ -99,6 +99,14 @@ function normalizeDateInput(value: string | null | undefined): string {
   return value.slice(0, 10);
 }
 
+function canUserEditTask(data: EditTaskData, userId: number): boolean {
+  const isProjectOwner = data.project.myRole?.toLowerCase() === 'owner';
+  const isTaskAssignee = data.task.assignees.some(
+    (assignee) => assignee.userId === userId,
+  );
+  return isProjectOwner || isTaskAssignee;
+}
+
 function haveSameAssigneeSet(
   left: readonly number[],
   right: readonly number[],
@@ -556,6 +564,13 @@ function EditTaskForm({
     setIsStatusDropdownOpen(false);
     setIsPriorityDropdownOpen(false);
 
+    if (!canUserEditTask(data, userId)) {
+      setErrors({
+        general: 'You do not have permission to edit this task.',
+      });
+      return;
+    }
+
     const trimmedTitle = taskTitle.trim();
     const normalizedDescription = taskDescription.trim() || null;
 
@@ -652,6 +667,30 @@ function EditTaskForm({
         'project ID',
       );
       const numericTaskId = parseRouteId(taskId, 'task ID');
+
+      // ตรวจสอบสิทธิ์ล่าสุดจากเซิร์ฟเวอร์ก่อนส่ง PATCH (Owner หรือ Assignee เท่านั้น)
+      const [latestTask, latestProject] = await Promise.all([
+        taskApi.getTaskById(numericProjectId, numericTaskId),
+        projectApi.getProjectById(numericProjectId),
+      ]);
+
+      if (!isCurrent()) return;
+
+      if (
+        !canUserEditTask(
+          {
+            task: latestTask,
+            project: latestProject,
+            members: data.members,
+          },
+          userId,
+        )
+      ) {
+        setErrors({
+          general: 'You do not have permission to edit this task.',
+        });
+        return;
+      }
 
       await taskApi.updateTask(
         numericProjectId,
@@ -1458,6 +1497,19 @@ function EditTaskContent({
     }
   }, [isNotFound]);
 
+  const isUnauthorized =
+    status === 'ready' &&
+    Boolean(data) &&
+    userId !== null &&
+    userId !== undefined &&
+    !canUserEditTask(data!, userId);
+
+  useEffect(() => {
+    if (isUnauthorized) {
+      router.replace(`/projects/${projectId}/tasks/${taskId}`);
+    }
+  }, [isUnauthorized, projectId, router, taskId]);
+
   const handleRetry = useCallback(async () => {
     try {
       await refreshSession();
@@ -1472,11 +1524,38 @@ function EditTaskContent({
     return null;
   }
 
+  if (isUnauthorized) {
+    return (
+      <div className="mx-auto max-w-3xl rounded-2xl border border-[#cfc9e8] bg-white p-5 sm:p-6 shadow-[0_4px_18px_rgba(35,25,66,0.05)]">
+        <p
+          role="alert"
+          className="mb-4 text-[13.5px] font-medium text-red-600"
+        >
+          You do not have permission to edit this task.
+        </p>
+
+        <button
+          type="button"
+          onClick={() =>
+            router.replace(
+              `/projects/${projectId}/tasks/${taskId}`,
+            )
+          }
+          className="min-h-10 rounded-xl border border-[#cfc9e8] bg-white px-4 py-2 text-[12.5px] font-semibold text-[#333333] hover:border-[#9e8ce6] hover:bg-[#f6f3ff] hover:text-[#5B44BA] transition-colors cursor-pointer"
+        >
+          Back to Task Detail
+        </button>
+      </div>
+    );
+  }
+
   // เก็บ EditTaskForm instance เดิมไว้เมื่อบัญชีเดิมกำลังโหลดเบื้องหลังหรือโหลดพลาด (เช่น 500)
   // แต่จะไม่ผ่านเงื่อนไขนี้ทันทีหากเปลี่ยนบัญชีหรือออกจากระบบ (ฟอร์มเก่าจะถูก unmount และล้างค่า)
   const canKeepPreviousForm =
+    !isUnauthorized &&
     retained !== null &&
     retainedUserId !== null &&
+    canUserEditTask(retained, retainedUserId) &&
     (session.status === 'loading' ||
       session.status === 'error' ||
       (session.status === 'ready' &&

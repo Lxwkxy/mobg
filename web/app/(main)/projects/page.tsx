@@ -8,6 +8,7 @@ import { projectApi } from '@/lib/projectApi';
 import { taskApi } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import ProtectedState from '@/components/ProtectedState';
+import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
 
 import type { ProjectItem } from '@/types';
 
@@ -212,25 +213,6 @@ export default function ProjectsPage() {
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [openMenuProjectId]);
-
-  // ปิด Modal ยืนยันการลบเมื่อกด Escape (ถ้าไม่ได้กำลังลบอยู่)
-  useEffect(() => {
-    if (!projectToDelete || isDeleting) {
-      return;
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setProjectToDelete(null);
-        setDeleteError('');
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [projectToDelete, isDeleting]);
 
   const load = useCallback(
     () => loadAllProjects(statusFilter),
@@ -1440,98 +1422,26 @@ export default function ProjectsPage() {
       </div>
 
       {/* DELETE CONFIRMATION MODAL */}
-      {projectToDelete && projectToDelete.myRole === 'Owner' && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-project-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 backdrop-blur-[1px]"
-          onClick={() => {
-            if (!isDeleting) {
-              setProjectToDelete(null);
-              setDeleteError('');
-            }
-          }}
-        >
-          <div
-            className="w-full max-w-[460px] rounded-2xl bg-white px-6 py-7 sm:px-8 sm:py-8 shadow-[0_20px_50px_rgba(0,0,0,0.2)]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex flex-col items-center text-center">
-              <div className="mb-3 text-[#222222]">
-                <svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <polyline points="3 6 5 6 21 6" />
-                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                  <line x1="10" y1="11" x2="10" y2="17" />
-                  <line x1="14" y1="11" x2="14" y2="17" />
-                </svg>
-              </div>
-
-              <h2
-                id="delete-project-title"
-                className="text-[22px] font-extrabold tracking-tight text-[#1f1f1f]"
-              >
-                Delete project?
-              </h2>
-
-              <p className="mt-2.5 text-[15px] font-medium text-[#333333] break-words">
-                Remove “{projectToDelete.projectName}” from your projects?
-              </p>
-
-              <p className="mt-3 text-[13px] leading-relaxed text-[#777777]">
-                Deleting this project will permanently delete all tasks in it,
-                including their comments and assignments. All project memberships
-                will also be deleted.{' '}
-                <span className="text-red-500">
-                  This action cannot be undone.
-                </span>
-              </p>
-
-              {deleteError && (
-                <p
-                  role="alert"
-                  className="mt-3 w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12.5px] text-red-600"
-                >
-                  {deleteError}
-                </p>
-              )}
-
-              <div className="mt-7 flex w-full items-center justify-end gap-3">
-                <button
-                  type="button"
-                  disabled={isDeleting}
-                  onClick={() => {
-                    setProjectToDelete(null);
-                    setDeleteError('');
-                  }}
-                  className="min-h-11 rounded-xl border border-[#dcdcdc] bg-white px-6 py-2.5 text-[13.5px] font-semibold text-[#222222] hover:bg-[#f5f5f7] transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="button"
-                  disabled={isDeleting}
-                  onClick={() => void handleConfirmDelete()}
-                  className="min-h-11 rounded-xl bg-rose-600 px-6 py-2.5 text-[13.5px] font-semibold text-white hover:bg-rose-700 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isDeleting ? 'Deleting...' : 'Delete project'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmationDialog
+        open={Boolean(projectToDelete && projectToDelete.myRole === 'Owner')}
+        title="Delete project?"
+        itemName={
+          projectToDelete
+            ? `Remove “${projectToDelete.projectName}” from your projects?`
+            : ''
+        }
+        description="Deleting this project will permanently delete all tasks in it, including their comments and assignments. All project memberships will also be deleted."
+        confirmLabel="Delete project"
+        isLoading={isDeleting}
+        error={deleteError}
+        onCancel={() => {
+          if (!isDeleting) {
+            setProjectToDelete(null);
+            setDeleteError('');
+          }
+        }}
+        onConfirm={() => void handleConfirmDelete()}
+      />
     </div>
   );
 }

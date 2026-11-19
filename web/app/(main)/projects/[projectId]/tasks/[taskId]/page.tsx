@@ -23,10 +23,12 @@ import {
   parseRouteId,
   taskApi,
   tryParseRouteId,
+  type TaskComment,
 } from '@/lib/taskApi';
 import { useProtectedLoad } from '@/lib/useProtectedLoad';
 import { useSession } from '@/lib/SessionProvider';
 import ProtectedState from '@/components/ProtectedState';
+import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
 
 import type {
   ProjectItem,
@@ -45,23 +47,6 @@ type ExtendedTask = Task & {
     userId?: number | string;
     userName?: string;
   } | null;
-  comments?: RawComment[];
-};
-
-type RawComment = {
-  commentId?: number | string;
-  id?: number | string;
-  userId?: number | string;
-  userName?: string;
-  authorName?: string;
-  user?: {
-    userId?: number | string;
-    userName?: string;
-  };
-  content?: string;
-  commentText?: string;
-  text?: string;
-  createdAt?: string;
 };
 
 type TaskCommentItem = {
@@ -179,30 +164,21 @@ function getStatusConfig(status: TaskStatus) {
   };
 }
 
-function normalizeComments(rawList: unknown): TaskCommentItem[] {
-  if (!Array.isArray(rawList)) return [];
-
-  return rawList
-    .map((item, idx): TaskCommentItem | null => {
-      if (!item || typeof item !== 'object') return null;
-      const raw = item as RawComment;
-      const content =
-        raw.content ?? raw.commentText ?? raw.text ?? '';
-      if (!content.trim()) return null;
-
-      return {
-        id: String(raw.commentId ?? raw.id ?? `comment-${idx}`),
-        userId: raw.userId ?? raw.user?.userId,
-        authorName:
-          raw.userName ??
-          raw.authorName ??
-          raw.user?.userName ??
-          'Team Member',
-        content,
-        createdAt: raw.createdAt ?? new Date().toISOString(),
-      };
-    })
-    .filter((entry): entry is TaskCommentItem => entry !== null);
+function mapApiComment(
+  raw: TaskComment,
+  fallbackAuthorName = 'Team Member',
+): TaskCommentItem {
+  return {
+    id: String(raw.commentId),
+    userId: raw.userId ?? raw.user?.userId,
+    authorName:
+      raw.userName ??
+      raw.authorName ??
+      raw.user?.userName ??
+      fallbackAuthorName,
+    content: raw.commentText,
+    createdAt: raw.createdAt,
+  };
 }
 
 export default function TaskDetailPage() {
@@ -230,7 +206,6 @@ export default function TaskDetailPage() {
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [commentError, setCommentError] = useState('');
   const [extraComments, setExtraComments] = useState<TaskCommentItem[]>([]);
-  const [deletedCommentIds, setDeletedCommentIds] = useState<string[]>([]);
 
   const sortDropdownRef = useRef<HTMLDivElement | null>(null);
 
@@ -260,84 +235,25 @@ export default function TaskDetailPage() {
     };
   }, [isSortDropdownOpen]);
 
-  useEffect(() => {
-    if (!isDeleteDialogOpen) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !isDeleting) {
-        setIsDeleteDialogOpen(false);
-        setDeleteError('');
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isDeleteDialogOpen, isDeleting]);
-
   const load = useCallback(async (): Promise<TaskDetailBundle> => {
     const projectId = parseRouteId(params.projectId, 'project ID');
     const taskId = parseRouteId(params.taskId, 'task ID');
 
-    const apiRecord = taskApi as unknown as Record<string, unknown>;
-    const getTaskByIdFn =
-      typeof apiRecord.getTaskById === 'function'
-        ? (apiRecord.getTaskById as (...args: number[]) => Promise<ExtendedTask>)
-        : null;
-
-    const getCommentsFn =
-      typeof apiRecord.getTaskComments === 'function'
-        ? (apiRecord.getTaskComments as (...args: number[]) => Promise<unknown>)
-        : typeof apiRecord.getComments === 'function'
-          ? (apiRecord.getComments as (...args: number[]) => Promise<unknown>)
-          : null;
-
-    const [project, tasks, singleTask, rawComments] = await Promise.all([
+    const [project, task, rawComments] = await Promise.all([
       projectApi.getProjectById(projectId),
-      taskApi.getTasks(projectId),
-      getTaskByIdFn
-        ? (getTaskByIdFn.length >= 2
-            ? getTaskByIdFn(projectId, taskId)
-            : getTaskByIdFn(taskId)
-          ).catch((err: unknown) => {
-            if (
-              err instanceof ApiRequestError &&
-              (err.status === 400 || err.status === 404)
-            ) {
-              throw err;
-            }
-            return null;
-          })
-        : Promise.resolve(null),
-      getCommentsFn
-        ? (getCommentsFn.length >= 2
-            ? getCommentsFn(projectId, taskId)
-            : getCommentsFn(taskId)
-          ).catch(() => null)
-        : Promise.resolve(null),
+      taskApi.getTaskById(projectId, taskId),
+      taskApi.getComments(projectId, taskId).catch((error: unknown) => {
+        if (error instanceof ApiRequestError && error.status === 404) {
+          return [] as TaskComment[];
+        }
+        throw error;
+      }),
     ]);
-
-    const matchedFromList =
-      tasks.find((item) => item.taskId === taskId) ?? null;
-
-    const resolvedTask: ExtendedTask | null =
-      singleTask !== null
-        ? { ...(matchedFromList ?? {}), ...singleTask }
-        : matchedFromList;
-
-    if (!resolvedTask) {
-      throw new ApiRequestError('Task not found.', 404);
-    }
-
-    const initialComments = normalizeComments(
-      rawComments ?? resolvedTask.comments ?? [],
-    );
 
     return {
       project,
-      task: resolvedTask,
-      initialComments,
+      task,
+      initialComments: rawComments.map((item) => mapApiComment(item)),
     };
   }, [params.projectId, params.taskId]);
 
@@ -367,7 +283,7 @@ export default function TaskDetailPage() {
     const merged: TaskCommentItem[] = [];
 
     for (const item of [...extraComments, ...base]) {
-      if (deletedCommentIds.includes(item.id) || seen.has(item.id)) continue;
+      if (seen.has(item.id)) continue;
       seen.add(item.id);
       merged.push(item);
     }
@@ -377,7 +293,7 @@ export default function TaskDetailPage() {
       const timeB = new Date(b.createdAt).getTime() || 0;
       return commentSort === 'LATEST' ? timeB - timeA : timeA - timeB;
     });
-  }, [bundle?.initialComments, extraComments, deletedCommentIds, commentSort]);
+  }, [bundle?.initialComments, extraComments, commentSort]);
 
   if (isNotFound) {
     return null;
@@ -426,13 +342,14 @@ export default function TaskDetailPage() {
   const assignees = task.assignees ?? [];
 
   const currentUserId = session.user?.userId;
-  const isProjectOwner = project.myRole === 'Owner';
+  const isProjectOwner = project.myRole?.toLowerCase() === 'owner';
   const isTaskAssignee =
     currentUserId !== undefined &&
     assignees.some(
       (assignee) => String(assignee.userId) === String(currentUserId),
     );
-  const canManageTask = isProjectOwner || isTaskAssignee;
+  const canEditTask = isProjectOwner || isTaskAssignee;
+  const canDeleteTask = isProjectOwner;
 
   const statusConfig = getStatusConfig(task.status);
   const priorityConfig = getPriorityConfig(task.priority);
@@ -441,25 +358,13 @@ export default function TaskDetailPage() {
     COMMENT_SORT_OPTIONS[0];
 
   const handleDeleteTask = async () => {
-    if (isDeleting || !canManageTask) return;
+    if (isDeleting || !canDeleteTask) return;
 
     setIsDeleting(true);
     setDeleteError('');
 
     try {
-      const apiRecord = taskApi as unknown as Record<string, unknown>;
-      const deleteTaskFn =
-        typeof apiRecord.deleteTask === 'function'
-          ? (apiRecord.deleteTask as (...args: number[]) => Promise<unknown>)
-          : null;
-
-      if (deleteTaskFn) {
-        if (deleteTaskFn.length >= 2) {
-          await deleteTaskFn(projectId, taskId);
-        } else {
-          await deleteTaskFn(taskId);
-        }
-      }
+      await taskApi.deleteTask(projectId, taskId);
 
       setIsDeleteDialogOpen(false);
       router.push(`/projects/${projectId}`);
@@ -490,75 +395,25 @@ export default function TaskDetailPage() {
     const currentUserName = session.user?.userName ?? 'You';
 
     try {
-      const apiRecord = taskApi as unknown as Record<string, unknown>;
-      const createCommentFn =
-        typeof apiRecord.createTaskComment === 'function'
-          ? (apiRecord.createTaskComment as (...args: unknown[]) => Promise<unknown>)
-          : typeof apiRecord.createComment === 'function'
-            ? (apiRecord.createComment as (...args: unknown[]) => Promise<unknown>)
-            : typeof apiRecord.addComment === 'function'
-              ? (apiRecord.addComment as (...args: unknown[]) => Promise<unknown>)
-              : null;
+      const created = await taskApi.addComment(projectId, taskId, {
+        commentText: trimmed,
+      });
+      const createdItem = mapApiComment(created, currentUserName);
 
-      let createdItem: TaskCommentItem | null = null;
-
-      if (createCommentFn) {
-        const response =
-          createCommentFn.length >= 3
-            ? await createCommentFn(projectId, taskId, { content: trimmed })
-            : await createCommentFn(taskId, { content: trimmed });
-
-        const normalized = normalizeComments([response]);
-        if (normalized.length > 0) {
-          createdItem = normalized[0];
-        }
-      }
-
-      if (!createdItem) {
-        createdItem = {
-          id: `local-${Date.now()}`,
-          userId: currentUserId,
-          authorName: currentUserName,
-          content: trimmed,
-          createdAt: new Date().toISOString(),
-        };
-      }
-
-      setExtraComments((prev) => [createdItem!, ...prev]);
+      setExtraComments((prev) => [createdItem, ...prev]);
       setCommentDraft('');
     } catch (error) {
       if (error instanceof ApiRequestError) {
+        if (error.status === 401) {
+          router.replace('/login');
+          return;
+        }
         setCommentError(error.message);
       } else {
         setCommentError('Unable to post comment. Please try again.');
       }
     } finally {
       setIsSubmittingComment(false);
-    }
-  };
-
-  const handleDeleteComment = async (commentId: string) => {
-    setDeletedCommentIds((prev) => [...prev, commentId]);
-
-    try {
-      const apiRecord = taskApi as unknown as Record<string, unknown>;
-      const deleteCommentFn =
-        typeof apiRecord.deleteTaskComment === 'function'
-          ? (apiRecord.deleteTaskComment as (...args: unknown[]) => Promise<unknown>)
-          : typeof apiRecord.deleteComment === 'function'
-            ? (apiRecord.deleteComment as (...args: unknown[]) => Promise<unknown>)
-            : null;
-
-      const numericCommentId = Number(commentId);
-      if (deleteCommentFn && Number.isFinite(numericCommentId)) {
-        if (deleteCommentFn.length >= 3) {
-          await deleteCommentFn(projectId, taskId, numericCommentId);
-        } else {
-          await deleteCommentFn(numericCommentId);
-        }
-      }
-    } catch {
-      // Keep optimistic removal smooth
     }
   };
 
@@ -700,57 +555,61 @@ export default function TaskDetailPage() {
                   </div>
                 </div>
 
-                {/* EDIT & DELETE BUTTONS (ONLY FOR PROJECT OWNER OR TASK ASSIGNEES) */}
-                {canManageTask && (
+                {/* EDIT (OWNER OR ASSIGNEE) & DELETE (OWNER ONLY) */}
+                {(canEditTask || canDeleteTask) && (
                   <div className="flex flex-wrap shrink-0 items-center gap-2.5 self-start sm:self-center">
-                    <Link
-                      href={`/projects/${projectId}/tasks/${taskId}/edit`}
-                      className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-white px-4 py-2 text-[13px] font-bold text-[#5B44BA] shadow-[0_4px_14px_rgba(35,25,66,0.14)] hover:bg-[#f6f3ff] transition-all"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
+                    {canEditTask && (
+                      <Link
+                        href={`/projects/${projectId}/tasks/${taskId}/edit`}
+                        className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-white px-4 py-2 text-[13px] font-bold text-[#5B44BA] shadow-[0_4px_14px_rgba(35,25,66,0.14)] hover:bg-[#f6f3ff] transition-all"
                       >
-                        <path d="M12 20h9" />
-                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                      </svg>
-                      <span>Edit Task</span>
-                    </Link>
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M12 20h9" />
+                          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                        </svg>
+                        <span>Edit Task</span>
+                      </Link>
+                    )}
 
-                    <button
-                      type="button"
-                      disabled={isDeleting}
-                      onClick={() => {
-                        setDeleteError('');
-                        setIsDeleteDialogOpen(true);
-                      }}
-                      className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-rose-300/40 bg-rose-500/90 px-4 py-2 text-[13px] font-bold text-white shadow-[0_4px_14px_rgba(35,25,66,0.14)] hover:bg-rose-600 transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
+                    {canDeleteTask && (
+                      <button
+                        type="button"
+                        disabled={isDeleting}
+                        onClick={() => {
+                          setDeleteError('');
+                          setIsDeleteDialogOpen(true);
+                        }}
+                        className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-rose-300/40 bg-rose-500/90 px-4 py-2 text-[13px] font-bold text-white shadow-[0_4px_14px_rgba(35,25,66,0.14)] hover:bg-rose-600 transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        <polyline points="3 6 5 6 21 6" />
-                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                        <path d="M10 11v6" />
-                        <path d="M14 11v6" />
-                      </svg>
-                      <span>Delete Task</span>
-                    </button>
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                          <path d="M10 11v6" />
+                          <path d="M14 11v6" />
+                        </svg>
+                        <span>Delete Task</span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1100,51 +959,30 @@ export default function TaskDetailPage() {
                 </div>
               ) : (
                 <div className="divide-y divide-[#ece8f8]">
-                  {comments.map((comment) => {
-                    const canDeleteComment =
-                      isProjectOwner ||
-                      (currentUserId !== undefined &&
-                        String(comment.userId) === String(currentUserId)) ||
-                      comment.id.startsWith('local-');
+                  {comments.map((comment) => (
+                    <div
+                      key={comment.id}
+                      className="flex items-start gap-3 py-4"
+                    >
+                      <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#dcd4fa] bg-[#f1edff] text-[11.5px] font-bold text-[#5B44BA]">
+                        {getInitials(comment.authorName)}
+                      </span>
 
-                    return (
-                      <div
-                        key={comment.id}
-                        className="group flex items-start justify-between gap-3 py-4"
-                      >
-                        <div className="flex min-w-0 items-start gap-3">
-                          <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#dcd4fa] bg-[#f1edff] text-[11.5px] font-bold text-[#5B44BA]">
-                            {getInitials(comment.authorName)}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-baseline gap-2">
+                          <span className="text-[13.5px] font-bold text-[#1f1f1f]">
+                            {comment.authorName}
                           </span>
-
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-baseline gap-2">
-                              <span className="text-[13.5px] font-bold text-[#1f1f1f]">
-                                {comment.authorName}
-                              </span>
-                              <span className="text-[11.5px] text-[#8f89a6]">
-                                {formatRelativeTime(comment.createdAt)}
-                              </span>
-                            </div>
-                            <p className="mt-1 whitespace-pre-wrap text-[13.5px] leading-relaxed text-[#3a3747]">
-                              {comment.content}
-                            </p>
-                          </div>
+                          <span className="text-[11.5px] text-[#8f89a6]">
+                            {formatRelativeTime(comment.createdAt)}
+                          </span>
                         </div>
-
-                        {canDeleteComment && (
-                          <button
-                            type="button"
-                            onClick={() => void handleDeleteComment(comment.id)}
-                            aria-label="Delete comment"
-                            className="shrink-0 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold text-[#8f89a6] opacity-0 transition-all hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100 focus:opacity-100 cursor-pointer"
-                          >
-                            Delete
-                          </button>
-                        )}
+                        <p className="mt-1 whitespace-pre-wrap text-[13.5px] leading-relaxed text-[#3a3747]">
+                          {comment.content}
+                        </p>
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -1229,112 +1067,24 @@ export default function TaskDetailPage() {
         </div>
       </div>
 
-      {/* CENTERED DELETE CONFIRMATION MODAL */}
-      {canManageTask && isDeleteDialogOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-task-dialog-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
-          onClick={() => {
+      {/* DELETE TASK CONFIRMATION MODAL (OWNER ONLY) */}
+      {canDeleteTask && (
+        <ConfirmationDialog
+          open={isDeleteDialogOpen}
+          title="Delete task?"
+          itemName={`Remove “${task.taskTitle}” from this project?`}
+          description="Deleting this task will permanently delete its comments and assignments."
+          confirmLabel="Delete task"
+          isLoading={isDeleting}
+          error={deleteError}
+          onCancel={() => {
             if (!isDeleting) {
               setIsDeleteDialogOpen(false);
               setDeleteError('');
             }
           }}
-        >
-          <div
-            onClick={(event) => event.stopPropagation()}
-            className="w-full max-w-[490px] rounded-[28px] bg-white px-7 py-8 sm:px-10 sm:py-9 text-center shadow-[0_20px_50px_rgba(15,15,25,0.22)] [overflow-wrap:anywhere]"
-          >
-            {/* TRASH ICON */}
-            <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center text-[#1f1f1f]">
-              <svg
-                width="28"
-                height="28"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                <path d="M10 11v6" />
-                <path d="M14 11v6" />
-                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-              </svg>
-            </div>
-
-            <h2
-              id="delete-task-dialog-title"
-              className="text-[24px] sm:text-[26px] font-extrabold tracking-tight text-[#1f1f1f]"
-            >
-              Delete task?
-            </h2>
-
-            <p className="mt-2.5 text-[15px] font-medium text-[#2b2b2b] break-words">
-              Remove &ldquo;{task.taskTitle}&rdquo; from this project?
-            </p>
-
-            <p className="mt-3 text-[13.5px] leading-relaxed text-[#777777]">
-              Deleting this task will permanently delete its comments and
-              assignments.{' '}
-              <span className="text-[#ef4444]">
-                This action cannot be undone.
-              </span>
-            </p>
-
-            {deleteError && (
-              <p
-                role="alert"
-                className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[12.5px] font-medium text-rose-600"
-              >
-                {deleteError}
-              </p>
-            )}
-
-            <div className="mt-7 flex flex-wrap items-center justify-center sm:justify-end gap-3">
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={() => {
-                  setIsDeleteDialogOpen(false);
-                  setDeleteError('');
-                }}
-                className="min-h-[46px] rounded-2xl border border-[#dcdce0] bg-white px-7 py-2.5 text-[14px] font-bold text-[#1f1f1f] transition-colors hover:bg-[#f6f6f9] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={() => void handleDeleteTask()}
-                className="min-h-[46px] inline-flex items-center justify-center gap-2 rounded-2xl bg-[#e60039] px-7 py-2.5 text-[14px] font-bold text-white transition-colors hover:bg-[#cc0032] cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isDeleting && (
-                  <svg
-                    width="15"
-                    height="15"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.4"
-                    strokeLinecap="round"
-                    aria-hidden="true"
-                    className="animate-spin"
-                  >
-                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                  </svg>
-                )}
-                <span>{isDeleting ? 'Deleting...' : 'Delete task'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
+          onConfirm={() => void handleDeleteTask()}
+        />
       )}
     </>
   );
