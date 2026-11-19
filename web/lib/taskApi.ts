@@ -74,24 +74,44 @@ async function fetchTaskList(
 }
 
 export const taskApi = {
-  async getComments(projectId: number, taskId: number): Promise<TaskComment[]> {
+  async getComments(
+    projectId: number,
+    taskId: number,
+  ): Promise<TaskComment[]> {
     const body = await request<Success<CommentsResponse>>(
       `/api/projects/${projectId}/tasks/${taskId}/comments`,
     );
+
     if (!Array.isArray(body.comments)) {
-      throw new ApiRequestError('The server returned an invalid comments list.', 200);
+      throw new ApiRequestError(
+        'The server returned an invalid comments list.',
+        200,
+      );
     }
+
     return body.comments;
   },
 
-  async addComment(projectId: number, taskId: number, input: CreateCommentRequest): Promise<TaskComment> {
+  async addComment(
+    projectId: number,
+    taskId: number,
+    input: CreateCommentRequest,
+  ): Promise<TaskComment> {
     const body = await request<Success<CommentResponse>>(
       `/api/projects/${projectId}/tasks/${taskId}/comments`,
-      { method: 'POST', body: JSON.stringify(input) },
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
     );
+
     if (!body.comment) {
-      throw new ApiRequestError('The server returned an invalid comment.', 200);
+      throw new ApiRequestError(
+        'The server returned an invalid comment.',
+        200,
+      );
     }
+
     return body.comment;
   },
 

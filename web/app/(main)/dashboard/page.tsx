@@ -12,6 +12,7 @@ import type {
   DashboardResponse,
   ProjectsResponse,
   Task,
+  TaskStatus,
 } from '@/types';
 
 type DashboardData = {
@@ -83,6 +84,37 @@ const getPriorityText = (priority: number) => {
   if (priority === 1) return 'High';
   if (priority === 2) return 'Medium';
   return 'Low';
+};
+
+const getPriorityBadgeClass = (priority: number) => {
+  if (priority === 1) return 'bg-red-50 text-red-600 border border-red-200';
+  if (priority === 2) return 'bg-amber-50 text-amber-700 border border-amber-200';
+  return 'bg-cyan-50 text-cyan-700 border border-cyan-200';
+};
+
+const getPriorityAccentBarClass = (priority: number) => {
+  if (priority === 1) return 'bg-red-500';
+  if (priority === 2) return 'bg-amber-400';
+  return 'bg-cyan-500';
+};
+
+const getStatusBadgeStyle = (status: TaskStatus) => {
+  if (status === 'Done') {
+    return {
+      pill: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+      dot: 'bg-emerald-600',
+    };
+  }
+  if (status === 'In progress') {
+    return {
+      pill: 'bg-blue-50 text-blue-700 border border-blue-200',
+      dot: 'bg-blue-600',
+    };
+  }
+  return {
+    pill: 'bg-neutral-200 text-neutral-700 border border-neutral-300',
+    dot: 'bg-neutral-600',
+  };
 };
 
 const formatDate = (date: string) => {
@@ -589,37 +621,37 @@ export default function DashboardPage() {
       label: 'Task in progress',
       value: summary.statusCounts.inProgress,
       href: '/mytasks?scope=projects&status=In%20progress',
-      badgeBgClass: 'bg-[#ebf3ff]',
-      badgeColorClass: 'text-[#2563eb]',
+      badgeBgClass: 'bg-blue-50',
+      badgeColorClass: 'text-blue-600',
     },
     {
       key: 'done',
       label: 'Complete tasks',
       value: summary.statusCounts.done,
       href: '/mytasks?scope=projects&status=Done',
-      badgeBgClass: 'bg-[#dcfce7]',
-      badgeColorClass: 'text-[#15803d]',
+      badgeBgClass: 'bg-emerald-50',
+      badgeColorClass: 'text-emerald-600',
     },
     {
       key: 'overdue',
       label: 'Overdue tasks',
       value: summary.overdueCount,
       href: '/mytasks?scope=projects&overdue=true',
-      badgeBgClass: 'bg-[#fee2e2]',
-      badgeColorClass: 'text-[#dc2626]',
+      badgeBgClass: 'bg-rose-50',
+      badgeColorClass: 'text-rose-600',
     },
     {
       key: 'highPriority',
       label: 'High priority',
       value: summary.highPriorityCount,
       href: '/mytasks?scope=projects&priority=1&excludeDone=true',
-      badgeBgClass: 'bg-[#ffedd5]',
-      badgeColorClass: 'text-[#ea580c]',
+      badgeBgClass: 'bg-red-50',
+      badgeColorClass: 'text-red-600',
     },
   ];
 
   return (
-    <div className="relative min-w-0 flex flex-col gap-6 pt-8 sm:pt-12 xl:pt-20 pb-4 [overflow-wrap:anywhere]">
+    <div className="relative min-w-0 flex flex-col gap-6 pt-0 sm:pt-1 xl:pt-2 pb-4 [overflow-wrap:anywhere]">
       {/* FULL-SCREEN GPU-CACHED PATTERN BACKGROUND */}
       <div
         aria-hidden="true"
@@ -709,7 +741,7 @@ export default function DashboardPage() {
           </div>
 
           {/* ฝั่งขวา: หัวตัวการ์ตูนโผล่ทะลุขอบบนขึ้นไปเด่นๆ */}
-          <div className="shrink-0 -mt-10 -mb-5 sm:-mt-14 sm:-mb-6 xl:-mt-32 xl:-mb-7 xl:-mr-2 flex justify-center pointer-events-none">
+          <div className="shrink-0 -mt-6 -mb-5 sm:-mt-10 sm:-mb-6 xl:-mt-16 xl:-mb-7 xl:-mr-2 flex justify-center pointer-events-none">
             <HeroWorkspaceCharacter />
           </div>
         </div>
@@ -718,10 +750,14 @@ export default function DashboardPage() {
       {/* DASHBOARD CONTENT */}
       <div className="relative z-[1] grid grid-cols-1 xl:grid-cols-[minmax(0,1.12fr)_minmax(0,1fr)] gap-5 items-start">
         {/* YOUR PROJECT */}
-        <section className="min-w-0 bg-white rounded-[24px] border border-[#e2daff] p-4 sm:p-6 shadow-[0_8px_26px_rgba(91,68,186,0.06)]">
-          <div className="flex flex-wrap gap-2 items-center justify-between pb-4 border-b border-[#e5deff]">
-            <div className="flex items-center gap-2.5">
-              <span className="w-9 h-9 rounded-2xl bg-[#f1edff] text-[#5B44BA] flex items-center justify-center">
+        <section className="min-w-0 overflow-hidden bg-white rounded-[24px] border border-[#e2daff] shadow-[0_8px_26px_rgba(91,68,186,0.06)]">
+          <div className="relative overflow-hidden flex flex-wrap gap-2 items-center justify-between bg-gradient-to-r from-[#5B44BA] via-[#7A61D4] to-[#9B86EE] px-4 py-4 sm:px-6 sm:py-4.5 text-white">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full bg-white/10"
+            />
+            <div className="relative z-[1] flex items-center gap-3">
+              <span className="w-9 h-9 rounded-2xl bg-white text-[#5B44BA] shadow-sm flex items-center justify-center">
                 <svg
                   width="16"
                   height="16"
@@ -737,10 +773,10 @@ export default function DashboardPage() {
                 </svg>
               </span>
               <div>
-                <h2 className="text-[18px] font-extrabold text-[#1d1533]">
+                <h2 className="text-[18px] font-extrabold text-white">
                   Your Project
                 </h2>
-                <p className="text-[11px] text-[#8d83a8]">
+                <p className="text-[11px] text-white/80">
                   Recent workspaces & progress
                 </p>
               </div>
@@ -748,7 +784,7 @@ export default function DashboardPage() {
 
             <Link
               href="/projects"
-              className="min-h-9 rounded-full bg-[#f6f3ff] hover:bg-[#5B44BA] px-4 inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#5B44BA] hover:text-white transition-colors duration-150"
+              className="relative z-[1] min-h-9 rounded-full bg-white hover:bg-[#f3efff] px-4 inline-flex items-center gap-1.5 text-[12px] font-bold text-[#5B44BA] shadow-sm transition-colors duration-150"
             >
               <span>View all</span>
               <svg
@@ -768,89 +804,307 @@ export default function DashboardPage() {
             </Link>
           </div>
 
-          {projects.length === 0 ? (
-            <div className="py-12 text-center">
-              <p className="text-[14px] font-semibold text-[#5a5075]">
-                You have no projects yet.
-              </p>
-              <p className="mt-1 text-[12px] text-[#8d83a8]">
-                Create or join a project to start tracking progress.
-              </p>
-            </div>
-          ) : (
-            <div className="mt-2 flex flex-col divide-y divide-[#d4c8ff]">
-              {projects.map((project) => {
-                const progress = Math.max(
-                  0,
-                  Math.min(100, project.progressPercent),
-                );
+          <div className="p-4 sm:p-6 pt-3 sm:pt-4">
+            {projects.length === 0 ? (
+              <div className="py-12 text-center">
+                <p className="text-[14px] font-semibold text-[#5a5075]">
+                  You have no projects yet.
+                </p>
+                <p className="mt-1 text-[12px] text-[#8d83a8]">
+                  Create or join a project to start tracking progress.
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col divide-y divide-[#d4c8ff]">
+                {projects.map((project) => {
+                  const progress = Math.max(
+                    0,
+                    Math.min(100, project.progressPercent),
+                  );
 
-                return (
-                  <div
-                    key={project.projectId}
-                    className="py-2 first:pt-1 last:pb-1"
-                  >
-                    <Link
-                      href={`/projects/${project.projectId}`}
-                      className="group min-w-0 py-3 px-3 -mx-3 rounded-2xl flex flex-col gap-3 hover:bg-[#f6f3ff] transition-colors duration-150"
+                  return (
+                    <div
+                      key={project.projectId}
+                      className="py-2 first:pt-1 last:pb-1"
                     >
-                      <div className="min-w-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
-                        <div className="min-w-0 flex-1 flex items-start gap-3.5">
-                          {/* Project Workspace Layers Icon */}
-                          <div className="shrink-0 w-10 h-10 rounded-2xl bg-gradient-to-br from-[#f3efff] to-[#e6deff] border border-[#dcd0ff] text-[#5B44BA] flex items-center justify-center group-hover:from-[#5B44BA] group-hover:to-[#795fe0] group-hover:text-white group-hover:border-[#5B44BA] transition-colors duration-150">
-                            <svg
-                              width="18"
-                              height="18"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden="true"
-                            >
-                              <polygon points="12 2 2 7 12 12 22 7 12 2" />
-                              <polyline points="2 17 12 22 22 17" />
-                              <polyline points="2 12 12 17 22 12" />
-                            </svg>
-                          </div>
-
-                          <div className="min-w-0 flex-1">
-                            <strong className="block text-[14px] font-bold text-[#1d1533] group-hover:text-[#5B44BA] transition-colors break-words">
-                              {project.projectName}
-                            </strong>
-
-                            <p className="mt-0.5 text-[12px] text-[#7c7394] line-clamp-1">
-                              {project.projectDescription || 'No description'}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="shrink-0 flex flex-wrap items-center justify-between sm:justify-end gap-2 sm:gap-3.5 pl-13 sm:pl-0">
-                          <div className="flex flex-col sm:items-end gap-1 text-[11px] text-[#6e6487]">
-                            <span className="inline-flex items-center gap-1.5 font-medium">
+                      <Link
+                        href={`/projects/${project.projectId}`}
+                        className="group min-w-0 py-3 px-3 -mx-3 rounded-2xl flex flex-col gap-3 hover:bg-[#f6f3ff] transition-colors duration-150"
+                      >
+                        <div className="min-w-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
+                          <div className="min-w-0 flex-1 flex items-start gap-3.5">
+                            {/* Project Workspace Layers Icon */}
+                            <div className="shrink-0 w-10 h-10 rounded-2xl bg-gradient-to-br from-[#f3efff] to-[#e6deff] border border-[#dcd0ff] text-[#5B44BA] flex items-center justify-center group-hover:from-[#5B44BA] group-hover:to-[#795fe0] group-hover:text-white group-hover:border-[#5B44BA] transition-colors duration-150">
                               <svg
-                                width="13"
-                                height="13"
+                                width="18"
+                                height="18"
                                 viewBox="0 0 24 24"
                                 fill="none"
                                 stroke="currentColor"
-                                strokeWidth="2.1"
+                                strokeWidth="2"
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                                 aria-hidden="true"
-                                className="shrink-0 text-[#5B44BA]"
                               >
-                                <polyline points="9 11 12 14 22 4" />
-                                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                                <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                                <polyline points="2 17 12 22 22 17" />
+                                <polyline points="2 12 12 17 22 12" />
                               </svg>
-                              <span>
-                                {project.completedTasks} / {project.totalTasks}{' '}
-                                tasks
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <strong className="block text-[14px] font-bold text-[#1d1533] group-hover:text-[#5B44BA] transition-colors break-words">
+                                {project.projectName}
+                              </strong>
+
+                              <p className="mt-0.5 text-[12px] text-[#7c7394] line-clamp-1">
+                                {project.projectDescription || 'No description'}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="shrink-0 flex flex-wrap items-center justify-between sm:justify-end gap-2 sm:gap-3.5 pl-13 sm:pl-0">
+                            <div className="flex flex-col sm:items-end gap-1 text-[11px] text-[#6e6487]">
+                              <span className="inline-flex items-center gap-1.5 font-medium">
+                                <svg
+                                  width="13"
+                                  height="13"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2.1"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  aria-hidden="true"
+                                  className="shrink-0 text-[#5B44BA]"
+                                >
+                                  <polyline points="9 11 12 14 22 4" />
+                                  <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                                </svg>
+                                <span>
+                                  {project.completedTasks} / {project.totalTasks}{' '}
+                                  tasks
+                                </span>
                               </span>
+
+                              <span className="inline-flex items-center gap-1.5 text-[#867ca1]">
+                                <svg
+                                  width="13"
+                                  height="13"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  aria-hidden="true"
+                                  className="shrink-0"
+                                >
+                                  <rect
+                                    x="3"
+                                    y="4"
+                                    width="18"
+                                    height="18"
+                                    rx="2"
+                                    ry="2"
+                                  />
+                                  <line x1="16" y1="2" x2="16" y2="6" />
+                                  <line x1="8" y1="2" x2="8" y2="6" />
+                                  <line x1="3" y1="10" x2="21" y2="10" />
+                                </svg>
+                                <span>
+                                  {project.dueDate
+                                    ? `Due ${formatDate(project.dueDate)}`
+                                    : 'No due date'}
+                                </span>
+                              </span>
+                            </div>
+
+                            <span
+                              aria-hidden="true"
+                              className="shrink-0 text-[#968cb3] group-hover:text-[#5B44BA] transition-colors"
+                            >
+                              <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <polyline points="9 18 15 12 9 6" />
+                              </svg>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 pl-13">
+                          <div className="flex-1 h-[6px] bg-[#e5e7eb] rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-[#65c300] rounded-full transition-[width] duration-300"
+                              style={{ width: `${progress}%` }}
+                            />
+                          </div>
+                          <span className="shrink-0 text-[11px] font-bold tabular-nums text-[#1d1533]">
+                            {progress}%
+                          </span>
+                        </div>
+                      </Link>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* IMPORTANT TASKS */}
+        <section className="min-w-0 overflow-hidden bg-white rounded-[24px] border border-[#e2daff] shadow-[0_8px_26px_rgba(91,68,186,0.06)]">
+          <div className="relative overflow-hidden flex flex-wrap gap-2 items-center justify-between bg-gradient-to-r from-[#5B44BA] via-[#7A61D4] to-[#9B86EE] px-4 py-4 sm:px-6 sm:py-4.5 text-white">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full bg-white/10"
+            />
+            <div className="relative z-[1] flex items-center gap-3">
+              {/* ไอคอนรูปดาวประกาย (ไม่ซ้ำกับธง High priority) */}
+              <span className="w-9 h-9 rounded-2xl bg-white text-[#5B44BA] shadow-sm flex items-center justify-center">
+                <svg
+                  width="17"
+                  height="17"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.1"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
+              </span>
+              <div>
+                <h2 className="text-[18px] font-extrabold text-white">
+                  Important Tasks
+                </h2>
+                <p className="text-[11px] text-white/80">
+                  Sorted by priority & nearest deadline
+                </p>
+              </div>
+            </div>
+
+            <Link
+              href="/mytasks"
+              className="relative z-[1] min-h-9 rounded-full bg-white hover:bg-[#f3efff] px-4 inline-flex items-center gap-1.5 text-[12px] font-bold text-[#5B44BA] shadow-sm transition-colors duration-150"
+            >
+              <span>View all</span>
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <line x1="5" y1="12" x2="19" y2="12" />
+                <polyline points="12 5 19 12 12 19" />
+              </svg>
+            </Link>
+          </div>
+
+          <div className="p-4 sm:p-6 pt-3 sm:pt-4">
+            {importantTasks.length === 0 ? (
+              <div className="py-12 text-center">
+                <p className="text-[14px] font-semibold text-[#5a5075]">
+                  No important tasks.
+                </p>
+                <p className="mt-1 text-[12px] text-[#8d83a8]">
+                  You are all caught up on pending tasks!
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col divide-y divide-[#d4c8ff]">
+                {importantTasks.map((task) => {
+                  const statusBadgeStyle = getStatusBadgeStyle(task.status);
+
+                  return (
+                    <div
+                      key={`${task.projectId}-${task.taskId}`}
+                      className="py-2 first:pt-1 last:pb-1"
+                    >
+                      <Link
+                        href={`/projects/${task.projectId}/tasks/${task.taskId}`}
+                        className="group relative min-w-0 py-3 px-3 -mx-3 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 hover:bg-[#f6f3ff] transition-colors duration-150"
+                      >
+                        {/* ฝั่งซ้าย: Priority + ชื่อโปรเจกต์ + ชื่อ Task */}
+                        <div className="min-w-0 flex-1 flex items-stretch gap-3">
+                          <span
+                            aria-hidden="true"
+                            className={`shrink-0 w-1 rounded-full ${getPriorityAccentBarClass(
+                              task.priority,
+                            )}`}
+                          />
+
+                          <div className="min-w-0 flex-1 flex flex-col justify-center gap-2">
+                            <div className="min-w-0 flex flex-wrap items-center gap-1.5">
+                              <span
+                                className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${getPriorityBadgeClass(
+                                  task.priority,
+                                )}`}
+                              >
+                                {getPriorityText(task.priority)}
+                              </span>
+
+                              <span className="min-w-0 max-w-full px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#f3f0ff] text-[#5B44BA] break-words">
+                                {task.projectName}
+                              </span>
+                            </div>
+
+                            <div className="min-w-0 flex items-start gap-2 text-[#1d1533]">
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                                className="shrink-0 mt-0.5 text-[#5B44BA]"
+                              >
+                                <rect x="2" y="4" width="20" height="5" rx="1" />
+                                <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9" />
+                                <path d="M10 13h4" />
+                              </svg>
+
+                              <strong className="min-w-0 flex-1 text-[13.5px] font-bold text-[#1d1533] group-hover:text-[#5B44BA] transition-colors break-words">
+                                {task.taskTitle}
+                              </strong>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* บนมือถือ: แสดงใต้ชื่องาน | บนจอ sm ขึ้นไป: แสดงฝั่งขวา */}
+                        <div className="shrink-0 flex items-center justify-between sm:justify-end gap-2.5 pl-4 sm:pl-0 text-[11px] text-[#6e6487]">
+                          <div className="flex flex-wrap sm:flex-col items-center sm:items-end gap-1.5">
+                            {/* Status Pill */}
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold ${statusBadgeStyle.pill}`}
+                            >
+                              <span
+                                aria-hidden="true"
+                                className={`w-1.5 h-1.5 rounded-full ${statusBadgeStyle.dot}`}
+                              />
+                              {task.status}
                             </span>
 
-                            <span className="inline-flex items-center gap-1.5 text-[#867ca1]">
+                            {/* Due Date */}
+                            <span className="inline-flex items-center gap-1.5 font-medium text-[#6e6487]">
                               <svg
                                 width="13"
                                 height="13"
@@ -861,7 +1115,7 @@ export default function DashboardPage() {
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                                 aria-hidden="true"
-                                className="shrink-0"
+                                className="shrink-0 text-[#7c6fa0]"
                               >
                                 <rect
                                   x="3"
@@ -875,12 +1129,14 @@ export default function DashboardPage() {
                                 <line x1="8" y1="2" x2="8" y2="6" />
                                 <line x1="3" y1="10" x2="21" y2="10" />
                               </svg>
-                              <span>
-                                {project.dueDate
-                                  ? `Due ${formatDate(project.dueDate)}`
-                                  : 'No due date'}
-                              </span>
+                              <span>Due {formatDate(task.dueDate)}</span>
                             </span>
+
+                            {task.isOverdue && (
+                              <span className="rounded-full bg-rose-50 border border-rose-200 px-2 py-0.5 text-[10px] font-bold text-rose-600">
+                                Overdue
+                              </span>
+                            )}
                           </div>
 
                           <span
@@ -901,240 +1157,13 @@ export default function DashboardPage() {
                             </svg>
                           </span>
                         </div>
-                      </div>
-
-                      <div className="flex items-center gap-3 pl-13">
-                        <div className="flex-1 h-[6px] bg-[#e5e7eb] rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-[#65c300] rounded-full transition-[width] duration-300"
-                            style={{ width: `${progress}%` }}
-                          />
-                        </div>
-                        <span className="shrink-0 text-[11px] font-bold tabular-nums text-[#1d1533]">
-                          {progress}%
-                        </span>
-                      </div>
-                    </Link>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* IMPORTANT TASKS */}
-        <section className="min-w-0 bg-white rounded-[24px] border border-[#e2daff] p-4 sm:p-6 shadow-[0_8px_26px_rgba(91,68,186,0.06)]">
-          <div className="flex flex-wrap gap-2 items-center justify-between pb-4 border-b border-[#e5deff]">
-            <div className="flex items-center gap-2.5">
-              {/* ไอคอนรูปดาวประกาย (ไม่ซ้ำกับธง High priority) */}
-              <span className="w-9 h-9 rounded-2xl bg-[#f3efff] text-[#5B44BA] flex items-center justify-center">
-                <svg
-                  width="17"
-                  height="17"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.1"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                </svg>
-              </span>
-              <div>
-                <h2 className="text-[18px] font-extrabold text-[#1d1533]">
-                  Important Tasks
-                </h2>
-                <p className="text-[11px] text-[#8d83a8]">
-                  Sorted by priority & nearest deadline
-                </p>
+                      </Link>
+                    </div>
+                  );
+                })}
               </div>
-            </div>
-
-            <Link
-              href="/mytasks"
-              className="min-h-9 rounded-full bg-[#f6f3ff] hover:bg-[#5B44BA] px-4 inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#5B44BA] hover:text-white transition-colors duration-150"
-            >
-              <span>View all</span>
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </Link>
+            )}
           </div>
-
-          {importantTasks.length === 0 ? (
-            <div className="py-12 text-center">
-              <p className="text-[14px] font-semibold text-[#5a5075]">
-                No important tasks.
-              </p>
-              <p className="mt-1 text-[12px] text-[#8d83a8]">
-                You are all caught up on pending tasks!
-              </p>
-            </div>
-          ) : (
-            <div className="mt-2 flex flex-col divide-y divide-[#d4c8ff]">
-              {importantTasks.map((task) => {
-                const priorityAccentBar =
-                  task.priority === 1
-                    ? 'bg-[#ea6a2a]'
-                    : task.priority === 2
-                      ? 'bg-[#e3a817]'
-                      : 'bg-[#b7afc9]';
-
-                const isInProgress = task.status === 'In progress';
-
-                return (
-                  <div
-                    key={`${task.projectId}-${task.taskId}`}
-                    className="py-2 first:pt-1 last:pb-1"
-                  >
-                    <Link
-                      href={`/projects/${task.projectId}/tasks/${task.taskId}`}
-                      className="group relative min-w-0 py-3 px-3 -mx-3 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 hover:bg-[#f6f3ff] transition-colors duration-150"
-                    >
-                      {/* ฝั่งซ้าย: Priority + ชื่อโปรเจกต์ + ชื่อ Task */}
-                      <div className="min-w-0 flex-1 flex items-stretch gap-3">
-                        <span
-                          aria-hidden="true"
-                          className={`shrink-0 w-1 rounded-full ${priorityAccentBar}`}
-                        />
-
-                        <div className="min-w-0 flex-1 flex flex-col justify-center gap-2">
-                          <div className="min-w-0 flex flex-wrap items-center gap-1.5">
-                            <span
-                              className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                                task.priority === 1
-                                  ? 'bg-[#fff0e8] text-[#c45a20]'
-                                  : task.priority === 2
-                                    ? 'bg-[#fff8df] text-[#987000]'
-                                    : 'bg-[#eef0f4] text-[#555b66]'
-                              }`}
-                            >
-                              {getPriorityText(task.priority)}
-                            </span>
-
-                            <span className="min-w-0 max-w-full px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#f3f0ff] text-[#5B44BA] break-words">
-                              {task.projectName}
-                            </span>
-                          </div>
-
-                          <div className="min-w-0 flex items-start gap-2 text-[#1d1533]">
-                            <svg
-                              width="14"
-                              height="14"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden="true"
-                              className="shrink-0 mt-0.5 text-[#5B44BA]"
-                            >
-                              <rect x="2" y="4" width="20" height="5" rx="1" />
-                              <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9" />
-                              <path d="M10 13h4" />
-                            </svg>
-
-                            <strong className="min-w-0 flex-1 text-[13.5px] font-bold text-[#1d1533] group-hover:text-[#5B44BA] transition-colors break-words">
-                              {task.taskTitle}
-                            </strong>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* บนมือถือ: แสดงใต้ชื่องาน | บนจอ sm ขึ้นไป: แสดงฝั่งขวา */}
-                      <div className="shrink-0 flex items-center justify-between sm:justify-end gap-2.5 pl-4 sm:pl-0 text-[11px] text-[#6e6487]">
-                        <div className="flex flex-wrap sm:flex-col items-center sm:items-end gap-1.5">
-                          {/* Status Pill */}
-                          <span
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold ${
-                              isInProgress
-                                ? 'bg-[#ebf3ff] text-[#2563eb] border border-[#d6e6ff]'
-                                : 'bg-[#f4f2fa] text-[#5f5678] border border-[#e6e1f5]'
-                            }`}
-                          >
-                            <span
-                              aria-hidden="true"
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                isInProgress ? 'bg-[#2563eb]' : 'bg-[#8d83a8]'
-                              }`}
-                            />
-                            {task.status}
-                          </span>
-
-                          {/* Due Date */}
-                          <span className="inline-flex items-center gap-1.5 font-medium text-[#6e6487]">
-                            <svg
-                              width="13"
-                              height="13"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden="true"
-                              className="shrink-0 text-[#7c6fa0]"
-                            >
-                              <rect
-                                x="3"
-                                y="4"
-                                width="18"
-                                height="18"
-                                rx="2"
-                                ry="2"
-                              />
-                              <line x1="16" y1="2" x2="16" y2="6" />
-                              <line x1="8" y1="2" x2="8" y2="6" />
-                              <line x1="3" y1="10" x2="21" y2="10" />
-                            </svg>
-                            <span>Due {formatDate(task.dueDate)}</span>
-                          </span>
-
-                          {task.isOverdue && (
-                            <span className="rounded-full bg-[#fff0f0] border border-[#ffd4d4] px-2 py-0.5 text-[10px] font-bold text-[#d13232]">
-                              Overdue
-                            </span>
-                          )}
-                        </div>
-
-                        <span
-                          aria-hidden="true"
-                          className="shrink-0 text-[#968cb3] group-hover:text-[#5B44BA] transition-colors"
-                        >
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <polyline points="9 18 15 12 9 6" />
-                          </svg>
-                        </span>
-                      </div>
-                    </Link>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </section>
       </div>
     </div>

@@ -54,6 +54,15 @@ type SubmissionAccountStatus =
   | 'unavailable'
   | 'stale';
 
+type RawFormValues = {
+  taskTitle: string;
+  taskDescription: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dueDate: string;
+  assigneeIds: number[];
+};
+
 type InitialFormSnapshot = {
   taskTitle: string;
   taskDescription: string | null;
@@ -63,26 +72,39 @@ type InitialFormSnapshot = {
   assigneeIds: number[];
 };
 
-const STATUS_OPTIONS: TaskStatus[] = [
-  'To do',
-  'In progress',
-  'Done',
+const WORKSPACE_PATTERN_BG = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cg fill='none' stroke='%235B44BA' stroke-opacity='0.1' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M24 18V30M18 24H30' stroke-width='1.7'/%3E%3Crect x='76' y='14' width='10' height='10' rx='2.5' transform='rotate(45 81 19)' stroke-width='1.6'/%3E%3Ccircle cx='122' cy='30' r='5' stroke-width='1.6'/%3E%3Cg transform='translate(14 70)'%3E%3Crect x='0' y='0' width='15' height='15' rx='4' stroke-width='1.6'/%3E%3Cpath d='M4.5 7.5L6.8 9.8L10.8 5.5' stroke-width='1.6'/%3E%3C/g%3E%3Cpath d='M70 58L72.2 64.8L79 67L72.2 69.2L70 76L67.8 69.2L61 67L67.8 64.8L70 58Z' stroke-width='1.5'/%3E%3Crect x='110' y='78' width='16' height='7' rx='3.5' transform='rotate(-28 118 81.5)' stroke-width='1.6'/%3E%3Cpath d='M82 113V123M77 118H87' stroke-width='1.7'/%3E%3C/g%3E%3Cg fill='%235B44BA' fill-opacity='0.1'%3E%3Ccircle cx='28' cy='118' r='2'/%3E%3Ccircle cx='36' cy='114' r='2'/%3E%3Ccircle cx='35' cy='123' r='2'/%3E%3Ccircle cx='124' cy='122' r='2.2'/%3E%3C/g%3E%3C/svg%3E")`;
+
+const STATUS_OPTIONS: {
+  value: TaskStatus;
+  label: string;
+  dotClass: string;
+}[] = [
+  { value: 'To do', label: 'To do', dotClass: 'bg-slate-600' },
+  { value: 'In progress', label: 'In progress', dotClass: 'bg-blue-600' },
+  { value: 'Done', label: 'Done', dotClass: 'bg-emerald-500' },
 ];
 
-function getPriorityLabel(priority: TaskPriority): string {
-  switch (priority) {
-    case 1:
-      return 'High';
-    case 2:
-      return 'Medium';
-    case 3:
-      return 'Low';
-  }
-}
+const PRIORITY_OPTIONS: {
+  value: TaskPriority;
+  label: string;
+  dotClass: string;
+}[] = [
+  { value: 1, label: 'High', dotClass: 'bg-red-500' },
+  { value: 2, label: 'Medium', dotClass: 'bg-amber-500' },
+  { value: 3, label: 'Low', dotClass: 'bg-cyan-500' },
+];
 
 function normalizeDateInput(value: string | null | undefined): string {
   if (!value) return '';
   return value.slice(0, 10);
+}
+
+function canUserEditTask(data: EditTaskData, userId: number): boolean {
+  const isProjectOwner = data.project.myRole?.toLowerCase() === 'owner';
+  const isTaskAssignee = data.task.assignees.some(
+    (assignee) => assignee.userId === userId,
+  );
+  return isProjectOwner || isTaskAssignee;
 }
 
 function haveSameAssigneeSet(
@@ -103,6 +125,25 @@ function haveSameAssigneeSet(
   }
 
   return true;
+}
+
+function buildRawFormValues(data: EditTaskData): RawFormValues {
+  return {
+    taskTitle: data.task.taskTitle,
+    taskDescription: data.task.taskDescription ?? '',
+    status: data.task.status,
+    priority: data.task.priority,
+    dueDate: normalizeDateInput(data.task.dueDate),
+    assigneeIds: Array.from(
+      new Set(
+        data.task.assignees
+          .map((assignee) => assignee.userId)
+          .filter((id) =>
+            data.members.some((member) => member.userId === id),
+          ),
+      ),
+    ),
+  };
 }
 
 function EditTaskForm({
@@ -142,45 +183,123 @@ function EditTaskForm({
     [data.members],
   );
 
-  // เก็บค่าเริ่มต้นตอนเปิดฟอร์มครั้งแรกไว้เปรียบเทียบตอนส่ง PATCH
-  const [initialSnapshot] = useState<InitialFormSnapshot>(() => ({
-    taskTitle: data.task.taskTitle.trim(),
-    taskDescription: (data.task.taskDescription ?? '').trim() || null,
-    status: data.task.status,
-    priority: data.task.priority,
-    dueDate: normalizeDateInput(data.task.dueDate),
-    assigneeIds: Array.from(
-      new Set(
-        data.task.assignees
-          .map((assignee) => assignee.userId)
-          .filter((id) =>
-            data.members.some((member) => member.userId === id),
-          ),
-      ),
-    ),
-  }));
+  const latestRawValues = useMemo(
+    () => buildRawFormValues(data),
+    [data],
+  );
 
-  const [taskTitle, setTaskTitle] = useState(data.task.taskTitle);
+  // เก็บค่าเริ่มต้นตอนเปิดฟอร์มไว้เปรียบเทียบตอนส่ง PATCH และตอนกด Cancel
+  const [rawBaseline, setRawBaseline] = useState<RawFormValues>(
+    () => latestRawValues,
+  );
+
+  const initialSnapshot = useMemo<InitialFormSnapshot>(
+    () => ({
+      taskTitle: rawBaseline.taskTitle.trim(),
+      taskDescription: rawBaseline.taskDescription.trim() || null,
+      status: rawBaseline.status,
+      priority: rawBaseline.priority,
+      dueDate: rawBaseline.dueDate,
+      assigneeIds: rawBaseline.assigneeIds,
+    }),
+    [rawBaseline],
+  );
+
+  const [taskTitle, setTaskTitle] = useState(rawBaseline.taskTitle);
   const [taskDescription, setTaskDescription] = useState(
-    data.task.taskDescription ?? '',
+    rawBaseline.taskDescription,
   );
-  const [status, setStatus] = useState<TaskStatus>(data.task.status);
+  const [status, setStatus] = useState<TaskStatus>(rawBaseline.status);
   const [priority, setPriority] = useState<TaskPriority>(
-    data.task.priority,
+    rawBaseline.priority,
   );
-  const [dueDate, setDueDate] = useState(
-    normalizeDateInput(data.task.dueDate),
-  );
+  const [dueDate, setDueDate] = useState(rawBaseline.dueDate);
   const [assigneeIds, setAssigneeIds] = useState<number[]>(
-    () => initialSnapshot.assigneeIds,
+    () => rawBaseline.assigneeIds,
   );
+
+  const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
+  const [isPriorityDropdownOpen, setIsPriorityDropdownOpen] = useState(false);
 
   const [isSaving, setIsSaving] = useState(false);
   const [errors, setErrors] = useState<TaskFormErrors>({});
 
+  const statusDropdownRef = useRef<HTMLDivElement | null>(null);
+  const priorityDropdownRef = useRef<HTMLDivElement | null>(null);
+
   const isMountedRef = useRef(false);
   const submittingRef = useRef(false);
   const activeSubmissionRef = useRef<object | null>(null);
+  const isDiscardedRef = useRef(false);
+  const latestRawValuesRef = useRef(latestRawValues);
+
+  useLayoutEffect(() => {
+    latestRawValuesRef.current = latestRawValues;
+  }, [latestRawValues]);
+
+  const resetFormToInitial = useCallback(() => {
+    const baseline = latestRawValuesRef.current;
+    isDiscardedRef.current = true;
+    setRawBaseline(baseline);
+    setTaskTitle(baseline.taskTitle);
+    setTaskDescription(baseline.taskDescription);
+    setStatus(baseline.status);
+    setPriority(baseline.priority);
+    setDueDate(baseline.dueDate);
+    setAssigneeIds(baseline.assigneeIds);
+    setErrors({});
+    setIsStatusDropdownOpen(false);
+    setIsPriorityDropdownOpen(false);
+  }, []);
+
+  const handleCancel = useCallback(() => {
+    if (isSaving) return;
+    resetFormToInitial();
+    router.push(`/projects/${projectId}/tasks/${taskId}`);
+    router.refresh();
+  }, [isSaving, projectId, resetFormToInitial, router, taskId]);
+
+  // ซิงก์ค่าใหม่จากเซิร์ฟเวอร์เฉพาะช่องที่ผู้ใช้ยังไม่แก้ไข หรือหลังกดยกเลิก
+  useEffect(() => {
+    setRawBaseline((prevBaseline) => {
+      if (isDiscardedRef.current) {
+        setTaskTitle(latestRawValues.taskTitle);
+        setTaskDescription(latestRawValues.taskDescription);
+        setStatus(latestRawValues.status);
+        setPriority(latestRawValues.priority);
+        setDueDate(latestRawValues.dueDate);
+        setAssigneeIds(latestRawValues.assigneeIds);
+        return latestRawValues;
+      }
+
+      setTaskTitle((cur) =>
+        cur.trim() === prevBaseline.taskTitle.trim()
+          ? latestRawValues.taskTitle
+          : cur,
+      );
+      setTaskDescription((cur) =>
+        cur.trim() === prevBaseline.taskDescription.trim()
+          ? latestRawValues.taskDescription
+          : cur,
+      );
+      setStatus((cur) =>
+        cur === prevBaseline.status ? latestRawValues.status : cur,
+      );
+      setPriority((cur) =>
+        cur === prevBaseline.priority ? latestRawValues.priority : cur,
+      );
+      setDueDate((cur) =>
+        cur === prevBaseline.dueDate ? latestRawValues.dueDate : cur,
+      );
+      setAssigneeIds((cur) =>
+        haveSameAssigneeSet(cur, prevBaseline.assigneeIds)
+          ? latestRawValues.assigneeIds
+          : cur,
+      );
+
+      return latestRawValues;
+    });
+  }, [latestRawValues]);
 
   const validAssigneeIds = useMemo(
     () =>
@@ -192,12 +311,48 @@ function EditTaskForm({
 
   useEffect(() => {
     isMountedRef.current = true;
+    isDiscardedRef.current = false;
 
     return () => {
       isMountedRef.current = false;
       activeSubmissionRef.current = null;
+      resetFormToInitial();
     };
-  }, []);
+  }, [resetFormToInitial]);
+
+  useEffect(() => {
+    if (!isStatusDropdownOpen && !isPriorityDropdownOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        statusDropdownRef.current &&
+        !statusDropdownRef.current.contains(target)
+      ) {
+        setIsStatusDropdownOpen(false);
+      }
+      if (
+        priorityDropdownRef.current &&
+        !priorityDropdownRef.current.contains(target)
+      ) {
+        setIsPriorityDropdownOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsStatusDropdownOpen(false);
+        setIsPriorityDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isStatusDropdownOpen, isPriorityDropdownOpen]);
 
   const isCurrentSubmission = useCallback(
     (requestId: object) => {
@@ -381,6 +536,8 @@ function EditTaskForm({
       return;
     }
 
+    isDiscardedRef.current = false;
+
     setAssigneeIds((current) =>
       current.includes(assigneeUserId)
         ? current.filter((id) => id !== assigneeUserId)
@@ -401,6 +558,16 @@ function EditTaskForm({
       isRefreshing ||
       loadFailed
     ) {
+      return;
+    }
+
+    setIsStatusDropdownOpen(false);
+    setIsPriorityDropdownOpen(false);
+
+    if (!canUserEditTask(data, userId)) {
+      setErrors({
+        general: 'You do not have permission to edit this task.',
+      });
       return;
     }
 
@@ -452,6 +619,7 @@ function EditTaskForm({
 
     // ถ้าไม่มีฟิลด์ไหนเปลี่ยนเลย ไม่ต้องยิง PATCH
     if (Object.keys(patchInput).length === 0) {
+      resetFormToInitial();
       router.push(`/projects/${projectId}/tasks/${taskId}`);
       return;
     }
@@ -499,6 +667,30 @@ function EditTaskForm({
         'project ID',
       );
       const numericTaskId = parseRouteId(taskId, 'task ID');
+
+      // ตรวจสอบสิทธิ์ล่าสุดจากเซิร์ฟเวอร์ก่อนส่ง PATCH (Owner หรือ Assignee เท่านั้น)
+      const [latestTask, latestProject] = await Promise.all([
+        taskApi.getTaskById(numericProjectId, numericTaskId),
+        projectApi.getProjectById(numericProjectId),
+      ]);
+
+      if (!isCurrent()) return;
+
+      if (
+        !canUserEditTask(
+          {
+            task: latestTask,
+            project: latestProject,
+            members: data.members,
+          },
+          userId,
+        )
+      ) {
+        setErrors({
+          general: 'You do not have permission to edit this task.',
+        });
+        return;
+      }
 
       await taskApi.updateTask(
         numericProjectId,
@@ -581,224 +773,671 @@ function EditTaskForm({
     );
   }
 
+  const activeStatusOption =
+    STATUS_OPTIONS.find((option) => option.value === status) ??
+    STATUS_OPTIONS[0];
+
+  const activePriorityOption =
+    PRIORITY_OPTIONS.find((option) => option.value === priority) ??
+    PRIORITY_OPTIONS[1];
+
   return (
-    <div className="mx-auto w-full max-w-4xl min-w-0 [overflow-wrap:anywhere]">
-      <Link
-        href={`/projects/${projectId}/tasks/${taskId}`}
-        className="mb-5 inline-flex min-h-11 items-center text-[13px] text-[#666666] hover:text-black"
-      >
-        ← Back to Task Detail
-      </Link>
+    <div className="relative min-w-0 pb-10 [overflow-wrap:anywhere]">
+      {/* FULL-SCREEN WORKSPACE PATTERN BACKGROUND */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 z-0"
+        style={{
+          backgroundImage: WORKSPACE_PATTERN_BG,
+          backgroundRepeat: 'repeat',
+          backgroundSize: '140px 140px',
+        }}
+      />
 
-      <div className="mb-6">
-        <p className="mb-1 text-[13px] text-[#777777]">
-          {data.project.projectName}
-        </p>
-
-        <h1 className="text-[30px] font-extrabold text-[#1f1f1f]">
-          Edit Task
-        </h1>
-
-        <p className="mt-2 text-[13px] text-[#777777]">
-          Update task details, status, priority, due date, or assignees.
-        </p>
-      </div>
-
-      <form
-        onSubmit={handleSubmit}
-        noValidate
-        aria-busy={isSaving}
-        className="rounded-2xl border border-[#e0e0e0] bg-white p-4 shadow-sm sm:p-6 md:p-8"
-      >
-        <fieldset disabled={isSaving} className="contents">
-          {errors.general && (
-            <div
-              role="alert"
-              className="mb-6 rounded-lg border border-red-300 bg-red-50 p-3.5 text-[13px] text-red-700"
-            >
-              {errors.general}
-            </div>
-          )}
-
-          <div className="mb-5">
-            <label
-              htmlFor="taskTitle"
-              className="mb-2 block text-[13px] font-semibold text-[#333333]"
-            >
-              Task title <span className="text-red-500">*</span>
-            </label>
-
-            <input
-              id="taskTitle"
-              type="text"
-              maxLength={200}
-              value={taskTitle}
-              onChange={(event) => {
-                setTaskTitle(event.target.value);
-                clearError('taskTitle');
-              }}
-              placeholder="e.g. Design login page"
-              className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] ${
-                errors.taskTitle
-                  ? 'border-red-500'
-                  : 'border-[#dcdcdc]'
-              }`}
-              aria-invalid={Boolean(errors.taskTitle)}
-            />
-
-            {errors.taskTitle && (
-              <p className="mt-1.5 text-[12px] text-red-600">
-                {errors.taskTitle}
-              </p>
-            )}
-
-            <p className="mt-1.5 text-right text-[11px] text-[#999999]">
-              {taskTitle.length}/200
-            </p>
-          </div>
-
-          <div className="mb-5">
-            <label
-              htmlFor="taskDescription"
-              className="mb-2 block text-[13px] font-semibold text-[#333333]"
-            >
-              Description
-            </label>
-
-            <textarea
-              id="taskDescription"
-              rows={4}
-              value={taskDescription}
-              onChange={(event) => {
-                setTaskDescription(event.target.value);
-                clearError('taskDescription');
-              }}
-              placeholder="Describe what needs to be done..."
-              className="w-full resize-y rounded-xl border border-[#dcdcdc] px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
-            />
-          </div>
-
-          <div className="mb-6 grid gap-5 sm:grid-cols-3">
-            <div>
-              <label
-                htmlFor="status"
-                className="mb-2 block text-[13px] font-semibold text-[#333333]"
-              >
-                Status <span className="text-red-500">*</span>
-              </label>
-
-              <select
-                id="status"
-                value={status}
-                onChange={(event) => {
-                  setStatus(event.target.value as TaskStatus);
-                  clearError('status');
-                }}
-                className="w-full rounded-xl border border-[#dcdcdc] bg-white px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
-              >
-                {STATUS_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label
-                htmlFor="priority"
-                className="mb-2 block text-[13px] font-semibold text-[#333333]"
-              >
-                Priority <span className="text-red-500">*</span>
-              </label>
-
-              <select
-                id="priority"
-                value={priority}
-                onChange={(event) => {
-                  setPriority(
-                    Number(event.target.value) as TaskPriority,
-                  );
-                  clearError('priority');
-                }}
-                className="w-full rounded-xl border border-[#dcdcdc] bg-white px-4 py-3 text-[13px] outline-none focus:border-[#555555]"
-              >
-                <option value={1}>{getPriorityLabel(1)}</option>
-                <option value={2}>{getPriorityLabel(2)}</option>
-                <option value={3}>{getPriorityLabel(3)}</option>
-              </select>
-
-              {errors.priority && (
-                <p className="mt-1.5 text-[12px] text-red-600">
-                  {errors.priority}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label
-                htmlFor="dueDate"
-                className="mb-2 block text-[13px] font-semibold text-[#333333]"
-              >
-                Due date <span className="text-red-500">*</span>
-              </label>
-
-              <input
-                id="dueDate"
-                type="date"
-                value={dueDate}
-                onChange={(event) => {
-                  setDueDate(event.target.value);
-                  clearError('dueDate');
-                }}
-                className={`w-full rounded-xl border px-4 py-3 text-[13px] outline-none focus:border-[#555555] ${
-                  errors.dueDate
-                    ? 'border-red-500'
-                    : 'border-[#dcdcdc]'
-                }`}
-                aria-invalid={Boolean(errors.dueDate)}
-              />
-
-              {errors.dueDate && (
-                <p className="mt-1.5 text-[12px] text-red-600">
-                  {errors.dueDate}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <AssigneeSelector
-            members={data.members}
-            selectedIds={validAssigneeIds}
-            error={errors.assigneeIds}
-            disabled={isSaving}
-            onToggle={toggleAssignee}
+      <div className="relative z-[1] mx-auto w-full max-w-4xl space-y-6">
+        {/* PURPLE HEADER BANNER */}
+        <div className="relative overflow-hidden rounded-[26px] bg-gradient-to-r from-[#755FD9] via-[#7F68E2] to-[#8C76E8] px-6 py-6 sm:px-9 sm:py-7 shadow-[0_10px_28px_rgba(91,68,186,0.18)]">
+          {/* Decorative soft circles */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -left-12 -bottom-20 h-56 w-56 rounded-full bg-white/[0.07]"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute right-8 -top-12 h-60 w-60 rounded-full bg-white/[0.08]"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute right-44 bottom-2 h-36 w-36 rounded-full bg-white/[0.06]"
           />
 
-          <div className="flex flex-wrap justify-end gap-3 border-t border-[#eeeeee] pt-5">
-            <button
-              type="button"
-              disabled={isSaving}
-              onClick={() =>
-                router.push(
-                  `/projects/${projectId}/tasks/${taskId}`,
-                )
-              }
-              className="min-h-11 rounded-xl border border-[#dddddd] px-5 text-[13px] font-medium text-[#444444] hover:bg-[#f7f7f7] disabled:cursor-not-allowed disabled:opacity-50"
+          {/* Decorative vector doodles */}
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 896 180"
+            fill="none"
+            preserveAspectRatio="xMidYMid slice"
+            className="pointer-events-none absolute inset-0 h-full w-full"
+          >
+            <g
+              stroke="#FFFFFF"
+              strokeOpacity="0.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             >
-              Cancel
-            </button>
+              <path
+                d="M540 34L542.4 41.6L550 44L542.4 46.4L540 54L537.6 46.4L530 44L537.6 41.6L540 34Z"
+                strokeWidth="1.7"
+              />
+              <path d="M448 124V136M442 130H454" strokeWidth="1.9" />
+              <path d="M642 30V40M637 35H647" strokeWidth="1.8" />
+              <rect
+                x="690"
+                y="108"
+                width="13"
+                height="13"
+                rx="3.5"
+                transform="rotate(45 696.5 114.5)"
+                strokeWidth="1.8"
+              />
+              <g transform="translate(778 52)">
+                <rect
+                  x="0"
+                  y="0"
+                  width="17"
+                  height="17"
+                  rx="4.5"
+                  strokeWidth="1.8"
+                />
+                <path d="M5 8.5L7.6 11.1L12.2 6.2" strokeWidth="1.8" />
+              </g>
+              <circle cx="496" cy="64" r="5" strokeWidth="1.8" />
+            </g>
+          </svg>
 
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="min-h-11 rounded-xl bg-[#222222] px-6 py-3 text-[13px] font-semibold text-white hover:bg-[#444444] disabled:cursor-not-allowed disabled:opacity-60"
+          <div className="relative z-[1]">
+            {/* BREADCRUMB */}
+            <nav
+              aria-label="Breadcrumb"
+              className="mb-3.5 flex flex-wrap items-center gap-1.5 text-[13px] text-white/80"
             >
-              {isSaving ? 'Saving...' : 'Save Changes'}
-            </button>
+              <Link
+                href="/projects"
+                onClick={(event) => {
+                  if (isSaving) {
+                    event.preventDefault();
+                    return;
+                  }
+                  resetFormToInitial();
+                }}
+                aria-disabled={isSaving}
+                tabIndex={isSaving ? -1 : undefined}
+                className={`font-medium hover:text-white transition-colors ${
+                  isSaving ? 'pointer-events-none opacity-60' : ''
+                }`}
+              >
+                Projects
+              </Link>
+              <span aria-hidden="true" className="text-white/55">
+                &gt;
+              </span>
+              <Link
+                href={`/projects/${projectId}`}
+                onClick={(event) => {
+                  if (isSaving) {
+                    event.preventDefault();
+                    return;
+                  }
+                  resetFormToInitial();
+                }}
+                aria-disabled={isSaving}
+                tabIndex={isSaving ? -1 : undefined}
+                className={`font-medium hover:text-white transition-colors break-words ${
+                  isSaving ? 'pointer-events-none opacity-60' : ''
+                }`}
+              >
+                {data.project.projectName}
+              </Link>
+              <span aria-hidden="true" className="text-white/55">
+                &gt;
+              </span>
+              <Link
+                href={`/projects/${projectId}/tasks/${taskId}`}
+                onClick={(event) => {
+                  if (isSaving) {
+                    event.preventDefault();
+                    return;
+                  }
+                  resetFormToInitial();
+                }}
+                aria-disabled={isSaving}
+                tabIndex={isSaving ? -1 : undefined}
+                className={`font-medium hover:text-white transition-colors break-words ${
+                  isSaving ? 'pointer-events-none opacity-60' : ''
+                }`}
+              >
+                {data.task.taskTitle}
+              </Link>
+              <span aria-hidden="true" className="text-white/55">
+                &gt;
+              </span>
+              <span className="font-bold text-white">Edit Task</span>
+            </nav>
+
+            {/* BACK BUTTON + TITLE */}
+            <div className="flex min-w-0 items-start gap-4">
+              <Link
+                href={`/projects/${projectId}/tasks/${taskId}`}
+                aria-label="Back to Task Detail"
+                onClick={(event) => {
+                  if (isSaving) {
+                    event.preventDefault();
+                    return;
+                  }
+                  resetFormToInitial();
+                }}
+                aria-disabled={isSaving}
+                tabIndex={isSaving ? -1 : undefined}
+                className={`mt-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 hover:border-white/40 transition-colors ${
+                  isSaving ? 'pointer-events-none opacity-50' : ''
+                }`}
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <line x1="19" y1="12" x2="5" y2="12" />
+                  <polyline points="12 19 5 12 12 5" />
+                </svg>
+              </Link>
+
+              <div className="min-w-0">
+                <h1 className="text-[26px] sm:text-[32px] font-extrabold leading-tight tracking-tight text-white">
+                  Edit Task
+                </h1>
+
+                <p className="mt-1 text-[13.5px] sm:text-[14px] text-white/85">
+                  Update task details, status, priority, due date, or assignees.
+                </p>
+              </div>
+            </div>
           </div>
-        </fieldset>
-      </form>
+        </div>
+
+        {/* FORM CARD */}
+        <form
+          onSubmit={handleSubmit}
+          noValidate
+          aria-busy={isSaving}
+          className="min-w-0 rounded-2xl border border-[#cfc9e8] bg-white/95 p-5 shadow-[0_6px_24px_rgba(35,25,66,0.06)] sm:p-7 md:p-8"
+        >
+          <fieldset disabled={isSaving} className="contents">
+            {errors.general && (
+              <div
+                role="alert"
+                className="mb-6 flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] font-medium text-rose-600"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.1"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                  className="mt-0.5 shrink-0"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <p className="min-w-0">{errors.general}</p>
+              </div>
+            )}
+
+            {/* SECTION HEADER */}
+            <div className="mb-6 flex items-center gap-3 border-b border-[#ece8f8] pb-4">
+              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#dcd4fa] bg-[#f1edff] text-[#5B44BA]">
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                </svg>
+              </span>
+
+              <div>
+                <h2 className="text-[17px] font-extrabold text-[#1f1f1f]">
+                  Task details
+                </h2>
+                <p className="text-[12.5px] text-[#6e6b7b]">
+                  Modify the task information below.
+                </p>
+              </div>
+            </div>
+
+            {/* TASK TITLE */}
+            <div className="mb-5">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <label
+                  htmlFor="taskTitle"
+                  className="block text-[13px] font-bold text-[#2b2838]"
+                >
+                  Task title <span className="text-rose-500">*</span>
+                </label>
+
+                <span className="shrink-0 text-[11.5px] font-medium text-[#8f89a6] tabular-nums">
+                  {taskTitle.length}/200
+                </span>
+              </div>
+
+              <input
+                id="taskTitle"
+                type="text"
+                maxLength={200}
+                required
+                value={taskTitle}
+                onChange={(event) => {
+                  isDiscardedRef.current = false;
+                  setTaskTitle(event.target.value);
+                  clearError('taskTitle');
+                }}
+                placeholder="e.g. Design login page"
+                className={`min-h-11 w-full rounded-xl border px-4 py-2.5 text-[13.5px] text-[#1f1f1f] placeholder:text-[#8f89a6] outline-none transition-all disabled:cursor-not-allowed disabled:bg-[#f2f0f7] disabled:text-[#8c889c] ${
+                  errors.taskTitle
+                    ? 'border-rose-400 bg-rose-50/40 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/15'
+                    : 'border-[#cfc9e8] bg-[#f8f6fe] focus:border-[#5B44BA] focus:bg-white focus:ring-2 focus:ring-[#5B44BA]/15'
+                }`}
+                aria-invalid={Boolean(errors.taskTitle)}
+              />
+
+              {errors.taskTitle && (
+                <p
+                  role="alert"
+                  className="mt-1.5 text-[12px] font-medium text-rose-600"
+                >
+                  {errors.taskTitle}
+                </p>
+              )}
+            </div>
+
+            {/* DESCRIPTION */}
+            <div className="mb-5">
+              <label
+                htmlFor="taskDescription"
+                className="mb-2 block text-[13px] font-bold text-[#2b2838]"
+              >
+                Description
+              </label>
+
+              <textarea
+                id="taskDescription"
+                rows={4}
+                value={taskDescription}
+                onChange={(event) => {
+                  isDiscardedRef.current = false;
+                  setTaskDescription(event.target.value);
+                  clearError('taskDescription');
+                }}
+                placeholder="Describe what needs to be done..."
+                className="w-full resize-y rounded-xl border border-[#cfc9e8] bg-[#f8f6fe] px-4 py-3 text-[13.5px] leading-relaxed text-[#1f1f1f] placeholder:text-[#8f89a6] outline-none transition-all focus:border-[#5B44BA] focus:bg-white focus:ring-2 focus:ring-[#5B44BA]/15 disabled:cursor-not-allowed disabled:bg-[#f2f0f7] disabled:text-[#8c889c]"
+              />
+            </div>
+
+            {/* STATUS, PRIORITY & DUE DATE SECTION */}
+            <div className="mb-6 rounded-xl border border-[#e2dcf5] bg-[#f7f5fd]/80 p-4 sm:p-5">
+              <div className="mb-3.5 flex items-center gap-2 text-[12.5px] font-bold text-[#4c35ab]">
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.1"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                  <line x1="16" y1="2" x2="16" y2="6" />
+                  <line x1="8" y1="2" x2="8" y2="6" />
+                  <line x1="3" y1="10" x2="21" y2="10" />
+                </svg>
+                <span>Status, Priority &amp; Schedule</span>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-3 sm:gap-5 [&>div]:min-w-0">
+                {/* STATUS CUSTOM ROUNDED DROPDOWN */}
+                <div ref={statusDropdownRef} className="relative">
+                  <label
+                    id="status-label"
+                    className="mb-2 block text-[13px] font-bold text-[#2b2838]"
+                  >
+                    Status <span className="text-rose-500">*</span>
+                  </label>
+
+                  <button
+                    type="button"
+                    aria-labelledby="status-label"
+                    aria-haspopup="listbox"
+                    aria-expanded={isStatusDropdownOpen}
+                    disabled={isSaving}
+                    onClick={() => {
+                      setIsStatusDropdownOpen((prev) => !prev);
+                      setIsPriorityDropdownOpen(false);
+                    }}
+                    className={`flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border px-3.5 py-2 text-left text-[13.5px] font-semibold outline-none transition-all cursor-pointer disabled:cursor-not-allowed disabled:bg-[#f2f0f7] disabled:text-[#8c889c] ${
+                      isStatusDropdownOpen
+                        ? 'border-[#5B44BA] bg-white text-[#5B44BA] ring-2 ring-[#5B44BA]/15'
+                        : 'border-[#cfc9e8] bg-white text-[#1f1f1f] hover:border-[#9e8ce6]'
+                    }`}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${activeStatusOption.dotClass}`}
+                      />
+                      <span className="truncate">
+                        {activeStatusOption.label}
+                      </span>
+                    </span>
+
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                      className={`shrink-0 transition-transform duration-150 ${
+                        isStatusDropdownOpen
+                          ? 'rotate-180 text-[#5B44BA]'
+                          : 'text-[#6e6b7b]'
+                      }`}
+                    >
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+
+                  {isStatusDropdownOpen && !isSaving && (
+                    <div
+                      role="listbox"
+                      aria-labelledby="status-label"
+                      className="absolute left-0 top-full z-30 mt-1.5 w-full min-w-[160px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
+                    >
+                      {STATUS_OPTIONS.map((option) => {
+                        const isSelected = status === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            role="option"
+                            aria-selected={isSelected}
+                            onClick={() => {
+                              isDiscardedRef.current = false;
+                              setStatus(option.value);
+                              clearError('status');
+                              setIsStatusDropdownOpen(false);
+                            }}
+                            className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer ${
+                              isSelected
+                                ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
+                                : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <span
+                                className={`h-2 w-2 shrink-0 rounded-full ${option.dotClass}`}
+                              />
+                              <span>{option.label}</span>
+                            </span>
+
+                            {isSelected && (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* PRIORITY CUSTOM ROUNDED DROPDOWN */}
+                <div ref={priorityDropdownRef} className="relative">
+                  <label
+                    id="priority-label"
+                    className="mb-2 block text-[13px] font-bold text-[#2b2838]"
+                  >
+                    Priority <span className="text-rose-500">*</span>
+                  </label>
+
+                  <button
+                    type="button"
+                    aria-labelledby="priority-label"
+                    aria-haspopup="listbox"
+                    aria-expanded={isPriorityDropdownOpen}
+                    disabled={isSaving}
+                    onClick={() => {
+                      setIsPriorityDropdownOpen((prev) => !prev);
+                      setIsStatusDropdownOpen(false);
+                    }}
+                    className={`flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border px-3.5 py-2 text-left text-[13.5px] font-semibold outline-none transition-all cursor-pointer disabled:cursor-not-allowed disabled:bg-[#f2f0f7] disabled:text-[#8c889c] ${
+                      isPriorityDropdownOpen
+                        ? 'border-[#5B44BA] bg-white text-[#5B44BA] ring-2 ring-[#5B44BA]/15'
+                        : 'border-[#cfc9e8] bg-white text-[#1f1f1f] hover:border-[#9e8ce6]'
+                    }`}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${activePriorityOption.dotClass}`}
+                      />
+                      <span className="truncate">
+                        {activePriorityOption.label}
+                      </span>
+                    </span>
+
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                      className={`shrink-0 transition-transform duration-150 ${
+                        isPriorityDropdownOpen
+                          ? 'rotate-180 text-[#5B44BA]'
+                          : 'text-[#6e6b7b]'
+                      }`}
+                    >
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+
+                  {isPriorityDropdownOpen && !isSaving && (
+                    <div
+                      role="listbox"
+                      aria-labelledby="priority-label"
+                      className="absolute left-0 top-full z-30 mt-1.5 w-full min-w-[160px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
+                    >
+                      {PRIORITY_OPTIONS.map((option) => {
+                        const isSelected = priority === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            role="option"
+                            aria-selected={isSelected}
+                            onClick={() => {
+                              isDiscardedRef.current = false;
+                              setPriority(option.value);
+                              clearError('priority');
+                              setIsPriorityDropdownOpen(false);
+                            }}
+                            className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors cursor-pointer ${
+                              isSelected
+                                ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
+                                : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <span
+                                className={`h-2 w-2 shrink-0 rounded-full ${option.dotClass}`}
+                              />
+                              <span>{option.label}</span>
+                            </span>
+
+                            {isSelected && (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {errors.priority && (
+                    <p
+                      role="alert"
+                      className="mt-1.5 text-[12px] font-medium text-rose-600"
+                    >
+                      {errors.priority}
+                    </p>
+                  )}
+                </div>
+
+                {/* DUE DATE */}
+                <div>
+                  <label
+                    htmlFor="dueDate"
+                    className="mb-2 block text-[13px] font-bold text-[#2b2838]"
+                  >
+                    Due date <span className="text-rose-500">*</span>
+                  </label>
+
+                  <input
+                    id="dueDate"
+                    type="date"
+                    required
+                    value={dueDate}
+                    onChange={(event) => {
+                      isDiscardedRef.current = false;
+                      setDueDate(event.target.value);
+                      clearError('dueDate');
+                    }}
+                    className={`min-h-11 min-w-0 max-w-full w-full rounded-xl border px-3.5 py-2 text-base sm:text-[13.5px] text-[#1f1f1f] outline-none transition-all disabled:cursor-not-allowed disabled:bg-[#f2f0f7] disabled:text-[#8c889c] ${
+                      errors.dueDate
+                        ? 'border-rose-400 bg-rose-50/40 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/15'
+                        : 'border-[#cfc9e8] bg-white focus:border-[#5B44BA] focus:ring-2 focus:ring-[#5B44BA]/15'
+                    }`}
+                    aria-invalid={Boolean(errors.dueDate)}
+                  />
+
+                  {errors.dueDate && (
+                    <p
+                      role="alert"
+                      className="mt-1.5 text-[12px] font-medium text-rose-600"
+                    >
+                      {errors.dueDate}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* ASSIGNEE SELECTOR */}
+            <div className="mb-7">
+              <AssigneeSelector
+                members={data.members}
+                selectedIds={validAssigneeIds}
+                error={errors.assigneeIds}
+                disabled={isSaving}
+                onToggle={toggleAssignee}
+              />
+            </div>
+
+            {/* FORM ACTIONS */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-3 border-t border-[#ece8f8] pt-6">
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={handleCancel}
+                className="min-h-11 rounded-xl border border-[#cfc9e8] bg-white px-5 py-2.5 text-[13.5px] font-semibold text-[#4a465c] transition-colors hover:border-[#9e8ce6] hover:bg-[#f6f3ff] hover:text-[#5B44BA] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="min-h-11 inline-flex items-center justify-center gap-2 rounded-xl bg-[#5B44BA] px-6 py-2.5 text-[13.5px] font-bold text-white shadow-[0_4px_14px_rgba(91,68,186,0.28)] transition-all hover:bg-[#4934a3] hover:shadow-[0_6px_20px_rgba(91,68,186,0.36)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isSaving && (
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    aria-hidden="true"
+                    className="animate-spin"
+                  >
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  </svg>
+                )}
+                <span>{isSaving ? 'Saving...' : 'Save Changes'}</span>
+              </button>
+            </div>
+          </fieldset>
+        </form>
+      </div>
     </div>
   );
 }
@@ -858,6 +1497,19 @@ function EditTaskContent({
     }
   }, [isNotFound]);
 
+  const isUnauthorized =
+    status === 'ready' &&
+    Boolean(data) &&
+    userId !== null &&
+    userId !== undefined &&
+    !canUserEditTask(data!, userId);
+
+  useEffect(() => {
+    if (isUnauthorized) {
+      router.replace(`/projects/${projectId}/tasks/${taskId}`);
+    }
+  }, [isUnauthorized, projectId, router, taskId]);
+
   const handleRetry = useCallback(async () => {
     try {
       await refreshSession();
@@ -872,11 +1524,38 @@ function EditTaskContent({
     return null;
   }
 
+  if (isUnauthorized) {
+    return (
+      <div className="mx-auto max-w-3xl rounded-2xl border border-[#cfc9e8] bg-white p-5 sm:p-6 shadow-[0_4px_18px_rgba(35,25,66,0.05)]">
+        <p
+          role="alert"
+          className="mb-4 text-[13.5px] font-medium text-red-600"
+        >
+          You do not have permission to edit this task.
+        </p>
+
+        <button
+          type="button"
+          onClick={() =>
+            router.replace(
+              `/projects/${projectId}/tasks/${taskId}`,
+            )
+          }
+          className="min-h-10 rounded-xl border border-[#cfc9e8] bg-white px-4 py-2 text-[12.5px] font-semibold text-[#333333] hover:border-[#9e8ce6] hover:bg-[#f6f3ff] hover:text-[#5B44BA] transition-colors cursor-pointer"
+        >
+          Back to Task Detail
+        </button>
+      </div>
+    );
+  }
+
   // เก็บ EditTaskForm instance เดิมไว้เมื่อบัญชีเดิมกำลังโหลดเบื้องหลังหรือโหลดพลาด (เช่น 500)
   // แต่จะไม่ผ่านเงื่อนไขนี้ทันทีหากเปลี่ยนบัญชีหรือออกจากระบบ (ฟอร์มเก่าจะถูก unmount และล้างค่า)
   const canKeepPreviousForm =
+    !isUnauthorized &&
     retained !== null &&
     retainedUserId !== null &&
+    canUserEditTask(retained, retainedUserId) &&
     (session.status === 'loading' ||
       session.status === 'error' ||
       (session.status === 'ready' &&
@@ -937,10 +1616,10 @@ function EditTaskContent({
 
   if (status === 'error') {
     return (
-      <div className="mx-auto max-w-3xl rounded-xl border border-[#e0e0e0] bg-white p-5">
+      <div className="mx-auto max-w-3xl rounded-2xl border border-[#cfc9e8] bg-white p-5 sm:p-6 shadow-[0_4px_18px_rgba(35,25,66,0.05)]">
         <p
           role="alert"
-          className="mb-4 text-[13px] text-red-600"
+          className="mb-4 text-[13.5px] font-medium text-red-600"
         >
           Unable to load the task edit form. Please try again.
         </p>
@@ -953,7 +1632,7 @@ function EditTaskContent({
                 `/projects/${projectId}/tasks/${taskId}`,
               )
             }
-            className="min-h-11 rounded-lg border border-[#dddddd] px-4 text-[13px]"
+            className="min-h-10 rounded-xl border border-[#cfc9e8] bg-white px-4 py-2 text-[12.5px] font-semibold text-[#333333] hover:border-[#9e8ce6] hover:bg-[#f6f3ff] hover:text-[#5B44BA] transition-colors cursor-pointer"
           >
             Back to Task Detail
           </button>
@@ -961,7 +1640,7 @@ function EditTaskContent({
           <button
             type="button"
             onClick={handleRetry}
-            className="min-h-11 rounded-lg bg-[#222222] px-4 text-[13px] text-white"
+            className="min-h-10 rounded-xl bg-[#5B44BA] px-4 py-2 text-[12.5px] font-bold text-white hover:bg-[#4934a3] transition-colors cursor-pointer"
           >
             Try again
           </button>
