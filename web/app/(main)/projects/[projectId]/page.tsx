@@ -46,11 +46,27 @@ const emptySubscribe = () => () => {};
 type DetailTab = 'overview' | 'tasks' | 'members';
 const detailTabs: DetailTab[] = ['overview', 'tasks', 'members'];
 
+// ต้องตรงกับ OVERVIEW_TASK_LIMIT ของ backend (GET /api/projects/:projectId/overview/tasks)
+const OVERVIEW_TASK_LIMIT = 5;
+
 type ProjectOverviewBundle = {
   project: ProjectItem;
   tasks: Task[];
+  overviewTasks: Task[];
   members: ProjectMember[];
 };
+
+// ใช้เมื่อเรียก endpoint overview ไม่สำเร็จ (เช่น backend ยังเป็นเวอร์ชันเก่า) เรียงแบบเดียวกับฝั่ง backend
+function pickOverviewTasks(tasks: Task[]): Task[] {
+  return [...tasks]
+    .sort(
+      (a, b) =>
+        a.priority - b.priority ||
+        a.dueDate.localeCompare(b.dueDate) ||
+        a.taskId - b.taskId,
+    )
+    .slice(0, OVERVIEW_TASK_LIMIT);
+}
 
 type DeleteTarget = {
   scope: string;
@@ -198,15 +214,21 @@ export default function ProjectDetailPage() {
   const load = useCallback(async (): Promise<ProjectOverviewBundle> => {
     const id = parseRouteId(params.projectId, 'project ID');
 
-    const [project, tasks, members] = await Promise.all([
+    const [project, tasks, overviewTasks, members] = await Promise.all([
       projectApi.getProjectById(id),
       taskApi.getTasks(id),
+      // ไม่ให้ทั้งหน้าพังถ้าส่วน preview นี้โหลดไม่ได้
+      taskApi.getOverviewTasks(id).catch((error: unknown) => {
+        console.warn('Falling back to client-side overview tasks', error);
+        return null;
+      }),
       projectApi.getProjectMembers(id),
     ]);
 
     return {
       project,
       tasks,
+      overviewTasks: overviewTasks ?? pickOverviewTasks(tasks),
       members,
     };
   }, [params.projectId]);
@@ -813,12 +835,15 @@ export default function ProjectDetailPage() {
     TASK_SORT_OPTIONS.find((opt) => opt.value === taskSortBy)?.label ??
     'Sort by';
 
-  const renderTasksTable = (compact = false) => (
+  const renderTasksTable = (compact = false) => {
+    // Overview แสดงเฉพาะงานจาก endpoint overview (5 งาน, เรียงฝั่ง backend); แท็บ Tasks ใช้ตัวกรองเต็ม
+    const rows = compact ? bundle.overviewTasks : filteredTasks;
+
+    return (
     <div className="rounded-2xl border border-[#cfc9e8] bg-white/95 p-5 sm:p-6 shadow-[0_4px_18px_rgba(35,25,66,0.05)]">
       {compact ? (
         /* OVERVIEW TAB COMPACT HEADER */
         <div
-          ref={taskFilterBarRef}
           className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"
         >
           <div className="flex items-center gap-2.5">
@@ -830,247 +855,9 @@ export default function ProjectDetailPage() {
             </span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {/* SEARCH INPUT */}
-            <div className="flex min-h-9 min-w-0 flex-1 sm:flex-initial sm:w-[240px] items-center gap-2 rounded-xl border border-[#cfc9e8] focus-within:border-[#5B44BA] bg-[#f8f6fe] focus-within:bg-white px-3 py-1.5 transition-colors">
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.1"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-                className="shrink-0 text-[#7d7696]"
-              >
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-
-              <input
-                type="text"
-                value={taskSearch}
-                onChange={(e) => setTaskSearch(e.target.value)}
-                placeholder="Search task..."
-                aria-label="Search task"
-                className="w-full min-w-0 border-none bg-transparent text-[12.5px] text-[#1f1f1f] outline-none placeholder:text-[#8f89a6]"
-              />
-
-              {taskSearch && (
-                <button
-                  type="button"
-                  onClick={() => setTaskSearch('')}
-                  aria-label="Clear task search"
-                  className="shrink-0 w-4 h-4 rounded-full hover:bg-[#ece8fa] inline-flex items-center justify-center text-[#777777] hover:text-[#5B44BA] cursor-pointer transition-colors"
-                >
-                  <svg
-                    width="11"
-                    height="11"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              )}
-            </div>
-
-            {/* CUSTOM STATUS DROPDOWN */}
-            <KeyboardPopup open={openTaskDropdown === 'status'} onClose={() => setOpenTaskDropdown(null)} className="relative shrink-0">
-              <button
-                type="button"
-                aria-label="Filter tasks by status"
-                aria-haspopup="listbox"
-                aria-expanded={openTaskDropdown === 'status'}
-                onClick={() =>
-                  setOpenTaskDropdown((prev) =>
-                    prev === 'status' ? null : 'status',
-                  )
-                }
-                className={`min-h-9 min-w-[130px] inline-flex items-center justify-between gap-2 rounded-xl border px-3 py-1.5 text-[12.5px] font-medium outline-none cursor-pointer transition-all ${
-                  openTaskDropdown === 'status'
-                    ? 'border-[#5B44BA] bg-white text-[#5B44BA] ring-2 ring-[#5B44BA]/15'
-                    : taskStatusFilter !== 'ALL'
-                      ? 'border-[#b3a4eb] bg-[#f4f0ff] text-[#4c35ab]'
-                      : 'border-[#cfc9e8] bg-[#f8f6fe] hover:bg-white hover:border-[#9e8ce6] text-[#3d3a4b]'
-                }`}
-              >
-                <span>{currentStatusLabel}</span>
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                  className={`shrink-0 transition-transform duration-150 ${
-                    openTaskDropdown === 'status'
-                      ? 'rotate-180 text-[#5B44BA]'
-                      : 'text-[#6e6b7b]'
-                  }`}
-                >
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </button>
-
-              {openTaskDropdown === 'status' && (
-                <div
-                  role="listbox"
-                  aria-label="Task status options"
-                  className="absolute left-0 sm:right-0 sm:left-auto top-full mt-1.5 z-30 min-w-[165px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
-                >
-                  {TASK_STATUS_OPTIONS.map((option) => {
-                    const isSelected = taskStatusFilter === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        role="option"
-                        tabIndex={-1}
-                        aria-selected={isSelected}
-                        onClick={() => {
-                          setTaskStatusFilter(option.value);
-                          setOpenTaskDropdown(null);
-                        }}
-                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-1.5 text-left text-[12.5px] transition-colors cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
-                            : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
-                        }`}
-                      >
-                        <span>{option.label}</span>
-                        {isSelected && (
-                          <svg
-                            width="13"
-                            height="13"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </KeyboardPopup>
-
-            {/* CUSTOM SORT DROPDOWN */}
-            <KeyboardPopup open={openTaskDropdown === 'sort'} onClose={() => setOpenTaskDropdown(null)} className="relative shrink-0">
-              <button
-                type="button"
-                aria-label="Sort tasks"
-                aria-haspopup="listbox"
-                aria-expanded={openTaskDropdown === 'sort'}
-                onClick={() =>
-                  setOpenTaskDropdown((prev) =>
-                    prev === 'sort' ? null : 'sort',
-                  )
-                }
-                className={`min-h-9 min-w-[120px] inline-flex items-center justify-between gap-2 rounded-xl border px-3 py-1.5 text-[12.5px] font-medium outline-none cursor-pointer transition-all ${
-                  openTaskDropdown === 'sort'
-                    ? 'border-[#5B44BA] bg-white text-[#5B44BA] ring-2 ring-[#5B44BA]/15'
-                    : taskSortBy !== 'DEFAULT'
-                      ? 'border-[#b3a4eb] bg-[#f4f0ff] text-[#4c35ab]'
-                      : 'border-[#cfc9e8] bg-[#f8f6fe] hover:bg-white hover:border-[#9e8ce6] text-[#3d3a4b]'
-                }`}
-              >
-                <span>{currentSortLabel}</span>
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                  className={`shrink-0 transition-transform duration-150 ${
-                    openTaskDropdown === 'sort'
-                      ? 'rotate-180 text-[#5B44BA]'
-                      : 'text-[#6e6b7b]'
-                  }`}
-                >
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </button>
-
-              {openTaskDropdown === 'sort' && (
-                <div
-                  role="listbox"
-                  aria-label="Sort task options"
-                  className="absolute right-0 top-full mt-1.5 z-30 min-w-[160px] rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
-                >
-                  {TASK_SORT_OPTIONS.map((option) => {
-                    const isSelected = taskSortBy === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        role="option"
-                        tabIndex={-1}
-                        aria-selected={isSelected}
-                        onClick={() => {
-                          setTaskSortBy(option.value);
-                          setOpenTaskDropdown(null);
-                        }}
-                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-1.5 text-left text-[12.5px] transition-colors cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#f1edff] font-semibold text-[#5B44BA]'
-                            : 'font-medium text-[#333042] hover:bg-[#f7f5ff] hover:text-[#5B44BA]'
-                        }`}
-                      >
-                        <span>{option.label}</span>
-                        {isSelected && (
-                          <svg
-                            width="13"
-                            height="13"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </KeyboardPopup>
-
-            {/* CLEAR FILTER BUTTON */}
-            <button
-              type="button"
-              onClick={handleClearTaskFilters}
-              disabled={!hasActiveTaskFilters}
-              className="min-h-9 shrink-0 rounded-xl border border-[#cfc9e8] bg-white px-3.5 py-1.5 text-[12.5px] font-medium text-[#4a465c] transition-colors hover:border-[#9e8ce6] hover:bg-[#f6f3ff] hover:text-[#5B44BA] cursor-pointer disabled:cursor-not-allowed disabled:border-[#e4e0f2] disabled:bg-[#fafafa] disabled:text-[#b5b2c2]"
-            >
-              Clear filter
-            </button>
-          </div>
+          <p className="text-[12.5px] font-medium text-[#6e6b7b]">
+            Top {OVERVIEW_TASK_LIMIT} by priority, then nearest due date
+          </p>
         </div>
       ) : (
         /* TASKS TAB HEADER */
@@ -1464,7 +1251,7 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* ROWS */}
-      {filteredTasks.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="py-12 text-center">
           <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f1edff] text-[#5B44BA]">
             <svg
@@ -1515,7 +1302,7 @@ export default function ProjectDetailPage() {
         </div>
       ) : (
         <div className="mt-1 divide-y divide-[#ece8f8]">
-          {(compact ? filteredTasks.slice(0, 8) : filteredTasks).map((task) => {
+          {rows.map((task) => {
             const assignees = task.assignees ?? [];
             const firstAssignee = assignees[0];
             const extraAssignees = Math.max(0, assignees.length - 1);
@@ -1629,20 +1416,25 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {compact && filteredTasks.length > 8 && (
+      {compact && bundle.tasks.length > rows.length && (
         <div className="mt-4 border-t border-[#ece8f8] pt-3.5 text-center">
           <button
             type="button"
-            onClick={() => selectAndFocusTab('tasks')}
+            onClick={() => {
+              // ล้างคำค้นและตัวกรองเดิมของแท็บ Tasks ก่อน เพื่อให้เห็นงานครบทั้งหมด
+              handleClearTaskFilters();
+              selectAndFocusTab('tasks');
+            }}
             className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-[#5B44BA] hover:text-[#422c9c] transition-colors cursor-pointer"
           >
-            <span>View all {filteredTasks.length} tasks</span>
+            <span>View all {bundle.tasks.length} tasks</span>
             <span aria-hidden="true">→</span>
           </button>
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   return (
     <>
