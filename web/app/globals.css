@@ -55,3 +55,121 @@ body {
   color: #452ea0;
   font-weight: 700;
 }
+
+/* ---------- Dark theme (toggle in Topbar sets html[data-theme="dark"]) ----------
+   Components use hard-coded light colors, so we remap them here. */
+html[data-theme="dark"] {
+  --background: #100d22;
+  --foreground: #ede9fb;
+}
+
+/* surfaces */
+html[data-theme="dark"] .bg-white,
+html[data-theme="dark"] .hover\:bg-white:hover {
+  background-color: #1d1936;
+}
+html[data-theme="dark"] [class*="bg-[#f"],
+html[data-theme="dark"] [class*="bg-[#e"] {
+  background-color: #2a2447;
+}
+html[data-theme="dark"] [class*="hover:bg-[#f"]:hover,
+html[data-theme="dark"] [class*="hover:bg-[#e"]:hover {
+  background-color: #35305a;
+}
+html[data-theme="dark"] .bg-\[\#f3efff\] {
+  background-color: #14102b;
+}
+html[data-theme="dark"] .bg-\[\#fef2f2\] {
+  background-color: #3b1c26;
+}
+
+/* text */
+html[data-theme="dark"] .text-\[\#1f1f1f\],
+html[data-theme="dark"] .text-\[\#2b2b2b\],
+html[data-theme="dark"] .text-\[\#231942\],
+html[data-theme="dark"] .text-\[\#333042\],
+html[data-theme="dark"] .text-\[\#2b2838\],
+html[data-theme="dark"] .text-\[\#333333\],
+html[data-theme="dark"] .text-\[\#3d3a4b\],
+html[data-theme="dark"] .text-\[\#1d1533\],
+html[data-theme="dark"] .text-\[\#3b2d63\],
+html[data-theme="dark"] .text-\[\#4a465c\],
+html[data-theme="dark"] .text-\[\#555266\],
+html[data-theme="dark"] .hover\:text-\[\#1f1f1f\]:hover,
+html[data-theme="dark"] .hover\:text-\[\#231942\]:hover {
+  color: #ede9fb;
+}
+html[data-theme="dark"] .text-\[\#6e6b7b\],
+html[data-theme="dark"] .text-\[\#8f89a6\],
+html[data-theme="dark"] .text-\[\#7d7696\],
+html[data-theme="dark"] .text-\[\#777777\],
+html[data-theme="dark"] .text-\[\#7c788c\],
+html[data-theme="dark"] .text-\[\#888888\],
+html[data-theme="dark"] .text-\[\#8c889c\],
+html[data-theme="dark"] .text-\[\#6e6487\],
+html[data-theme="dark"] .text-\[\#7c6fa0\],
+html[data-theme="dark"] .text-\[\#6b6680\],
+html[data-theme="dark"] .text-\[\#b5b2c2\] {
+  color: #a9a3c6;
+}
+html[data-theme="dark"] .text-\[\#5B44BA\],
+html[data-theme="dark"] .text-\[\#452ea0\],
+html[data-theme="dark"] .text-\[\#4c35ab\],
+html[data-theme="dark"] .text-\[\#47329e\],
+html[data-theme="dark"] .text-\[\#6d28d9\],
+html[data-theme="dark"] .hover\:text-\[\#5B44BA\]:hover,
+html[data-theme="dark"] .hover\:text-\[\#452ea0\]:hover,
+html[data-theme="dark"] .hover\:text-\[\#47329e\]:hover,
+html[data-theme="dark"] .hover\:text-\[\#422c9c\]:hover,
+html[data-theme="dark"] .hover\:text-\[\#35208a\]:hover {
+  color: #c4b8ff;
+}
+html[data-theme="dark"] .text-\[\#991b1b\] {
+  color: #fca5a5;
+}
+/* keep text on solid purple backgrounds readable */
+html[data-theme="dark"] .bg-\[\#5B44BA\],
+html[data-theme="dark"] .hover\:bg-\[\#5B44BA\]:hover {
+  color: #ffffff;
+}
+
+/* borders */
+html[data-theme="dark"] [class*="border-[#c"],
+html[data-theme="dark"] [class*="border-[#d"],
+html[data-theme="dark"] [class*="border-[#e"],
+html[data-theme="dark"] [class*="border-[#b"],
+html[data-theme="dark"] [class*="border-[#9"] {
+  border-color: #3d3667;
+}
+
+/* inputs, popups, native controls */
+html[data-theme="dark"] input,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select {
+  color: #ede9fb;
+}
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder {
+  color: #8c86aa;
+}
+html[data-theme="dark"] :where(a[href], button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline-color: #c4b8ff;
+  box-shadow: 0 0 0 2px #100d22;
+}
+
+/* the toggle itself */
+html[data-theme="dark"] .theme-toggle {
+  border-color: #4a4180;
+}
+
+/* status banners that use Tailwind palette colors */
+html[data-theme="dark"] .bg-red-50 { background-color: #3b1c26; }
+html[data-theme="dark"] .bg-amber-50 { background-color: #3a2e14; }
+html[data-theme="dark"] .bg-green-50,
+html[data-theme="dark"] .bg-emerald-50 { background-color: #14352a; }
+html[data-theme="dark"] .border-red-200 { border-color: #7f2d3d; }
+html[data-theme="dark"] .border-amber-200 { border-color: #7a5d1f; }
+html[data-theme="dark"] .text-red-700,
+html[data-theme="dark"] .text-red-600,
+html[data-theme="dark"] .text-\[\#dc2626\] { color: #fca5a5; }
+html[data-theme="dark"] .text-amber-800 { color: #fcd34d; }
