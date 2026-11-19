@@ -56,16 +56,10 @@ async function pageAt(width, height) {
     else if (/^\/api\/projects\/\d+\/tasks$/.test(url.pathname)) body = { tasks: url.pathname.includes('/91/') ? [task] : [] };
     else if (url.pathname === '/api/projects/91/tasks/27') body = { task };
     else if (url.pathname === '/api/projects/91/tasks/27/comments') body = { comments: [] };
-    else if (url.pathname === '/api/projects/91/tasks/27/activity') body = { activities: [] };
     else if (url.pathname === '/api/projects/91/members') body = { members: [
       { userId: 1, userName: 'Layout Owner', email: 'layout@example.test', role: 'Owner', joinDate: '2026-01-01' },
       { userId: 2, userName: 'Existing member', email: 'existing@example.test', role: 'Member', joinDate: '2026-01-01' },
     ] };
-    else if (url.pathname === '/api/projects/91/activity') body = { activities: [{
-      activityId: 'comment_added:1', activityType: 'comment_added', occurredAt: task.createdAt,
-      actorId: 1, actorName: 'Layout Owner', taskId: task.taskId, taskTitle: task.taskTitle,
-      commentId: 1, commentText: 'LongComment'.repeat(35),
-    }] };
     else return route.fulfill({ status: 404, headers, json: { success: false, error: { code: 'NOT_FOUND', message: 'Fixture missing' } } });
     await route.fulfill({ headers, json: { success: true, ...body } });
   });
@@ -511,9 +505,7 @@ test('Project Overview wraps long content and preserves progress and back naviga
       await page.getByRole('heading', { name: project.projectName, exact: true }).waitFor();
       await page.getByText('67%', { exact: true }).waitFor();
       await fits(page, `Overview ${width}`);
-      const activity = page.getByRole('region', { name: 'Activity' });
-      await activity.getByText('LongComment'.repeat(35), { exact: true }).waitFor();
-      assert.equal(await activity.getByRole('link', { name: task.taskTitle }).getAttribute('href'), '/projects/91/tasks/27');
+      assert.equal(await page.getByRole('region', { name: 'Activity' }).count(), 0);
       const back = page.getByRole('link', { name: 'Back to Projects', exact: true });
       await reachable(back);
       await page.screenshot({ path: `${output}/overview-${width}.png`, fullPage: true });

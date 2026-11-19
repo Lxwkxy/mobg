@@ -48,9 +48,6 @@ export const taskListQuerySchema = z.strictObject({ status: statusSchema.optiona
 export const searchQuerySchema = z.strictObject({
   q: databaseText.trim().min(1).max(200),
 });
-export const activityQuerySchema = z.strictObject({
-  limit: urlIdSchema.pipe(z.number().max(100)).default(20),
-});
 export const dashboardQuerySchema = z.strictObject({
   limit: urlIdSchema.pipe(z.number().max(100)).default(5),
 });

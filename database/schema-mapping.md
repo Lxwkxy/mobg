@@ -233,24 +233,12 @@ The last assignee cannot be removed without assigning a replacement.
 - Every task must retain at least one assignee, and every selected user must be a project member.
 - This is a confirmed UI requirement; frontend/API implementation remains pending.
 
-## Confirmed Activity Scope
+## Activity removed
 
-Activity uses the basic scope: task creation and comments only.
-
-| Activity | Source | Actor | Time |
-|---|---|---|---|
-| Task created | tasks | tasks.created_by joined to users.user_id | tasks.task_create_date |
-| Comment added | comments | comments.user_id joined to users.user_id | comments.comment_created_at |
-
-- Read task creation and comment entries from existing records and combine them in the Activity feed.
-- A task's feed includes its creation entry and its comments. A project's feed combines entries for tasks belonging to that project.
-- Display the actor name, action, event time, and comment text when applicable.
-- Order entries by event time, with a stable tie-breaker for equal timestamps.
-- The UI must match this scope: remove status-change, priority-change, and assignee-change history entries from the wireframe's Activity examples.
-- Current status, priority, and assignees continue to be displayed in the task fields.
-- No additional activity table is required for this scope.
-- The unexecuted draft migration 004_add_task_activities.sql was withdrawn when the scope changed to basic activity.
-- Activity-reading functions, API response format, and frontend integration remain pending.
+The team removed Activity from the product scope on 2026-11-19. Project Overview
+and Task Details do not show an activity feed, and activity API routes are removed.
+Task creation metadata and task comments remain in their existing tables; no
+schema migration or data deletion is required. The earlier basic-feed scope is superseded.
 
 ## Confirmed Project Progress
 
@@ -394,6 +382,6 @@ Project Overview, Task List, Create Task, Edit Task, Task Details, and My Tasks.
 | Project end date | End date in the forms corresponds to projects.due_date. | Optional; must be strictly later than start_date when provided. |
 | Task status labels | The UI displays To do, In progress, and Done; the DB retains To Do, Doing, and Done. | Confirmed: new tasks start in To Do; replace the create-form label Not started with To do. Frontend/API implementation remains pending. |
 | Multiple assignees | Task lists show two assignees and +N; Task Details shows all assignees. | Confirmed: multi-select dropdown with removable name chips in Create/Edit forms. Frontend/API implementation remains pending. |
-| Activity history | Basic activity includes task creation and comments only, read from existing tables. | Confirmed: adjust Activity in the UI to this scope; no additional activity table is required. API/frontend integration remains pending. |
+| Activity history | Removed from product scope on 2026-11-19. | No feed, API, or additional table; task metadata and comments remain. |
 | Progress and counts | Project progress is rounded Done-task count divided by distinct total-task count, multiplied by 100; zero tasks gives 0 percent. | W2 project summary retained. W4 Dashboard counts all tasks in current member projects; High = priority 1 excluding Done. User delegated scope choice and confirmed priority/list rules on 2026-11-08; Book/Bar integration pending. |
 | Project status filter | Project status is derived from the statuses of its tasks. | DB calculation and filter before pagination implemented in W2. API/frontend integration pending. |
