@@ -47,40 +47,40 @@ function family({ h, s }) {
 const PAGE_BG = '#f3efff';
 
 const BG_BASE = {
-  page: '#121119',
-  surface: '#1c1b27',
-  surface2: '#222131',
-  tint: '#2a283e',
-  red: '#3a2028',
-  amber: '#37301c',
-  green: '#193429',
-  blue: '#1d2b43',
+  page: '#14122a',
+  surface: '#1d1a3d',
+  surface2: '#25214d',
+  tint: '#2e2a63',
+  red: '#3c2030',
+  amber: '#3a301c',
+  green: '#173a30',
+  blue: '#1c2c4d',
 };
 const BG_HOVER = {
-  '#121119': '#1c1b27',
-  '#1c1b27': '#2a283e',
-  '#222131': '#2d2b43',
-  '#2a283e': '#353350',
-  '#3a2028': '#482733',
-  '#37301c': '#473d22',
-  '#193429': '#20443a',
-  '#1d2b43': '#25385a',
+  '#14122a': '#1d1a3d',
+  '#1d1a3d': '#2e2a63',
+  '#25214d': '#312c66',
+  '#2e2a63': '#3a3576',
+  '#3c2030': '#4b283b',
+  '#3a301c': '#4a3d22',
+  '#173a30': '#1e4a3d',
+  '#1c2c4d': '#243a63',
 };
 
 const TEXT = {
-  main: '#e8e6f1',
-  muted: '#a9a6bc',
-  accent: '#b8acf5',
-  red: '#f5a9a9',
+  main: '#ebe8fb',
+  muted: '#a8a3cf',
+  accent: '#c2b8ff',
+  red: '#f5a9bd',
   amber: '#f2cf6b',
   green: '#7ad9b4',
   blue: '#9cc3f5',
 };
 
 const BORDER = {
-  neutral: '#38364d',
-  accentHover: '#6c60b8',
-  red: '#74333f',
+  neutral: '#38336a',
+  accentHover: '#6f63c4',
+  red: '#7a3350',
   amber: '#6e5a26',
   green: '#27604b',
   blue: '#35588a',
@@ -272,10 +272,10 @@ for (const token of tokens) {
 
 // translucent white cards sit on dark surface; do not touch bg-white/10 etc. on banners
 const staticRules = [
-  'html[data-theme="dark"] .bg-white\\/95 { background-color: rgb(28 27 39 / 0.95); }',
-  'html[data-theme="dark"] .bg-white\\/80 { background-color: rgb(28 27 39 / 0.8); }',
-  'html[data-theme="dark"] .bg-white\\/90 { background-color: rgb(28 27 39 / 0.9); }',
-  'html[data-theme="dark"] .border-white { border-color: #38364d; }',
+  'html[data-theme="dark"] .bg-white\\/95 { background-color: rgb(29 26 61 / 0.95); }',
+  'html[data-theme="dark"] .bg-white\\/80 { background-color: rgb(29 26 61 / 0.8); }',
+  'html[data-theme="dark"] .bg-white\\/90 { background-color: rgb(29 26 61 / 0.9); }',
+  'html[data-theme="dark"] .border-white { border-color: #38336a; }',
 ];
 
 const sortRules = (a, b) => a.media - b.media || a.order - b.order || a.css.localeCompare(b.css);
