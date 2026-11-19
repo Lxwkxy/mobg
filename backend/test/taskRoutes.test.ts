@@ -420,6 +420,72 @@ test("PATCH changes only sent fields, clears with null, replaces assignees, reje
   assert.equal((await api("owner", "PATCH", `${tasksUrl(shared)}/999999`, { priority: 3 })).status, 404);
 });
 
+test("PATCH requires an Owner or existing assignee, including when replacing assignees", async () => {
+  const project = await api("owner", "POST", "/api/projects", {
+    projectName: "Task edit permissions", startDate: "2026-01-01", memberIds: [ids.member],
+  });
+  const projectId = project.body.project.projectId;
+  const created = await api("owner", "POST", tasksUrl(projectId), valid([ids.owner]));
+  const url = `${tasksUrl(projectId)}/${created.body.task.taskId}`;
+
+  for (const patch of [{ priority: 1 }, { taskTitle: "Self-assigned edit", assigneeIds: [ids.member] }]) {
+    const denied = await api("member", "PATCH", url, patch);
+    assert.equal(denied.status, 403);
+    assert.equal(denied.body.error.code, "FORBIDDEN");
+    assert.deepEqual((await api("owner", "GET", url)).body.task, created.body.task);
+  }
+  assert.equal((await api(null, "PATCH", url, { priority: 1 })).status, 401);
+  assert.equal((await api("outsider", "PATCH", url, { priority: 1 })).status, 404);
+
+  // Owners need no task assignment; an assignee may also replace the assignment set.
+  const assigned = await api("owner", "PATCH", url, { assigneeIds: [ids.member] });
+  assert.equal(assigned.status, 200);
+  assert.equal((await api("owner", "PATCH", url, { taskTitle: "Unassigned Owner edit" })).status, 200);
+  const updated = await api("member", "PATCH", url, { priority: 1, assigneeIds: [ids.owner] });
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.task.priority, 1);
+  assert.equal((await api("member", "PATCH", url, { priority: 3 })).status, 403);
+  assert.deepEqual((await api("owner", "GET", url)).body.task, updated.body.task);
+});
+
+test("PATCH rechecks assignment after waiting for the project lock", async () => {
+  const project = await api("owner", "POST", "/api/projects", {
+    projectName: "Task assignment race", startDate: "2026-01-01", memberIds: [ids.member],
+  });
+  const projectId = project.body.project.projectId;
+  const created = await api("owner", "POST", tasksUrl(projectId), valid([ids.owner, ids.member]));
+  const taskId = created.body.task.taskId;
+  const url = `${tasksUrl(projectId)}/${taskId}`;
+  const result = await withProjectLockHeld(projectId,
+    () => api("member", "PATCH", url, { taskTitle: "Must not save", assigneeIds: [ids.member] }),
+    async (gate) => {
+      await gate.query("DELETE FROM task_assignees WHERE task_id = $1 AND user_id = $2", [taskId, ids.member]);
+    });
+  assert.equal(result.status, 403);
+  assert.equal(result.body.error.code, "FORBIDDEN");
+  assert.deepEqual((await api("owner", "GET", url)).body.task, {
+    ...created.body.task,
+    assignees: created.body.task.assignees.filter((person: { userId: number }) => person.userId !== ids.member),
+  });
+});
+
+test("PATCH rechecks an unassigned Owner's role after waiting for the project lock", async () => {
+  const project = await api("owner", "POST", "/api/projects", {
+    projectName: "Task Owner role race", startDate: "2026-01-01", memberIds: [ids.member],
+  });
+  const projectId = project.body.project.projectId;
+  const created = await api("owner", "POST", tasksUrl(projectId), valid([ids.member]));
+  const url = `${tasksUrl(projectId)}/${created.body.task.taskId}`;
+  const result = await withProjectLockHeld(projectId,
+    () => api("owner", "PATCH", url, { taskTitle: "Must not save" }),
+    async (gate) => {
+      await gate.query("UPDATE project_members SET role = 'Member' WHERE project_id = $1 AND user_id = $2", [projectId, ids.owner]);
+    });
+  assert.equal(result.status, 403);
+  assert.equal(result.body.error.code, "FORBIDDEN");
+  assert.deepEqual((await api("member", "GET", url)).body.task, created.body.task);
+});
+
 test("a task is only reachable through its own project", async () => {
   const inPrivate = await api("owner", "POST", tasksUrl(privateId), valid([ids.owner]));
   assert.equal(inPrivate.status, 201);

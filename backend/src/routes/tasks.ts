@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import type { CommentResponse, CommentsResponse, MessageResponse, TaskResponse, TasksResponse } from "../contracts/api.js";
-import { ApiError, notFound } from "../errors.js";
+import { ApiError, forbidden, notFound } from "../errors.js";
 import { requireAuth, requireProjectRole } from "../guards.js";
 import { mapTask, toDbStatus } from "../mappers/task.js";
 import { mapComment } from "../mappers/comment.js";
@@ -9,7 +9,7 @@ import { FOREIGN_KEY_VIOLATION, pgErrorInfo } from "../pgErrors.js";
 import { domainIdToNumber } from "../services/dbHelpers.js";
 import { listProjectMembers } from "../services/projectDb.js";
 import {
-  createTask, deleteTask, getTaskById, InvalidTaskAssigneesError, listTasksByProject, TaskCreatorNotMemberError,
+  createTask, deleteTask, getTaskById, InvalidTaskAssigneesError, listTasksByProject, TaskCreatorNotMemberError, TaskEditForbiddenError,
   updateTask, type TaskChanges,
 } from "../services/taskDb.js";
 import {
@@ -93,10 +93,14 @@ router.post("/", requireProjectRole("Member"), async (req: Request, res: Respons
   res.status(201).json({ success: true, task: mapTask(row) });
 });
 
-// PATCH /api/projects/:projectId/tasks/:taskId  (Owner, Member; only the sent fields change)
+// PATCH /api/projects/:projectId/tasks/:taskId  (Owner or assigned Member; only sent fields change)
 router.patch("/:taskId", requireProjectRole("Member"), async (req: Request, res: Response<TaskResponse>) => {
   const { projectId } = req.projectAccess!;
-  const { taskId } = await loadTask(projectId, req.params.taskId as string);
+  const { taskId, row: storedTask } = await loadTask(projectId, req.params.taskId as string);
+  if (req.projectAccess!.role !== "Owner" &&
+    !storedTask.assignees.some((assignee) => assignee.user_id === String(req.currentUser!.userId))) {
+    throw forbidden("Only a project Owner or current task assignee can edit this task");
+  }
   const body = parseRequest(updateTaskSchema, req.body);
   if (body.assigneeIds !== undefined) await assertAssigneesAreMembers(projectId, body.assigneeIds);
 
@@ -110,11 +114,12 @@ router.patch("/:taskId", requireProjectRole("Member"), async (req: Request, res:
   if (body.assigneeIds !== undefined) changes.assignee_ids = body.assigneeIds;
 
   try {
-    // The service rechecks the caller's membership under the project lock: removed while waiting → 404, task unchanged.
+    // Recheck membership and edit permission under the project/task locks before writing.
     if (!(await updateTask(taskId, changes, { project_id: projectId, user_id: req.currentUser!.userId }))) {
       throw taskNotFound();
     }
   } catch (error) {
+    if (error instanceof TaskEditForbiddenError) throw forbidden(error.message);
     if (error instanceof InvalidTaskAssigneesError) throw assigneeError(error.userIds);
     if (body.assigneeIds && isAssigneeUserFkViolation(error)) throw assigneeError(body.assigneeIds);
     throw error;
