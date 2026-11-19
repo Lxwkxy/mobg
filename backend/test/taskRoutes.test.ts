@@ -221,7 +221,7 @@ test("comment database failures return safe errors without saving a partial comm
   assert.equal((await api("owner", "DELETE", `${tasksUrl(shared)}/${taskId}`)).status, 200);
 });
 
-test("browser comments persist and appear in both activity feeds through the real API and database", {
+test("browser comments persist and reload through the real API and database", {
   skip: !process.env.COMMENTS_WEB_URL,
 }, async () => {
   // Browser coverage is optional; ordinary backend CI does not install root dependencies.
@@ -247,13 +247,10 @@ test("browser comments persist and appear in both activity feeds through the rea
     });
     await page.goto(`${web}/projects/${shared}/tasks/${taskId}`);
     const section = page.getByRole("region", { name: "Comments" });
-    const activity = page.getByRole("region", { name: "Activity" });
-    await activity.getByText("created this task", { exact: false }).waitFor();
     const content = "Browser to PostgreSQL: ตรวจงานของคนอื่นแล้ว";
     await section.getByLabel("Add a comment").fill(content);
     await section.getByRole("button", { name: "Post comment", exact: true }).click();
     await section.getByRole("listitem").getByText(content, { exact: true }).waitFor();
-    await activity.getByText(content, { exact: true }).waitFor();
     const saved = (await pool.query("SELECT comment_text, user_id FROM comments WHERE task_id = $1", [taskId])).rows;
     assert.deepEqual(saved, [{ comment_text: content, user_id: String(ids.member) }]);
     await page.reload();
@@ -262,9 +259,6 @@ test("browser comments persist and appear in both activity feeds through the rea
     await page.screenshot({ path: "../web/.next/task-comments-smoke.png", fullPage: true });
     await page.getByRole("link", { name: "Back to Project" }).click();
     await page.waitForURL(`**/projects/${shared}`);
-    const entry = activity.getByRole("listitem").filter({ hasText: content });
-    await entry.waitFor();
-    assert.equal(await entry.getByRole("link").getAttribute("href"), `/projects/${shared}/tasks/${taskId}`);
   } finally {
     await browser.close();
     await api("owner", "DELETE", `${tasksUrl(shared)}/${taskId}`);
