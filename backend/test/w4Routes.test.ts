@@ -434,7 +434,7 @@ test("member writes by a caller who loses rights while waiting for the project l
   }
 });
 
-// PATCH task: the guard sees a Member, then the request waits for the project lock while that Member is removed.
+// PATCH task: the guard sees an assigned Member, then the request waits for the project lock while that Member is removed.
 // The service recheck under the lock must answer 404 and leave the task row and its assignees untouched.
 test("PATCH task by a caller removed from the project while waiting for the project lock is 404 and changes nothing", async () => {
   const taskRow = async (taskId: number) => (await pool.query(`SELECT t.task_title, t.task_description, t.priority,
@@ -444,16 +444,16 @@ test("PATCH task by a caller removed from the project while waiting for the proj
   const edit = { taskTitle: "Edited while removed", taskDescription: "changed", priority: 3, status: "Done",
     dueDate: bangkokDatePlus(60), assigneeIds: [ids.member] };
 
-  // Control: the same lock wait without a membership change lets the Member's PATCH through.
+  // Control: the same lock wait without a membership change lets the assigned Member's PATCH through.
   const control = await newProject("owner", [ids.member]);
-  const controlTask = await newTask("owner", control, [ids.owner]);
+  const controlTask = await newTask("owner", control, [ids.owner, ids.member]);
   const allowed = await withProjectLockHeld(control,
     () => api("member", "PATCH", `${tasksUrl(control)}/${controlTask.taskId}`, { taskTitle: "Edited" }), async () => {});
   assert.equal(allowed.status, 200);
   assert.equal((await taskRow(controlTask.taskId)).task_title, "Edited");
 
   const project = await newProject("owner", [ids.member]);
-  const task = await newTask("owner", project, [ids.owner], { taskTitle: "Original", taskDescription: "keep" });
+  const task = await newTask("owner", project, [ids.owner, ids.member], { taskTitle: "Original", taskDescription: "keep" });
   const before = await taskRow(task.taskId);
   const result = await withProjectLockHeld(project,
     () => api("member", "PATCH", `${tasksUrl(project)}/${task.taskId}`, edit),
@@ -464,7 +464,7 @@ test("PATCH task by a caller removed from the project while waiting for the proj
   assert.equal(res.status, 404);
   assert.equal(res.body.error.code, "NOT_FOUND");
   assert.deepEqual(await taskRow(task.taskId), before);
-  assert.deepEqual(before.assignees, [String(ids.owner)]);
+  assert.deepEqual(before.assignees, [ids.owner, ids.member].sort((left, right) => left - right).map(String));
   assert.equal(before.task_title, "Original");
   assert.equal((await api("member", "GET", `${tasksUrl(project)}/${task.taskId}`)).status, 404);
 });
