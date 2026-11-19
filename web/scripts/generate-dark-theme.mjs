@@ -47,43 +47,43 @@ function family({ h, s }) {
 const PAGE_BG = '#f3efff';
 
 const BG_BASE = {
-  page: '#14102b',
-  surface: '#1d1936',
-  surface2: '#221d3f',
-  tint: '#2a2447',
-  red: '#3b1c26',
-  amber: '#3a2e14',
-  green: '#14352a',
-  blue: '#172a45',
+  page: '#121119',
+  surface: '#1c1b27',
+  surface2: '#222131',
+  tint: '#2a283e',
+  red: '#3a2028',
+  amber: '#37301c',
+  green: '#193429',
+  blue: '#1d2b43',
 };
 const BG_HOVER = {
-  '#14102b': '#1d1936',
-  '#1d1936': '#2a2447',
-  '#221d3f': '#2f2954',
-  '#2a2447': '#35305a',
-  '#3b1c26': '#4a2230',
-  '#3a2e14': '#4a3b18',
-  '#14352a': '#1b4536',
-  '#172a45': '#1f3858',
+  '#121119': '#1c1b27',
+  '#1c1b27': '#2a283e',
+  '#222131': '#2d2b43',
+  '#2a283e': '#353350',
+  '#3a2028': '#482733',
+  '#37301c': '#473d22',
+  '#193429': '#20443a',
+  '#1d2b43': '#25385a',
 };
 
 const TEXT = {
-  main: '#ede9fb',
-  muted: '#a9a3c6',
-  accent: '#c4b8ff',
-  red: '#fca5a5',
-  amber: '#fcd34d',
-  green: '#6ee7b7',
-  blue: '#93c5fd',
+  main: '#e8e6f1',
+  muted: '#a9a6bc',
+  accent: '#b8acf5',
+  red: '#f5a9a9',
+  amber: '#f2cf6b',
+  green: '#7ad9b4',
+  blue: '#9cc3f5',
 };
 
 const BORDER = {
-  neutral: '#3d3667',
-  accentHover: '#6a5bb8',
-  red: '#7f2d3d',
-  amber: '#7a5d1f',
-  green: '#1f6b4f',
-  blue: '#2f5a96',
+  neutral: '#38364d',
+  accentHover: '#6c60b8',
+  red: '#74333f',
+  amber: '#6e5a26',
+  green: '#27604b',
+  blue: '#35588a',
 };
 
 const isHoverLike = (variants) =>
@@ -272,10 +272,10 @@ for (const token of tokens) {
 
 // translucent white cards sit on dark surface; do not touch bg-white/10 etc. on banners
 const staticRules = [
-  'html[data-theme="dark"] .bg-white\\/95 { background-color: rgb(29 25 54 / 0.95); }',
-  'html[data-theme="dark"] .bg-white\\/80 { background-color: rgb(29 25 54 / 0.8); }',
-  'html[data-theme="dark"] .bg-white\\/90 { background-color: rgb(29 25 54 / 0.9); }',
-  'html[data-theme="dark"] .border-white { border-color: #3d3667; }',
+  'html[data-theme="dark"] .bg-white\\/95 { background-color: rgb(28 27 39 / 0.95); }',
+  'html[data-theme="dark"] .bg-white\\/80 { background-color: rgb(28 27 39 / 0.8); }',
+  'html[data-theme="dark"] .bg-white\\/90 { background-color: rgb(28 27 39 / 0.9); }',
+  'html[data-theme="dark"] .border-white { border-color: #38364d; }',
 ];
 
 const sortRules = (a, b) => a.media - b.media || a.order - b.order || a.css.localeCompare(b.css);

@@ -12,8 +12,8 @@
 }
 
 html[data-theme="dark"] {
-  --background: #100d22;
-  --foreground: #ede9fb;
+  --background: #121119;
+  --foreground: #e8e6f1;
   color-scheme: dark;
 }
 
@@ -41,8 +41,8 @@ body {
 }
 
 html[data-theme="dark"] :where(a[href], button, input, select, textarea, summary, [tabindex]):focus-visible {
-  outline-color: #c4b8ff;
-  box-shadow: 0 0 0 2px #100d22;
+  outline-color: #b8acf5;
+  box-shadow: 0 0 0 2px #121119;
 }
 
 .skip-link:not(:focus) {
@@ -70,16 +70,16 @@ html[data-theme="dark"] :where(a[href], button, input, select, textarea, summary
 html[data-theme="dark"] input,
 html[data-theme="dark"] textarea,
 html[data-theme="dark"] select {
-  color: #ede9fb;
+  color: #e8e6f1;
 }
 
 html[data-theme="dark"] input::placeholder,
 html[data-theme="dark"] textarea::placeholder {
-  color: #8c86aa;
+  color: #8b88a0;
 }
 
 html[data-theme="dark"] .theme-toggle {
-  border-color: #4a4180;
+  border-color: #3f3c5c;
 }
 
 /* Theme toggle icon: pure CSS so the right icon shows from the first paint. */
@@ -107,4 +107,10 @@ html[data-theme="dark"] .theme-label-dark {
 
 html[data-theme="dark"] .theme-label-light {
   display: none;
+}
+
+/* Softer sidebar in dark mode: a bright purple slab is tiring on a dark page. */
+html[data-theme="dark"] aside.bg-\[\#5B44BA\],
+html[data-theme="dark"] aside .bg-\[\#5B44BA\] {
+  background-color: #3a3078;
 }
