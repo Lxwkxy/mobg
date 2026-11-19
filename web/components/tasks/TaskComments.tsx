@@ -1,5 +1,7 @@
 'use client';
 
+import KeyboardPopup from '@/components/ui/KeyboardPopup';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from '@/lib/SessionProvider';
 import { taskApi } from '@/lib/taskApi';
@@ -185,7 +187,7 @@ export default function TaskComments({
         </h2>
 
         {status === 'ready' && (
-          <div ref={sortDropdownRef} className="relative">
+          <KeyboardPopup open={isSortOpen} onClose={() => setIsSortOpen(false)} ref={sortDropdownRef} className="relative">
             <button
               type="button"
               aria-haspopup="listbox"
@@ -232,6 +234,7 @@ export default function TaskComments({
                       key={option.value}
                       type="button"
                       role="option"
+                      tabIndex={-1}
                       aria-selected={isSelected}
                       onClick={() => {
                         setSortOrder(option.value);
@@ -264,7 +267,7 @@ export default function TaskComments({
                 })}
               </div>
             )}
-          </div>
+          </KeyboardPopup>
         )}
       </div>
 

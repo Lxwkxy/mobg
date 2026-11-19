@@ -11,7 +11,6 @@ import ProtectedState from '@/components/ProtectedState';
 import TaskFilters from '@/components/tasks/TaskFilters';
 
 import type {
-  ProjectItem,
   Task,
   TaskPriority,
   TaskStatus,
@@ -38,30 +37,17 @@ function parsePriorityParam(value: string | null): TaskPriority | '' {
 }
 
 // ดึงงานทั้งหมดจากทุกโปรเจกต์ที่ผู้ใช้เป็นสมาชิก (ขอบเขตเดียวกับตัวเลขบน Dashboard)
-async function loadAllProjectTasks(
-  status?: TaskStatus,
-): Promise<Task[]> {
-  const allProjects: ProjectItem[] = [];
-  let page = 1;
+async function loadProjectTasks(status?: TaskStatus) {
   const pageSize = 50;
-
-  while (true) {
+  const first = await projectApi.getProjects({ page: 1, pageSize });
+  const projects = [...first.projects];
+  for (let page = 2; page <= first.pagination.totalPages; page += 1) {
     const result = await projectApi.getProjects({ page, pageSize });
-    allProjects.push(...result.projects);
-
-    if (result.projects.length < pageSize) {
-      break;
-    }
-
-    page += 1;
-  }
-
-  if (allProjects.length === 0) {
-    return [];
+    projects.push(...result.projects);
   }
 
   const tasksByProject = await Promise.all(
-    allProjects.map((project) =>
+    projects.map((project) =>
       taskApi.getTasks(
         project.projectId,
         status ? { status } : {},
@@ -69,7 +55,12 @@ async function loadAllProjectTasks(
     ),
   );
 
-  return tasksByProject.flat();
+  return {
+    tasks: tasksByProject.flat(),
+    ownedProjects: new Set(
+      projects.filter((project) => project.myRole === 'Owner').map((project) => project.projectId),
+    ),
+  };
 }
 
 export default function MyTasksPage() {
@@ -144,23 +135,28 @@ export default function MyTasksPage() {
   );
 
   // โหลดข้อมูลตามขอบเขต (งานทั้งหมดในโปรเจกต์ที่เป็นสมาชิก vs งานที่มอบหมายให้เรา)
-  const loadTasks = useCallback(() => {
+  const loadTasks = useCallback(async () => {
     if (isProjectScope) {
-      return loadAllProjectTasks(statusFilter || undefined);
+      return loadProjectTasks(statusFilter || undefined);
     }
 
-    return statusFilter
-      ? taskApi.getMyTasks({ status: statusFilter })
-      : taskApi.getMyTasks();
+    const tasks = await taskApi.getMyTasks(statusFilter ? { status: statusFilter } : {});
+    return { tasks, ownedProjects: new Set<number>() };
   }, [isProjectScope, statusFilter]);
 
-  const { status, data, retry } = useProtectedLoad(loadTasks, {
+  const { status, data, retry, userId } = useProtectedLoad(loadTasks, {
     revalidateOnFocus: true,
+    verifyBeforeLoad: false, // The Topbar already verifies session on navigation to My Tasks.
     hideDataWhileRefreshing: true,
-    revalidateOnRoute: '/mytasks',
   });
 
-  const tasksList = useMemo(() => data ?? [], [data]);
+  const tasksList = useMemo(() => data?.tasks ?? [], [data]);
+
+  const canEditTask = (task: Task) =>
+    userId !== null && (
+      data?.ownedProjects.has(task.projectId) === true ||
+      task.assignees.some((assignee) => assignee.userId === userId)
+    );
 
   // Search, Priority, Overdue และ ExcludeDone กรองข้อมูลฝั่ง Client
   const filteredTasks = useMemo(() => {
@@ -190,7 +186,7 @@ export default function MyTasksPage() {
     task: Task,
     newStatus: TaskStatus,
   ) => {
-    if (task.status === newStatus || updatingTaskId !== null) {
+    if (!canEditTask(task) || task.status === newStatus || updatingTaskId !== null) {
       return;
     }
 
@@ -476,24 +472,25 @@ export default function MyTasksPage() {
                       Status:
                     </span>
 
-                    <select
-                      aria-label={`Change status for ${row.taskTitle}`}
-                      value={row.status}
-                      disabled={updatingTaskId !== null}
-                      onChange={(event) => {
-                        void handleStatusChange(
-                          row,
-                          event.target.value as TaskStatus,
-                        );
-                      }}
-                      className="min-h-10 max-w-full rounded-lg border border-[#dedede] bg-[#f5f5f5] px-2 py-1 text-[11px] text-[#444444] outline-none focus:border-[#888888] disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {STATUS_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
+                    {canEditTask(row) ? (
+                      <select
+                        aria-label={`Change status for ${row.taskTitle}`}
+                        value={row.status}
+                        disabled={updatingTaskId !== null}
+                        onChange={(event) => {
+                          void handleStatusChange(row, event.target.value as TaskStatus);
+                        }}
+                        className="min-h-10 max-w-full rounded-lg border border-[#dedede] bg-[#f5f5f5] px-2 py-1 text-[11px] text-[#444444] outline-none focus:border-[#888888] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {STATUS_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-[12px] text-[#444444]">{row.status}</span>
+                    )}
 
                     {isUpdating && (
                       <span className="text-[10px] text-[#888888]">

@@ -3,12 +3,12 @@
 Express 5 + TypeScript (ESM), a shared PostgreSQL pool and Better Auth 1.7.7.
 Implemented and database-backed: `GET /api/me`, `GET /api/users`, `GET /api/search`,
 project CRUD, project members (list/add/remove), project tasks (CRUD), `GET /api/tasks/mine`
-and `GET /api/dashboard`. Task comments now support database-backed GET/POST endpoints
-and a form on the task detail page; see [comments verification](../docs/comments-verification.md).
-Activity remains contract-only (no endpoint yet).
+and `GET /api/dashboard`. Task details support listing and posting comments.
+The project overview and task details show recent task creation and comments
+through their activity endpoints.
 The pre-existing endpoints passed the W5 audit on Pai's seed (`npm run test:api-audit`, see
 [W5 backend report](../docs/w5-backend-report.md)). The web app calls the project, task,
-member, search and `/api/me` endpoints; its Dashboard and My Tasks pages still use mock data.
+member, search, dashboard, My Tasks, comment, activity and `/api/me` endpoints.
 Frontend Login uses Better Auth. Public signup, email verification and password reset
 are described in [account setup](../docs/account-registration.md).
 
@@ -57,7 +57,8 @@ Variable names come from [`.env.example`](../.env.example).
    npm run dev
    ```
 
-   Open `http://localhost:3000/login`, sign in as `mobg-member@example.test`, open
+   Open `http://localhost:3000/login`, sign in as the seeded Owner
+   (`demo-member@example.test` with the default SQL seed), open
    **MobG W5 Main Demo** (progress 20%), change "Future Medium" to Done (40%), then Log out.
    The same flow by API with curl is in [API contract → section 1](API-CONTRACT.md#1-login--logout--current-user).
 7. Optional automatic check of every endpoint, from `backend/` in any terminal:

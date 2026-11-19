@@ -577,8 +577,8 @@ function SummaryStatIcon({ type }: { type: SummaryStatKey }) {
 export default function DashboardPage() {
   const { status, data, retry } = useProtectedLoad(loadDashboard, {
     revalidateOnFocus: true,
+    verifyBeforeLoad: false, // The Topbar already verifies session on navigation to Dashboard.
     hideDataWhileRefreshing: true,
-    revalidateOnRoute: '/dashboard',
   });
 
   if (status !== 'ready' || data === null) {

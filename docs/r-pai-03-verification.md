@@ -1,5 +1,7 @@
 # R-Pai-03 — Responsive หน้าที่พร้อม
 
+ผลทดสอบสำหรับหน้าปัจจุบันอยู่ใน [W5 frontend verification](w5-frontend-verification.md).
+
 วันที่ 2026-11-08 · branch `w4-pai-db` · ผู้ใช้ย้ายงาน Responsive ทั้งหมดให้ Pai;
 R-Pai-03 คือ R-Book-01 ใน `docs/specs/MobG_Trello_Tasks_Detailed.md` ฉบับเดิม.
 ไม่มี commit/push/PR/merge หรือเปลี่ยนสถานะการ์ด.

@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 
 import Sidebar from '@/components/Sidebar';
 import Topbar from '@/components/Topbar';
+import MainRouteFocus from '@/components/MainRouteFocus';
 import { SessionProvider } from '@/lib/SessionProvider';
 
 export default function MainLayout({
@@ -11,6 +12,7 @@ export default function MainLayout({
 }) {
   return (
     <SessionProvider>
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       <div className="flex min-h-screen flex-col lg:flex-row bg-[#f3efff] text-[#2b2b2b]">
         <Suspense
           fallback={
@@ -29,7 +31,10 @@ export default function MainLayout({
             <Topbar />
           </Suspense>
 
-          <main className="min-w-0 p-4 sm:p-6 lg:px-8 lg:py-6 flex-1">
+          <main id="main-content" tabIndex={-1} className="min-w-0 p-4 sm:p-6 lg:px-8 lg:py-6 flex-1">
+            <Suspense fallback={null}>
+              <MainRouteFocus />
+            </Suspense>
             <Suspense
               fallback={
                 <p className="text-[13px] text-[#777777]">

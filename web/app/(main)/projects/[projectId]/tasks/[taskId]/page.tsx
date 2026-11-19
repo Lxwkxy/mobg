@@ -12,6 +12,7 @@ import { notFound, useParams, useRouter } from 'next/navigation';
 
 import ProtectedState from '@/components/ProtectedState';
 import TaskComments from '@/components/tasks/TaskComments';
+import ActivityFeed from '@/components/ActivityFeed';
 import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
 import {
   ApiRequestError,
@@ -1030,6 +1031,7 @@ function TaskDetailContent({
                   : ''
               }
             />
+            <ActivityFeed projectId={resolvedProjectId} taskId={resolvedTaskId} />
           </div>
         </div>
       </div>

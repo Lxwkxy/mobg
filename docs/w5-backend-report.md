@@ -1,6 +1,8 @@
 # W5-Book-01 — Backend audit, API documentation and report
 
 Date: 2026-11-16 (Asia/Bangkok). Base: `main` at `39462c8` (after PR #25, W4 API).
+For current Dashboard, My Tasks, task permissions, comments and activity behavior,
+see the [frontend verification](w5-frontend-verification.md).
 Scope: every business endpoint from W1–W4 plus the Better Auth routes the web app uses.
 Contract: [backend/API-CONTRACT.md](../backend/API-CONTRACT.md). Setup: [backend/README.md](../backend/README.md).
 Raw results: [w5-api-audit-results.md](w5-api-audit-results.md) (170 rows, one per request).

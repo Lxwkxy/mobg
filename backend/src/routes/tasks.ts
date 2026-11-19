@@ -1,9 +1,11 @@
 import { Router, type Request, type Response } from "express";
-import type { CommentResponse, CommentsResponse, MessageResponse, TaskResponse, TasksResponse } from "../contracts/api.js";
+import type { ActivitiesResponse, CommentResponse, CommentsResponse, MessageResponse, TaskResponse, TasksResponse } from "../contracts/api.js";
 import { ApiError, forbidden, notFound } from "../errors.js";
 import { requireAuth, requireProjectRole } from "../guards.js";
 import { mapTask, toDbStatus } from "../mappers/task.js";
 import { mapComment } from "../mappers/comment.js";
+import { mapActivity } from "../mappers/activity.js";
+import { listActivity } from "../services/activityDb.js";
 import { createComment, listCommentsByTask } from "../services/commentDb.js";
 import { FOREIGN_KEY_VIOLATION, pgErrorInfo } from "../pgErrors.js";
 import { domainIdToNumber } from "../services/dbHelpers.js";
@@ -13,7 +15,7 @@ import {
   updateTask, type TaskChanges,
 } from "../services/taskDb.js";
 import {
-  createCommentSchema, createTaskSchema, parseRequest, taskListQuerySchema, updateTaskSchema, urlIdSchema,
+  activityQuerySchema, createCommentSchema, createTaskSchema, parseRequest, taskListQuerySchema, updateTaskSchema, urlIdSchema,
 } from "../validation.js";
 
 // Mounted at /api/projects/:projectId/tasks, so the parent param must be merged.
@@ -134,6 +136,14 @@ router.delete("/:taskId", requireProjectRole("Owner"), async (req: Request, res:
   const { taskId } = await loadTask(req.projectAccess!.projectId, req.params.taskId as string);
   if (!(await deleteTask(taskId))) throw taskNotFound();
   res.json({ success: true, message: "Task deleted" });
+});
+
+router.get("/:taskId/activity", requireProjectRole("Member"), async (req: Request, res: Response<ActivitiesResponse>) => {
+  const { projectId } = req.projectAccess!;
+  const { taskId } = await loadTask(projectId, req.params.taskId as string);
+  const { limit } = parseRequest(activityQuerySchema, req.query);
+  const activities = await listActivity(projectId, limit, taskId);
+  res.set("Cache-Control", "private, no-store").json({ success: true, activities: activities.map(mapActivity) });
 });
 
 // Any current project Owner/Member can comment, independently of task assignment or creation.

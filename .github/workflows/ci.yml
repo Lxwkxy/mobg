@@ -33,7 +33,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Lint
@@ -42,6 +44,23 @@ jobs:
         run: npm run typecheck
       - name: Build
         run: npm run build
+      - name: Install browser test dependencies
+        working-directory: .
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Test web flows and responsive layouts
+        working-directory: .
+        env:
+          RESPONSIVE_BASE_URL: http://127.0.0.1:3100
+          COMMENTS_WEB_URL: http://127.0.0.1:3100
+          RESPONSIVE_OUTPUT: web/.next/responsive
+        run: |
+          npm --prefix web run start -- --hostname 127.0.0.1 --port 3100 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          curl --fail --silent --retry 20 --retry-connrefused --retry-delay 1 "$RESPONSIVE_BASE_URL/login" > /dev/null
+          node --test web/test/rPai03.mjs web/test/responsive.mjs web/test/task-comments.mjs
 
   backend:
     name: Backend checks

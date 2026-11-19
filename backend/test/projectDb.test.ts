@@ -13,6 +13,7 @@ test("creator remains Owner when also selected as an initial member", async () =
   const project = await getProjectById(Number(result.project_id));
   assert.equal(project?.derived_status, "To do");
   assert.equal(project?.progress_percent, 0);
+  assert.equal(project?.high_priority_task_count, "0");
 });
 
 async function newUser(name: string): Promise<number> {
@@ -68,15 +69,20 @@ test("lists membership projects, filters before pagination, preserves totals and
   assert.deepEqual(users.map(u => u.user_id), expected.map(u => u.user_id));
 });
 
-test("task counts are unaffected by multiple assignees", async () => {
+test("project counts include completed high priority tasks once despite multiple assignees", async () => {
   const owner = await newUser("CountOwner");
   const member = await newUser("CountMember");
   const id = await project(owner, "Counts", [member]);
   const taskId = await task(id, owner, "Done");
   await pool.query("INSERT INTO task_assignees (task_id, user_id) SELECT $1, unnest($2::bigint[])", [taskId, [owner, member]]);
+  const normalTaskId = await task(id, owner, "Done");
+  await pool.query("UPDATE tasks SET priority = 2 WHERE task_id = $1", [normalTaskId]);
   const row = await getProjectById(id);
-  assert.equal(row?.total_tasks, "1");
-  assert.equal(row?.completed_tasks, "1");
+  assert.equal(row?.total_tasks, "2");
+  assert.equal(row?.completed_tasks, "2");
+  const list = await listProjectsForUser({ user_id: member, status: null, page: 1, page_size: 10 });
+  assert.equal(list.items[0]?.high_priority_task_count, "1");
+  assert.equal(row?.high_priority_task_count, "1");
   assert.equal(row?.progress_percent, 100);
 });
 

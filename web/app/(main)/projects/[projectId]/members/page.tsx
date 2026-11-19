@@ -1,8 +1,12 @@
 'use client';
 
+import { handleResultKeys } from '@/lib/keyboardNavigation';
+import ConfirmationDialog from '@/components/ui/ConfirmationDialog';
+
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -159,6 +163,7 @@ function ProjectMembersContent({
 
   const [memberToRemove, setMemberToRemove] =
     useState<ProjectMember | null>(null);
+  const memberResultsId = useId();
 
   const memberSearch =
     searchState.resetKey === selectionResetKey ? searchState.query : '';
@@ -173,18 +178,9 @@ function ProjectMembersContent({
   const actionError = feedback?.message ?? '';
   const blockingTasks = feedback?.taskNames ?? [];
 
-  useEffect(() => {
-    if (!memberToRemove) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !isMutating) {
-        setMemberToRemove(null);
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [memberToRemove, isMutating]);
+  function closeMemberPicker() {
+    setSearchState({ resetKey: selectionResetKey, query: memberSearch, isOpen: false });
+  }
 
   const availableUsers = useMemo(() => {
     const memberIds = new Set(
@@ -404,7 +400,15 @@ function ProjectMembersContent({
                     Search by name or email and select the people you want to add.
                   </p>
 
-                  <div className="relative">
+                  <div
+                    className="relative"
+                    data-member-picker
+                    tabIndex={-1}
+                    onKeyDown={(event) => handleResultKeys(event, memberResultsId, closeMemberPicker)}
+                    onBlur={(event) => {
+                      if (isMemberDropdownOpen && !event.currentTarget.contains(event.relatedTarget)) closeMemberPicker();
+                    }}
+                  >
                     <div
                       className={`flex items-center gap-2.5 rounded-xl border bg-white px-3.5 transition-all ${
                         isMutating
@@ -428,7 +432,8 @@ function ProjectMembersContent({
                       </svg>
 
                       <input
-                        id="memberSearch"
+                        aria-label="Search members"
+                        aria-controls={isMemberDropdownOpen ? memberResultsId : undefined}
                         type="text"
                         disabled={isMutating}
                         value={memberSearch}
@@ -446,15 +451,6 @@ function ProjectMembersContent({
                             isOpen: true,
                           })
                         }
-                        onKeyDown={(event) => {
-                          if (event.key === 'Escape') {
-                            setSearchState({
-                              resetKey: selectionResetKey,
-                              query: memberSearch,
-                              isOpen: false,
-                            });
-                          }
-                        }}
                         placeholder="Search members by name or email..."
                         autoComplete="off"
                         className="min-w-0 w-full border-0 bg-transparent py-3 text-[13.5px] text-[#1f1f1f] outline-none placeholder:text-[#8f89a6] disabled:cursor-not-allowed"
@@ -488,6 +484,8 @@ function ProjectMembersContent({
                       <>
                         <button
                           type="button"
+                          tabIndex={-1}
+                          aria-hidden="true"
                           aria-label="Close member search results"
                           onClick={() =>
                             setSearchState({
@@ -500,7 +498,7 @@ function ProjectMembersContent({
                         />
 
                         <div
-                          id="member-search-results"
+                          id={memberResultsId}
                           className="absolute left-0 right-0 z-20 mt-2 max-h-60 w-full overflow-y-auto overscroll-contain rounded-2xl border border-[#cfc9e8] bg-white p-1.5 shadow-[0_12px_30px_rgba(52,37,112,0.14)]"
                         >
                           {filteredUsers.length === 0 ? (
@@ -513,7 +511,10 @@ function ProjectMembersContent({
                                 key={user.userId}
                                 type="button"
                                 disabled={isMutating}
-                                onClick={() => handleSelectUser(user.userId)}
+                                onClick={(event) => {
+                                  event.currentTarget.closest<HTMLElement>('[data-member-picker]')?.focus();
+                                  handleSelectUser(user.userId);
+                                }}
                                 className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-[#f6f3ff] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#dcd4fa] bg-[#f1edff] text-[11.5px] font-bold text-[#5B44BA]">
@@ -647,6 +648,7 @@ function ProjectMembersContent({
                       {isOwner && (
                         <button
                           type="button"
+                          aria-label={`Remove ${member.userName}`}
                           onClick={() => setMemberToRemove(member)}
                           disabled={isMutating}
                           className="min-h-9 rounded-xl border border-rose-200 bg-white px-3.5 text-[12px] font-semibold text-rose-600 transition-colors hover:border-rose-300 hover:bg-rose-50 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
@@ -669,111 +671,18 @@ function ProjectMembersContent({
         </div>
       </div>
 
-      {/* CENTERED REMOVE MEMBER CONFIRMATION MODAL */}
-      {memberToRemove && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="remove-member-dialog-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#191233]/45 p-4 backdrop-blur-[2px]"
-          onClick={() => {
-            if (!isMutating) {
-              setMemberToRemove(null);
-            }
-          }}
-        >
-          <div
-            className="w-full max-w-md rounded-2xl border border-[#cfc9e8] bg-white p-6 shadow-[0_20px_50px_rgba(35,25,66,0.22)]"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start gap-3.5">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 text-rose-600">
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.1"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                  <circle cx="8.5" cy="7" r="4" />
-                  <line x1="23" y1="11" x2="17" y2="11" />
-                </svg>
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <h2
-                  id="remove-member-dialog-title"
-                  className="text-[18px] font-extrabold text-[#1f1f1f]"
-                >
-                  Remove member
-                </h2>
-                <p className="mt-1 text-[13px] leading-relaxed text-[#6e6b7b]">
-                  Remove{' '}
-                  <span className="font-bold text-[#1f1f1f]">
-                    {memberToRemove.userName}
-                  </span>{' '}
-                  from{' '}
-                  <span className="font-bold text-[#1f1f1f]">
-                    {project.projectName}
-                  </span>
-                  ? They will immediately lose access to this project.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-[#e5e0f5] bg-[#faf9fe] px-3.5 py-2.5">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#dcd4fa] bg-[#f1edff] text-[11px] font-bold text-[#5B44BA]">
-                  {getInitials(memberToRemove.userName)}
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate text-[13px] font-bold text-[#1f1f1f]">
-                    {memberToRemove.userName}
-                  </p>
-                  <p className="truncate text-[11.5px] text-[#6e6b7b]">
-                    {memberToRemove.email}
-                  </p>
-                </div>
-              </div>
-
-              <span
-                className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
-                  memberToRemove.role === 'Owner'
-                    ? 'bg-[#5B44BA] text-white'
-                    : 'border border-[#dcd4fa] bg-[#f1edff] text-[#4c35ab]'
-                }`}
-              >
-                {memberToRemove.role}
-              </span>
-            </div>
-
-            <div className="mt-6 flex flex-wrap items-center justify-end gap-2.5">
-              <button
-                type="button"
-                disabled={isMutating}
-                onClick={() => setMemberToRemove(null)}
-                className="min-h-10 rounded-xl border border-[#cfc9e8] bg-white px-4 py-2 text-[13px] font-semibold text-[#3d3a4b] hover:border-[#9e8ce6] hover:bg-[#f6f3ff] hover:text-[#5B44BA] transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                disabled={isMutating}
-                onClick={() => void handleConfirmRemove()}
-                className="min-h-10 rounded-xl bg-rose-600 hover:bg-rose-700 px-4 py-2 text-[13px] font-bold text-white shadow-[0_4px_14px_rgba(225,29,72,0.24)] transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isMutating ? 'Removing...' : 'Remove member'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmationDialog
+        open={memberToRemove !== null}
+        title="Remove member"
+        itemName={memberToRemove?.userName ?? ''}
+        description={`They will immediately lose access to ${project.projectName}.`}
+        confirmLabel="Remove member"
+        pendingLabel="Removing..."
+        irreversible={false}
+        isLoading={isMutating && memberToRemove !== null}
+        onCancel={() => setMemberToRemove(null)}
+        onConfirm={() => void handleConfirmRemove()}
+      />
     </div>
   );
 }

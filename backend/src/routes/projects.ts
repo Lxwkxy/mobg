@@ -1,8 +1,10 @@
 import { Router, type Request, type Response } from "express";
-import type { MessageResponse, ProjectResponse, ProjectsResponse } from "../contracts/api.js";
+import type { ActivitiesResponse, MessageResponse, ProjectResponse, ProjectsResponse } from "../contracts/api.js";
 import { ApiError, notFound } from "../errors.js";
 import { requireAuth, requireProjectRole } from "../guards.js";
 import { countToNumber, mapProject } from "../mappers/project.js";
+import { mapActivity } from "../mappers/activity.js";
+import { listActivity } from "../services/activityDb.js";
 import { CHECK_VIOLATION, FOREIGN_KEY_VIOLATION, pgErrorInfo } from "../pgErrors.js";
 import { domainIdToNumber } from "../services/dbHelpers.js";
 import {
@@ -10,7 +12,7 @@ import {
   listProjectsForUser, updateProject, type ProjectChanges,
 } from "../services/projectDb.js";
 import {
-  createProjectSchema, parseRequest, projectDatesAreValid, projectListQuerySchema,
+  activityQuerySchema, createProjectSchema, parseRequest, projectDatesAreValid, projectListQuerySchema,
   updateProjectSchema,
 } from "../validation.js";
 
@@ -69,6 +71,12 @@ router.get("/:projectId", requireProjectRole("Member"), async (req: Request, res
   const row = await getProjectById(projectId);
   if (!row) throw notFound();
   res.json({ success: true, project: mapProject(row, role) });
+});
+
+router.get("/:projectId/activity", requireProjectRole("Member"), async (req: Request, res: Response<ActivitiesResponse>) => {
+  const { limit } = parseRequest(activityQuerySchema, req.query);
+  const activities = await listActivity(req.projectAccess!.projectId, limit);
+  res.set("Cache-Control", "private, no-store").json({ success: true, activities: activities.map(mapActivity) });
 });
 
 // PATCH /api/projects/:projectId  (Owner only)

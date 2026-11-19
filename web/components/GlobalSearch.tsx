@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { ApiRequestError, request } from '@/lib/projectApi';
+import { handleResultKeys } from '@/lib/keyboardNavigation';
 import type { SearchResults } from '@/types';
 
 type Outcome =
@@ -26,7 +27,6 @@ function SearchField({ disabled }: { disabled: boolean }) {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const pending = useRef<PendingSearch | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const resultsId = useId();
 
   const cancel = useCallback(() => {
@@ -112,13 +112,7 @@ function SearchField({ disabled }: { disabled: boolean }) {
       onBlur={(event) => {
         if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) close();
       }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape' && outcome) {
-          event.preventDefault();
-          inputRef.current?.focus();
-          close();
-        }
-      }}
+      onKeyDown={(event) => handleResultKeys(event, resultsId, close)}
     >
       <div className="group flex min-w-0 items-center gap-2.5 rounded-full bg-[#f6f4ff] border border-[#e4dcff] py-1.5 pr-1.5 pl-4 transition-all duration-200 focus-within:bg-white focus-within:border-[#5B44BA] focus-within:ring-4 focus-within:ring-[#5B44BA]/12">
         <svg
@@ -137,7 +131,6 @@ function SearchField({ disabled }: { disabled: boolean }) {
           <line x1="21" y1="21" x2="16.65" y2="16.65" />
         </svg>
         <input
-          ref={inputRef}
           type="search"
           placeholder="Search projects, tasks ..."
           aria-label="Search projects and tasks"

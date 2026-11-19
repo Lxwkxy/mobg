@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const base = process.env.COMMENTS_WEB_URL || 'http://localhost:3100';
 let browser;
-before(async () => { browser = await chromium.launch({ channel: 'chrome', headless: true }); });
+before(async () => { browser = await chromium.launch({ channel: process.env.CI ? undefined : 'chrome', headless: true }); });
 after(async () => { await browser?.close(); });
 
 async function setup(width) {
@@ -32,6 +32,16 @@ async function setup(width) {
     }
     else if (path === '/api/projects/91') body = { project };
     else if (path === '/api/projects/91/tasks/92') body = { task };
+    else if (path === '/api/projects/91/tasks/92/activity') {
+      const details = { taskId: task.taskId, taskTitle: task.taskTitle };
+      body = { activities: [
+        ...state.comments.toReversed().map(comment => ({ ...details, activityId: `comment_added:${comment.commentId}`,
+          activityType: 'comment_added', occurredAt: comment.createdAt, actorId: comment.userId,
+          actorName: comment.userName, commentId: comment.commentId, commentText: comment.commentText })),
+        { ...details, activityId: 'task_created:92', activityType: 'task_created', occurredAt: task.createdAt,
+          actorId: 1, actorName: 'Owner', commentId: null, commentText: null },
+      ] };
+    }
     else if (path === '/api/projects/91/tasks/92/comments') {
       if (req.method() === 'POST') {
         state.posts++;
@@ -65,6 +75,8 @@ for (const width of [375, 1440]) {
     try {
       await page.goto(`${base}/projects/91/tasks/92`);
       const section = page.getByRole('region', { name: 'Comments' });
+      const activity = page.getByRole('region', { name: 'Activity' });
+      await activity.getByText('Owner created this task').waitFor();
       await section.getByText('No comments yet. Start the conversation.').waitFor();
       const submit = section.getByRole('button', { name: 'Post comment', exact: true });
       const input = section.getByLabel('Add a comment');
@@ -75,6 +87,7 @@ for (const width of [375, 1440]) {
       await input.fill(`  ${content}  `);
       await submit.click();
       await section.getByRole('listitem').getByText(content, { exact: true }).waitFor();
+      await activity.getByText(content, { exact: true }).waitFor();
       assert.equal(state.posts, 1);
       assert.equal(await input.inputValue(), '');
       assert.equal(await page.evaluate(() => window.commentInjected), undefined);

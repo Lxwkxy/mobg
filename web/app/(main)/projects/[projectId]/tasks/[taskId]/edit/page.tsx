@@ -1,5 +1,7 @@
 'use client';
 
+import KeyboardPopup from '@/components/ui/KeyboardPopup';
+
 import {
   useCallback,
   useEffect,
@@ -1125,7 +1127,7 @@ function EditTaskForm({
 
               <div className="grid gap-4 sm:grid-cols-3 sm:gap-5 [&>div]:min-w-0">
                 {/* STATUS CUSTOM ROUNDED DROPDOWN */}
-                <div ref={statusDropdownRef} className="relative">
+                <KeyboardPopup open={isStatusDropdownOpen} onClose={() => setIsStatusDropdownOpen(false)} ref={statusDropdownRef} className="relative">
                   <label
                     id="status-label"
                     className="mb-2 block text-[13px] font-bold text-[#2b2838]"
@@ -1191,6 +1193,7 @@ function EditTaskForm({
                             key={option.value}
                             type="button"
                             role="option"
+                            tabIndex={-1}
                             aria-selected={isSelected}
                             onClick={() => {
                               isDiscardedRef.current = false;
@@ -1231,10 +1234,10 @@ function EditTaskForm({
                       })}
                     </div>
                   )}
-                </div>
+                </KeyboardPopup>
 
                 {/* PRIORITY CUSTOM ROUNDED DROPDOWN */}
-                <div ref={priorityDropdownRef} className="relative">
+                <KeyboardPopup open={isPriorityDropdownOpen} onClose={() => setIsPriorityDropdownOpen(false)} ref={priorityDropdownRef} className="relative">
                   <label
                     id="priority-label"
                     className="mb-2 block text-[13px] font-bold text-[#2b2838]"
@@ -1300,6 +1303,7 @@ function EditTaskForm({
                             key={option.value}
                             type="button"
                             role="option"
+                            tabIndex={-1}
                             aria-selected={isSelected}
                             onClick={() => {
                               isDiscardedRef.current = false;
@@ -1349,7 +1353,7 @@ function EditTaskForm({
                       {errors.priority}
                     </p>
                   )}
-                </div>
+                </KeyboardPopup>
 
                 {/* DUE DATE */}
                 <div>
