@@ -92,20 +92,21 @@ How authorization works (PR #25 review fixes, 2026-11-14):
 
 ### 4. Dashboard page wiring for Bar — which endpoint feeds what
 
-The Dashboard page needs two calls. `GET /api/dashboard` does **not** return per-project progress.
+The Dashboard page uses these three endpoints.
 
 | Dashboard part | Endpoint | Fields |
 |---|---|---|
 | Summary numbers (projects, tasks, To do / In progress / Done, overdue, high priority) | `GET /api/dashboard` | `summary.projectCount`, `summary.taskCount`, `summary.statusCounts.{todo,inProgress,done}`, `summary.overdueCount`, `summary.highPriorityCount` |
-| Important tasks list | `GET /api/dashboard?limit=5` | `highPriorityTasks[]` (same task object as My Tasks) |
+| Important Tasks | `GET /api/tasks/mine` | `tasks[]` assigned to the current user |
 | Progress per project (cards / bars) | `GET /api/projects` (paginated, `pageSize` max 50) | `projects[].progressPercent`, plus `totalTasks`, `completedTasks`, `derivedStatus` |
 
+- For Important Tasks, filter out `Done`, sort by priority (High → Medium → Low), then by `dueDate` and `taskId` ascending. Show up to five tasks. My Tasks remains the full list of assigned tasks.
 - `progressPercent = ROUND(100 × completedTasks / totalTasks)`, where completed means status `Done`
   (`In progress` does not count). Rounding is half away from zero: 1 of 3 → `33`, 2 of 3 → `67`.
 - A project with no tasks has `progressPercent: 0` (no division by zero), `totalTasks: 0`.
 - The value is an integer 0–100 computed by the API; the UI should display it as-is, not recompute it.
 - `GET /api/projects/:projectId` returns the same `progressPercent` for one project.
-- After changing a task status, re-fetch both endpoints; neither pushes updates.
+- After changing a task status, re-fetch the Dashboard data from all three endpoints.
 
 ## Where the code lives
 

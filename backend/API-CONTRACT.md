@@ -442,7 +442,7 @@ Status: implemented in W2: 10.3 users, 10.4 projects, GET 10.5 member list, and 
 | POST | `/api/projects/:projectId/tasks/:taskId/comments` | Owner, Member | Add a comment | `findProjectMembership`, `getTaskById`, `createComment` |
 | GET | `/api/projects/:projectId/activity` | Owner, Member | Project activity feed | `findProjectMembership`, `listActivityByProject` |
 | GET | `/api/projects/:projectId/tasks/:taskId/activity` | Owner, Member | Task activity feed | `findProjectMembership`, `getTaskById`, `listActivityByTask` |
-| GET | `/api/dashboard` | Logged in | Dashboard counts and important tasks | `getDashboardSummary`, `listHighPriorityTasks` |
+| GET | `/api/dashboard` | Logged in | Dashboard counts and high-priority tasks | `getDashboardSummary`, `listHighPriorityTasks` |
 
 ### 10.2 Auth
 
@@ -705,7 +705,8 @@ Activity object:
 
 - Scope: projects the current user belongs to. Each distinct task is counted once.
 - **[W4 decision, 2026-11-08]** The user delegated the scope choice: all tasks in projects where the user is currently a member. This matches `projectCount` and project progress; My Tasks separately scopes by assignment. This records the current task decision, not a new confirmation from Book/Bar.
-- The user confirmed `highPriorityCount` and the important-task list use `priority = 1` and status not `Done`. The list orders `due_date`, then `task_id`, ascending; default limit 5, allowed integer range 1–100.
+- `highPriorityCount` and `highPriorityTasks` use `priority = 1` and status not `Done`. `highPriorityTasks` is ordered by `due_date` and `task_id` ascending, with a default limit of 5 and an allowed range of 1–100.
+- The Dashboard UI's Important Tasks panel uses `GET /api/tasks/mine` and displays up to five of the current user's open assignments across all priorities. See [W4 Dashboard page wiring](../docs/w4-verification.md#4-dashboard-page-wiring-for-bar--which-endpoint-feeds-what).
 - DB implementations: `getDashboardSummary(user_id)` in `services/dashboardDb.ts`, `listHighPriorityTasks(user_id, limit = 5)` in `services/taskDb.ts`. Both use current membership scope, without assignee joins multiplying task counts. HTTP endpoint implemented in W4-Book (see docs/w4-verification.md); UI integration remains Bar work.
 
 ### 10.10 Topbar search
