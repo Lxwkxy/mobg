@@ -15,7 +15,8 @@ async function setup(width) {
     status: 'To do', dueDate: '2026-12-01', createdAt: '2026-01-01T09:00:00Z',
     createdById: 1, createdByName: 'Owner', assignees: [{ userId: 1, userName: 'Owner' }] };
   const state = { comments: [], posts: 0, failPost: false, failLoad: false,
-    userId: 2, holdNextSession: false, releaseSession: null, holdNextPost: false, releasePost: null };
+    userId: 2, taskTitle: task.taskTitle, onSessionHeld: null, releaseSession: null,
+    holdNextPost: false, releasePost: null };
   await page.route('**/api/**', async (route) => {
     const req = route.request();
     const path = new URL(req.url()).pathname;
@@ -24,14 +25,19 @@ async function setup(width) {
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
     let body;
     if (path === '/api/me') {
-      if (state.holdNextSession) {
-        state.holdNextSession = false;
-        await new Promise((resolve) => { state.releaseSession = resolve; });
+      if (state.onSessionHeld) {
+        const onSessionHeld = state.onSessionHeld;
+        state.onSessionHeld = null;
+        await new Promise((resolve) => {
+          state.releaseSession = resolve;
+          onSessionHeld();
+        });
       }
+      if (state.userId === null) return route.fulfill({ status: 401, headers, json: { success: false } });
       body = { user: { userId: state.userId, userName: 'Member', email: 'member@example.test' } };
     }
     else if (path === '/api/projects/91') body = { project };
-    else if (path === '/api/projects/91/tasks/92') body = { task };
+    else if (path === '/api/projects/91/tasks/92') body = { task: { ...task, taskTitle: state.taskTitle } };
     else if (path === '/api/projects/91/tasks/92/comments') {
       if (req.method() === 'POST') {
         state.posts++;
@@ -57,6 +63,18 @@ async function setup(width) {
     await route.fulfill({ headers, json: { success: true, ...body } });
   });
   return { page, state };
+}
+
+async function pauseFocusVerification(page, state) {
+  // Let the focus throttle expire before simulating return to the tab.
+  await page.waitForTimeout(600);
+  state.releaseSession = null;
+  const sessionHeld = new Promise((resolve) => { state.onSessionHeld = resolve; });
+  await Promise.all([
+    page.waitForRequest('**/api/me', { timeout: 5000 }),
+    page.evaluate(() => window.dispatchEvent(new Event('focus'))),
+  ]);
+  await sessionHeld;
 }
 
 for (const width of [375, 1440]) {
@@ -113,30 +131,48 @@ test('comment failures preserve draft and support retry without hiding task deta
   } finally { await page.close(); }
 });
 
-test('focus verification preserves a same-account draft and hides it from another account', async () => {
+test('returning to the tab keeps the draft visible and refreshes task data for the same account', async () => {
   const { page, state } = await setup(375);
   try {
     await page.goto(`${base}/projects/91/tasks/92`);
     const section = page.getByRole('region', { name: 'Comments' });
     const input = section.getByLabel('Add a comment');
     await input.fill('Draft survives switching tabs');
-    async function verifyOnFocus() {
-      // Let the existing 500ms focus throttle expire before simulating tab return.
-      await page.waitForTimeout(600);
-      state.holdNextSession = true;
-      state.releaseSession = null;
-      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-      await section.waitFor({ state: 'detached' });
-      assert.ok(state.releaseSession, 'session verification is in flight');
-      state.releaseSession();
-      await input.waitFor();
-    }
-    await verifyOnFocus();
+
+    state.taskTitle = 'Task title updated in another tab';
+    await pauseFocusVerification(page, state);
+    assert.equal(await input.isVisible(), true);
+    assert.equal(await input.evaluate((element) => element === document.activeElement), true);
     assert.equal(await input.inputValue(), 'Draft survives switching tabs');
+    state.releaseSession();
+    await page.getByRole('heading', { name: state.taskTitle, exact: true }).waitFor();
+    assert.equal(await input.evaluate((element) => element === document.activeElement), true);
+    assert.equal(await input.inputValue(), 'Draft survives switching tabs');
+
     state.userId = 3;
-    await verifyOnFocus();
+    state.taskTitle = 'Task title for the other account';
+    await pauseFocusVerification(page, state);
+    state.releaseSession();
+    await page.getByRole('heading', { name: state.taskTitle, exact: true }).waitFor();
     assert.equal(await input.inputValue(), '');
     assert.equal(state.posts, 0);
+  } finally {
+    state.releaseSession?.();
+    await page.close();
+  }
+});
+
+test('returning to the tab hides task details when the session has expired', async () => {
+  const { page, state } = await setup(1440);
+  try {
+    await page.goto(`${base}/projects/91/tasks/92`);
+    const heading = page.getByRole('heading', { name: state.taskTitle, exact: true });
+    await heading.waitFor();
+    state.userId = null;
+    await pauseFocusVerification(page, state);
+    state.releaseSession();
+    await page.getByText('You need to log in to view this page.').waitFor();
+    assert.equal(await heading.isVisible(), false);
   } finally {
     state.releaseSession?.();
     await page.close();
@@ -154,13 +190,10 @@ test('a pending post survives focus verification and clears only the saved draft
     const posted = page.waitForRequest((req) => req.method() === 'POST' && req.url().endsWith('/comments'));
     await section.getByRole('button', { name: 'Post comment', exact: true }).click();
     await posted;
-    await page.waitForTimeout(600);
-    state.holdNextSession = true;
-    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-    await section.waitFor({ state: 'detached' });
+    await pauseFocusVerification(page, state);
+    assert.equal(await input.isVisible(), true);
+    assert.equal(await input.isDisabled(), true, 'pending submission remains disabled during verification');
     state.releaseSession();
-    await input.waitFor();
-    assert.equal(await input.isDisabled(), true, 'pending submission remains disabled after remount');
     state.releasePost();
     await section.getByRole('listitem').getByText('Saved while returning to the tab', { exact: true }).waitFor();
     assert.equal(await input.inputValue(), '');
