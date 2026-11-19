@@ -79,6 +79,16 @@ export async function listTasksByProject(input: {
     ORDER BY t.due_date, t.task_id`, [input.project_id, input.status_name])).rows;
 }
 
+// Project Overview preview: highest priority first (1 = High), then the nearest due date.
+export const OVERVIEW_TASK_LIMIT = 5;
+export async function listOverviewTasks(projectId: number, limit = OVERVIEW_TASK_LIMIT): Promise<TaskRow[]> {
+  assertDomainId(projectId);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new TypeError("limit must be between 1 and 100");
+  return (await pool.query<TaskRow>(`${taskData}
+    WHERE t.project_id = $1
+    ORDER BY t.priority, t.due_date, t.task_id LIMIT $2`, [projectId, limit])).rows;
+}
+
 export async function getTaskById(projectId: number, taskId: number): Promise<TaskRow | null> {
   assertDomainId(projectId); assertDomainId(taskId);
   const result = await pool.query<TaskRow>(`${taskData} WHERE t.project_id = $1 AND t.task_id = $2`,
