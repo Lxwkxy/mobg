@@ -1,9 +1,10 @@
 // Generates app/dark-theme.css.
 //
 // Components use hard-coded colors (bg-white, text-[#5B44BA], bg-red-50, ...).
-// This script scans the source for those classes and emits dark-mode overrides
-// that change background, text and border colors as matching pairs, so text
-// never ends up dark-on-dark. Re-run it after adding new color classes:
+// This script scans the source for those classes and emits dark-mode colors.
+// The stylesheet is imported into Tailwind's utilities layer, with the theme
+// selector excluded from specificity so state utilities can still win.
+// Re-run it after adding new color classes:
 //
 //   npm run gen:dark-theme
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -57,20 +58,28 @@ const BG_BASE = {
   blue: '#1c2c4d',
 };
 const BG_HOVER = {
-  '#14122a': '#1d1a3d',
-  '#1d1a3d': '#2e2a63',
-  '#25214d': '#312c66',
-  '#2e2a63': '#3a3576',
-  '#3c2030': '#4b283b',
-  '#3a301c': '#4a3d22',
-  '#173a30': '#1e4a3d',
-  '#1c2c4d': '#243a63',
+  '#14122a': '#302a5e',
+  '#1d1a3d': '#423b84',
+  '#25214d': '#443d80',
+  '#2e2a63': '#4c458f',
+  '#3c2030': '#63364e',
+  '#3a301c': '#5d4c27',
+  '#173a30': '#235646',
+  '#1c2c4d': '#2e4877',
 };
+const BG_PALETTE_STRONG = {
+  red: '#4b283b',
+  amber: '#4a3d22',
+  green: '#1e4a3d',
+  blue: '#243a63',
+};
+const BRAND_BUTTON_HOVERS = new Set(['#4934a3', '#4a35a3', '#4c37a3', '#4d38a3', '#5b21b6']);
 
 const TEXT = {
   main: '#ebe8fb',
   muted: '#a8a3cf',
   accent: '#c2b8ff',
+  accentHover: '#eeeaff',
   red: '#f5a9bd',
   amber: '#f2cf6b',
   green: '#7ad9b4',
@@ -88,13 +97,16 @@ const BORDER = {
 
 const isHoverLike = (variants) =>
   variants.some((v) =>
-    ['hover', 'focus', 'group-hover', 'focus-visible', 'focus-within'].includes(v),
+    ['hover', 'focus', 'group-hover', 'focus-visible', 'focus-within', 'group-focus-within'].includes(v),
   );
+const usesHover = (variants) => variants.includes('hover') || variants.includes('group-hover');
 
 function mapBgHex(hex, variants) {
   const lower = hex.toLowerCase();
   const hsl = hexToHsl(lower);
-  if (hsl.l < 0.8) return null;
+  if (hsl.l < 0.8) {
+    return usesHover(variants) && BRAND_BUTTON_HOVERS.has(lower) ? '#705bd1' : null;
+  }
   const hoverLike = isHoverLike(variants);
   let base;
   if (lower === PAGE_BG) base = BG_BASE.page;
@@ -123,7 +135,7 @@ function mapTextHex(hex) {
   return TEXT.muted;
 }
 
-function mapBorderHex(hex) {
+function mapBorderHex(hex, variants) {
   const hsl = hexToHsl(hex);
   if (hsl.l < 0.6) return null; // strong accent border, keep
   const fam = family(hsl);
@@ -131,7 +143,7 @@ function mapBorderHex(hex) {
   if (fam === 'amber') return BORDER.amber;
   if (fam === 'green') return BORDER.green;
   if (fam === 'blue') return BORDER.blue;
-  if (hsl.l < 0.82 && fam === 'purple') return BORDER.accentHover;
+  if (fam === 'purple' && (hsl.l < 0.82 || isHoverLike(variants))) return BORDER.accentHover;
   return BORDER.neutral;
 }
 
@@ -155,9 +167,8 @@ function mapPaletteBg(name, shade, variants) {
   else if (fam === 'green') base = BG_BASE.green;
   else if (fam === 'blue') base = BG_BASE.blue;
   else base = BG_BASE.tint;
-  // 100/200 shades are one step stronger than 50
-  if (shade >= 100 && !hoverLike) base = BG_HOVER[base] ?? base;
-  return hoverLike ? BG_HOVER[base] ?? base : base;
+  if (hoverLike) return BG_HOVER[base] ?? base;
+  return shade >= 100 ? BG_PALETTE_STRONG[fam] ?? '#3a3576' : base;
 }
 
 function mapPaletteText(name, shade) {
@@ -208,7 +219,7 @@ for (const f of files) {
 
 const SUPPORTED_STATE = new Set([
   'hover', 'focus', 'focus-visible', 'focus-within', 'disabled', 'active',
-  'placeholder', 'group-hover',
+  'placeholder', 'group-hover', 'group-focus-within',
 ]);
 const RESPONSIVE = { sm: 640, md: 768, lg: 1024, xl: 1280 };
 
@@ -216,6 +227,7 @@ function cssEscape(token) {
   return token.replace(/([^A-Za-z0-9_-])/g, '\\$1');
 }
 
+const dark = ':where(html[data-theme="dark"])';
 const rules = []; // { order, media, css }
 const skipped = [];
 
@@ -247,9 +259,10 @@ for (const token of tokens) {
     value = isWhite ? null : hex ? mapTextHex(hex) : mapPaletteText(palName, shade);
   } else {
     prop = 'border-color';
-    value = isWhite ? null : hex ? mapBorderHex(hex) : mapPaletteBorder(palName, shade);
+    value = isWhite ? null : hex ? mapBorderHex(hex, variants) : mapPaletteBorder(palName, shade);
   }
   if (!value) continue;
+  if (kind === 'text' && value === TEXT.accent && usesHover(variants)) value = TEXT.accentHover;
   // White overlays sit on purple banners; only bg-white/80-95 cards are handled (staticRules).
   if (isWhite && opacity) continue;
   if (opacity) value = withAlpha(value, Number(opacity));
@@ -267,26 +280,28 @@ for (const token of tokens) {
   let selector = esc;
   let prefix = '';
   for (const s of states) {
-    if (s === 'group-hover') prefix = '.group:hover ';
+    if (s === 'group-hover') prefix = ':where(.group):hover ';
+    else if (s === 'group-focus-within') prefix = ':where(.group):focus-within ';
     else if (s === 'placeholder') selector += '::placeholder';
     else selector += `:${s}`;
   }
   if (kind === 'divide') selector = `${selector} > :not(:last-child)`;
 
   const order = states.length === 0 ? 0 : states.includes('disabled') ? 3 : states.includes('active') ? 2 : 1;
+  const rule = `${dark} ${prefix}${selector} { ${prop}: ${value}; }`;
   rules.push({
     order,
     media: media ? RESPONSIVE[media] : 0,
-    css: `html[data-theme="dark"] ${prefix}${selector} { ${prop}: ${value}; }`,
+    css: usesHover(states) ? `@media (hover: hover) { ${rule} }` : rule,
   });
 }
 
 // translucent white cards sit on dark surface; do not touch bg-white/10 etc. on banners
 const staticRules = [
-  'html[data-theme="dark"] .bg-white\\/95 { background-color: rgb(29 26 61 / 0.95); }',
-  'html[data-theme="dark"] .bg-white\\/80 { background-color: rgb(29 26 61 / 0.8); }',
-  'html[data-theme="dark"] .bg-white\\/90 { background-color: rgb(29 26 61 / 0.9); }',
-  'html[data-theme="dark"] .border-white { border-color: #38336a; }',
+  `${dark} .bg-white\\/95 { background-color: rgb(29 26 61 / 0.95); }`,
+  `${dark} .bg-white\\/80 { background-color: rgb(29 26 61 / 0.8); }`,
+  `${dark} .bg-white\\/90 { background-color: rgb(29 26 61 / 0.9); }`,
+  `${dark} .border-white { border-color: #38336a; }`,
 ];
 
 const sortRules = (a, b) => a.media - b.media || a.order - b.order || a.css.localeCompare(b.css);

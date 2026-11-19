@@ -20,6 +20,12 @@ const otherProjectTask = {
   projectName: 'Other Project Without My Tasks',
   taskTitle: 'Other project member task',
 };
+const project = {
+  projectId: 91, projectName: 'Progress example', projectDescription: 'Theme test',
+  startDate: '2026-01-01', dueDate: '2026-12-31', createdAt: '2026-01-01T00:00:00Z',
+  creatorId: 1, creatorName: user.userName, derivedStatus: 'In progress',
+  progressPercent: 83, totalTasks: 6, completedTasks: 5, highPriorityTaskCount: 2,
+};
 let browser;
 
 before(async () => {
@@ -41,9 +47,20 @@ async function setup(viewport, role = 'Member', includeOtherProject = false) {
     let body;
     if (url.pathname === '/api/me') body = { user };
     else if (url.pathname === '/api/projects') {
-      const projects = [{ projectId: 91, myRole: role }];
+      const projects = [{ ...project, myRole: role }];
       if (includeOtherProject) projects.push({ projectId: 92, myRole: 'Member' });
       body = { projects, pagination: { page: 1, pageSize: 50, totalItems: projects.length, totalPages: 1 } };
+    } else if (url.pathname === '/api/projects/91') body = { project: { ...project, myRole: role } };
+    else if (url.pathname === '/api/projects/91/members') {
+      body = { members: [{ ...user, role, joinDate: project.startDate }] };
+    } else if (url.pathname === '/api/dashboard') {
+      body = {
+        summary: {
+          projectCount: 1, taskCount: 6, statusCounts: { todo: 0, inProgress: 1, done: 5 },
+          overdueCount: 0, highPriorityCount: 2,
+        },
+        highPriorityTasks: [],
+      };
     } else if (url.pathname === '/api/tasks/mine' || url.pathname === '/api/projects/91/tasks') {
       if (state.unavailable) return route.fulfill({ status: 500, headers, json: { success: false } });
       const tasks = [{ ...assigned, status: state.status }];
@@ -62,6 +79,71 @@ async function setup(viewport, role = 'Member', includeOtherProject = false) {
   });
   return { page, state };
 }
+
+function luminance(color) {
+  const [red, green, blue] = color.match(/^rgba?\((\d+), (\d+), (\d+)/).slice(1).map((value) => {
+    const channel = Number(value) / 255;
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}
+
+function contrast(a, b) {
+  const [dark, light] = [luminance(a), luminance(b)].sort((x, y) => x - y);
+  return (light + 0.05) / (dark + 0.05);
+}
+
+test('Dark mode distinguishes the full progress track and the completed portion', async () => {
+  const { page } = await setup({ width: 1440, height: 900 });
+  try {
+    await page.addInitScript(() => localStorage.setItem('mobg-theme', 'dark'));
+    for (const path of ['/projects', '/projects/91', '/dashboard']) {
+      await page.goto(`${base}${path}`);
+      const track = page.locator('.project-progress-track');
+      await track.waitFor();
+      const colors = await track.evaluate((bar) => {
+        let surface = bar.parentElement;
+        while (getComputedStyle(surface).backgroundColor === 'rgba(0, 0, 0, 0)') {
+          surface = surface.parentElement;
+        }
+        const fill = bar.firstElementChild;
+        return {
+          surface: getComputedStyle(surface).backgroundColor,
+          track: getComputedStyle(bar).backgroundColor,
+          fill: getComputedStyle(fill).backgroundColor,
+          percent: Math.round(100 * fill.getBoundingClientRect().width / bar.getBoundingClientRect().width),
+        };
+      });
+      assert.ok(contrast(colors.surface, colors.track) >= 3, `${path}: track against its surface`);
+      assert.ok(contrast(colors.track, colors.fill) >= 3, `${path}: fill against the track`);
+      assert.equal(colors.percent, 83, path);
+    }
+  } finally {
+    await page.close();
+  }
+});
+
+test('Dark mode preserves hover colors on project actions and shared controls', async () => {
+  const { page } = await setup({ width: 1440, height: 900 });
+  try {
+    await page.addInitScript(() => localStorage.setItem('mobg-theme', 'dark'));
+    await page.goto(`${base}/projects`);
+    const background = (control) => control.evaluate((el) => getComputedStyle(el).backgroundColor);
+    for (const name of ['Create Project', 'Switch to light mode', 'Collapse sidebar']) {
+      const control = page.getByRole('button', { name, exact: true });
+      const idle = await background(control);
+      await control.hover();
+      await control.evaluate(async (el) => {
+        await new Promise(requestAnimationFrame);
+        await Promise.all(el.getAnimations().map((animation) => animation.finished));
+      });
+      const hovered = await background(control);
+      assert.ok(contrast(idle, hovered) >= 1.3, `${name} hover is too subtle: ${idle} to ${hovered}`);
+    }
+  } finally {
+    await page.close();
+  }
+});
 
 test('My Tasks fits small through large viewports with real API response shapes', async () => {
   for (const [width, height] of [[320, 740], [390, 844], [768, 1024], [1440, 900]]) {
