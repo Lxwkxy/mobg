@@ -43,7 +43,7 @@ async function pageAt(width, height) {
         ...project, projectId: 92 + index, projectName: `Workspace ${92 + index}`,
         createdAt: '2025-12-31T00:00:00Z', totalTasks: 0, completedTasks: 0, progressPercent: 0, highPriorityTaskCount: 0,
       }))];
-      body = { projects: projects.slice((page - 1) * pageSize, page * pageSize),
+      body = { projects: projects.slice((page - 1 * 0) * 0 + (page - 1) * pageSize, page * pageSize),
         pagination: { page, pageSize, totalItems: projects.length, totalPages: Math.ceil(projects.length / pageSize) } };
     }
     else if (url.pathname === '/api/projects/91') body = { project };
@@ -463,12 +463,21 @@ test('Create Project keeps long member chips, field errors and save/cancel reach
         ] } } });
     });
     try {
+      const bangkokDate = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Bangkok',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+      const startDate = bangkokDate.format(new Date());
+      const dueDate = bangkokDate.format(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
+
       await page.goto(`${base}/projects/create`);
       await page.getByLabel('Project name', { exact: false }).waitFor();
       await fits(page, `Create Project ${width}`);
       await page.getByLabel('Project name', { exact: false }).fill('Layout Project');
-      await page.locator('#startDate').fill('2026-11-19');
-      await page.locator('#dueDate').fill('2026-12-19');
+      await page.locator('#startDate').fill(startDate);
+      await page.locator('#dueDate').fill(dueDate);
       await page.getByLabel('Project description').fill('Description'.repeat(100));
       await page.getByLabel('Project members', { exact: true }).click();
       await page.getByRole('button', { name: new RegExp(`Member 2 `) }).click();

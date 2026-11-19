@@ -2,7 +2,20 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
+
+const SIDEBAR_NOTCH_MASK_SVG = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='3000' viewBox='0 0 300 3000'%3E%3Cpath d='M0 0H300V9A11 11 0 0 1 289 20A19 19 0 0 0 289 58A11 11 0 0 1 300 69V3000H0Z' fill='%23000'/%3E%3C/svg%3E")`;
+
+const SIDEBAR_NOTCH_MASK_STYLE: CSSProperties = {
+  WebkitMaskImage: SIDEBAR_NOTCH_MASK_SVG,
+  maskImage: SIDEBAR_NOTCH_MASK_SVG,
+  WebkitMaskPosition: 'right top',
+  maskPosition: 'right top',
+  WebkitMaskSize: '300px 3000px',
+  maskSize: '300px 3000px',
+  WebkitMaskRepeat: 'no-repeat',
+  maskRepeat: 'no-repeat',
+};
 
 function MobGLogo() {
   return (
@@ -289,7 +302,44 @@ export default function Sidebar() {
   const isOpen = openPath === pathname;
   const menuId = useId();
   const toggleRef = useRef<HTMLButtonElement>(null);
+  const notchBackdropRef = useRef<HTMLDivElement>(null);
   const collapseLabel = isCollapsed ? 'Expand sidebar' : 'Collapse sidebar';
+
+  useEffect(() => {
+    const backdrop = notchBackdropRef.current;
+    if (!backdrop) return;
+
+    const header = document.querySelector('header');
+    let headerHeight = header ? header.offsetHeight : 72;
+
+    function syncNotchBackdrop() {
+      if (!backdrop) return;
+      const scrolled = Math.max(0, window.scrollY);
+      const offset = Math.min(scrolled, headerHeight);
+      backdrop.style.height = `${headerHeight}px`;
+      backdrop.style.transform = `translate3d(0, -${offset}px, 0)`;
+    }
+
+    syncNotchBackdrop();
+
+    window.addEventListener('scroll', syncNotchBackdrop, { passive: true });
+    window.addEventListener('resize', syncNotchBackdrop, { passive: true });
+
+    let observer: ResizeObserver | undefined;
+    if (header && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => {
+        headerHeight = header.offsetHeight;
+        syncNotchBackdrop();
+      });
+      observer.observe(header);
+    }
+
+    return () => {
+      window.removeEventListener('scroll', syncNotchBackdrop);
+      window.removeEventListener('resize', syncNotchBackdrop);
+      observer?.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     // Match the lg breakpoint used by the desktop sidebar.
@@ -336,9 +386,32 @@ export default function Sidebar() {
         }
       }}
       className={`relative w-full ${
-        isCollapsed ? 'lg:w-[84px]' : 'lg:w-[248px]'
-      } rounded-none lg:rounded-br-[32px] bg-[#5B44BA] text-white border-b lg:border-b-0 lg:border-r border-white/15 shadow-[4px_0_24px_rgba(91,68,186,0.16)] lg:sticky lg:top-0 lg:h-screen lg:shrink-0 z-30 transition-[width] duration-[350ms] ease-[cubic-bezier(0.22,1,0.36,1)]`}
+        isCollapsed ? 'lg:w-[104px]' : 'lg:w-[248px]'
+      } rounded-none bg-[#5B44BA] lg:bg-transparent text-white border-b lg:border-b-0 border-white/15 shadow-[0_4px_18px_rgba(91,68,186,0.16)] lg:shadow-none lg:sticky lg:top-0 lg:h-screen lg:shrink-0 z-30 transition-[width] duration-[350ms] ease-[cubic-bezier(0.22,1,0.36,1)]`}
     >
+      {/* แผ่นสีขาวด้านหลังช่องเว้าที่เลื่อนตามตำแหน่งของ Topbar แบบ 1:1 */}
+      <div
+        aria-hidden="true"
+        className="hidden lg:block pointer-events-none absolute inset-0 overflow-hidden z-0"
+      >
+        <div
+          ref={notchBackdropRef}
+          style={{ height: '72px' }}
+          className="w-full bg-white border-b border-[#d4c8ff] will-change-transform"
+        />
+      </div>
+
+      {/* พื้นหลัง Sidebar พร้อมรอยเว้าโค้งรับกับปุ่มย่อ/ขยายบนหน้าจอใหญ่ */}
+      <div
+        aria-hidden="true"
+        className="hidden lg:block pointer-events-none absolute inset-0 z-0"
+      >
+        <div
+          className="h-full w-full rounded-br-[32px] bg-[#5B44BA]"
+          style={SIDEBAR_NOTCH_MASK_STYLE}
+        />
+      </div>
+
       {/* ปุ่มพับเข้า-กางออกบนหน้าจอใหญ่ */}
       <button
         type="button"
@@ -347,15 +420,15 @@ export default function Sidebar() {
         title={`${collapseLabel} (Ctrl+B)`}
         aria-expanded={!isCollapsed}
         onClick={() => setIsCollapsed((prev) => !prev)}
-        className="hidden lg:flex items-center justify-center w-7 h-7 rounded-full bg-white border border-[#e2d9ff] shadow-md text-[#5B44BA] hover:bg-[#f5f1ff] absolute -right-3.5 top-6 z-30 cursor-pointer transition-colors duration-200"
+        className="hidden lg:flex items-center justify-center w-7 h-7 rounded-full bg-[#5B44BA] hover:bg-[#4934a3] text-white hover:scale-105 active:scale-95 absolute -right-[3px] top-[25px] z-30 cursor-pointer transition-all duration-200"
       >
         <svg
-          width="14"
-          height="14"
+          width="15"
+          height="15"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
-          strokeWidth="2.5"
+          strokeWidth="2.6"
           strokeLinecap="round"
           strokeLinejoin="round"
           aria-hidden="true"
@@ -367,7 +440,11 @@ export default function Sidebar() {
         </svg>
       </button>
 
-      <div className="h-full flex flex-col p-4 lg:px-5 lg:py-4 lg:overflow-y-auto lg:overflow-x-hidden">
+      <div
+        className={`relative z-10 h-full flex flex-col p-4 lg:py-4 lg:overflow-y-auto lg:overflow-x-hidden ${
+          isCollapsed ? 'lg:px-[18px]' : 'lg:px-5'
+        }`}
+      >
         {/* Brand Logo */}
         <div className="flex items-center mb-3 lg:mb-7">
           <MobGLogo />
@@ -420,6 +497,8 @@ export default function Sidebar() {
                 title={isCollapsed ? item.name : undefined}
                 onClick={() => setOpenPath(null)}
                 className={`min-h-11 rounded-full text-[14px] flex items-center px-4 lg:px-[13px] py-2.5 ${smoothTransition} ${
+                  isCollapsed ? 'lg:w-[44px]' : ''
+                } ${
                   isActive
                     ? 'bg-white/18 text-white font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]'
                     : 'text-white/75 font-medium hover:bg-white/10 hover:text-white'
