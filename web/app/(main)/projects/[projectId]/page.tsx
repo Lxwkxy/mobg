@@ -1420,7 +1420,11 @@ export default function ProjectDetailPage() {
         <div className="mt-4 border-t border-[#ece8f8] pt-3.5 text-center">
           <button
             type="button"
-            onClick={() => selectAndFocusTab('tasks')}
+            onClick={() => {
+              // ล้างคำค้นและตัวกรองเดิมของแท็บ Tasks ก่อน เพื่อให้เห็นงานครบทั้งหมด
+              handleClearTaskFilters();
+              selectAndFocusTab('tasks');
+            }}
             className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-[#5B44BA] hover:text-[#422c9c] transition-colors cursor-pointer"
           >
             <span>View all {bundle.tasks.length} tasks</span>
