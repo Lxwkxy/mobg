@@ -114,3 +114,20 @@ html[data-theme="dark"] aside.bg-\[\#5B44BA\],
 html[data-theme="dark"] aside .bg-\[\#5B44BA\] {
   background-color: #352b78;
 }
+
+html[data-theme="dark"] .dashboard-project-icon {
+  background-image: linear-gradient(to bottom right, #2e2a63, #1d1a3d);
+}
+
+@media (hover: hover) {
+  html[data-theme="dark"] .group:hover .dashboard-project-icon {
+    background-image: linear-gradient(to bottom right, #352b78, #5b44ba);
+    border-color: #5b44ba;
+    color: #fff;
+  }
+
+  html[data-theme="dark"] .mytasks-empty-clear-filters:hover {
+    background-color: #5b44ba;
+    color: #fff;
+  }
+}

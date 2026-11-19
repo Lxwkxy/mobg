@@ -834,7 +834,7 @@ export default function DashboardPage() {
                         <div className="min-w-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
                           <div className="min-w-0 flex-1 flex items-start gap-3.5">
                             {/* Project Workspace Layers Icon */}
-                            <div className="shrink-0 w-10 h-10 rounded-2xl bg-gradient-to-br from-[#f3efff] to-[#e6deff] border border-[#dcd0ff] text-[#5B44BA] flex items-center justify-center group-hover:from-[#5B44BA] group-hover:to-[#795fe0] group-hover:text-white group-hover:border-[#5B44BA] transition-colors duration-150">
+                            <div className="dashboard-project-icon shrink-0 w-10 h-10 rounded-2xl bg-gradient-to-br from-[#f3efff] to-[#e6deff] border border-[#dcd0ff] text-[#5B44BA] flex items-center justify-center group-hover:from-[#5B44BA] group-hover:to-[#795fe0] group-hover:text-white group-hover:border-[#5B44BA] transition-colors duration-150">
                               <svg
                                 width="18"
                                 height="18"
