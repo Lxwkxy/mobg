@@ -37,7 +37,7 @@ async function storedTask(projectId: number, owner: number, dueDate: string, sta
   return Number(id);
 }
 
-test("actor-scoped updates require an Owner or a current task assignee", async () => {
+test("actor-scoped updates allow assignees to edit details and only Owners to replace assignees", async () => {
   const { projectId, owner, first, second } = await fixture();
   const id = await storedTask(projectId, owner, "2026-12-01", "To Do", [first]);
   const original = await getTaskById(projectId, id);
@@ -45,9 +45,13 @@ test("actor-scoped updates require an Owner or a current task assignee", async (
 
   await assert.rejects(updateTask(id, { task_title: "Denied" }, actor(second)), { name: "TaskEditForbiddenError" });
   await assert.rejects(updateTask(id, { assignee_ids: [second] }, actor(second)), { name: "TaskEditForbiddenError" });
+  await assert.rejects(updateTask(id, { priority: 1, assignee_ids: [second] }, actor(first)), {
+    name: "TaskEditForbiddenError",
+  });
   assert.deepEqual(await getTaskById(projectId, id), original);
   assert.equal(await updateTask(id, { task_title: "Owner edit" }, actor(owner)), true);
-  assert.equal(await updateTask(id, { priority: 1, assignee_ids: [second] }, actor(first)), true);
+  assert.equal(await updateTask(id, { priority: 1 }, actor(first)), true);
+  assert.equal(await updateTask(id, { assignee_ids: [second] }, actor(owner)), true);
   const reassigned = await getTaskById(projectId, id);
   await assert.rejects(updateTask(id, { priority: 3 }, actor(first)), { name: "TaskEditForbiddenError" });
   assert.deepEqual(await getTaskById(projectId, id), reassigned);

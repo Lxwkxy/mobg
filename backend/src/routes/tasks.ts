@@ -102,7 +102,10 @@ router.patch("/:taskId", requireProjectRole("Member"), async (req: Request, res:
     throw forbidden("Only a project Owner or current task assignee can edit this task");
   }
   const body = parseRequest(updateTaskSchema, req.body);
-  if (body.assigneeIds !== undefined) await assertAssigneesAreMembers(projectId, body.assigneeIds);
+  if (body.assigneeIds !== undefined) {
+    if (req.projectAccess!.role !== "Owner") throw forbidden("Only a project Owner can change task assignees");
+    await assertAssigneesAreMembers(projectId, body.assigneeIds);
+  }
 
   // Absent key = unchanged. taskDescription: null is a real value that clears the text.
   const changes: TaskChanges = {};

@@ -425,7 +425,7 @@ test("PATCH changes only sent fields, clears with null, replaces assignees, reje
   assert.equal((await api("owner", "PATCH", `${tasksUrl(shared)}/999999`, { priority: 3 })).status, 404);
 });
 
-test("PATCH requires an Owner or existing assignee, including when replacing assignees", async () => {
+test("PATCH permits existing assignees to edit details but reserves assignee changes for Owners", async () => {
   const project = await api("owner", "POST", "/api/projects", {
     projectName: "Task edit permissions", startDate: "2026-01-01", memberIds: [ids.member],
   });
@@ -442,15 +442,23 @@ test("PATCH requires an Owner or existing assignee, including when replacing ass
   assert.equal((await api(null, "PATCH", url, { priority: 1 })).status, 401);
   assert.equal((await api("outsider", "PATCH", url, { priority: 1 })).status, 404);
 
-  // Owners need no task assignment; an assignee may also replace the assignment set.
   const assigned = await api("owner", "PATCH", url, { assigneeIds: [ids.member] });
   assert.equal(assigned.status, 200);
-  assert.equal((await api("owner", "PATCH", url, { taskTitle: "Unassigned Owner edit" })).status, 200);
-  const updated = await api("member", "PATCH", url, { priority: 1, assigneeIds: [ids.owner] });
+  assert.deepEqual(assigned.body.task.assignees.map((person: { userId: number }) => person.userId), [ids.member]);
+  const ownerEdit = await api("owner", "PATCH", url, { taskTitle: "Unassigned Owner edit" });
+  assert.equal(ownerEdit.status, 200);
+  const denied = await api("member", "PATCH", url, { priority: 1, assigneeIds: [ids.owner] });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.error.code, "FORBIDDEN");
+  assert.deepEqual((await api("owner", "GET", url)).body.task, ownerEdit.body.task);
+  const updated = await api("member", "PATCH", url, { priority: 1 });
   assert.equal(updated.status, 200);
   assert.equal(updated.body.task.priority, 1);
+  assert.deepEqual(updated.body.task.assignees, assigned.body.task.assignees);
+  const reassigned = await api("owner", "PATCH", url, { assigneeIds: [ids.owner] });
+  assert.equal(reassigned.status, 200);
   assert.equal((await api("member", "PATCH", url, { priority: 3 })).status, 403);
-  assert.deepEqual((await api("owner", "GET", url)).body.task, updated.body.task);
+  assert.deepEqual((await api("owner", "GET", url)).body.task, reassigned.body.task);
 });
 
 test("PATCH rechecks assignment after waiting for the project lock", async () => {
