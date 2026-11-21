@@ -470,7 +470,7 @@ test("PATCH rechecks assignment after waiting for the project lock", async () =>
   const taskId = created.body.task.taskId;
   const url = `${tasksUrl(projectId)}/${taskId}`;
   const result = await withProjectLockHeld(projectId,
-    () => api("member", "PATCH", url, { taskTitle: "Must not save", assigneeIds: [ids.member] }),
+    () => api("member", "PATCH", url, { taskTitle: "Must not save" }),
     async (gate) => {
       await gate.query("DELETE FROM task_assignees WHERE task_id = $1 AND user_id = $2", [taskId, ids.member]);
     });
