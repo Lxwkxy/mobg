@@ -29,8 +29,8 @@ export class InvalidTaskAssigneesError extends Error {
 }
 
 export class TaskEditForbiddenError extends Error {
-  constructor() {
-    super("Only a project Owner or current task assignee can edit this task");
+  constructor(message = "Only a project Owner or current task assignee can edit this task") {
+    super(message);
     this.name = "TaskEditForbiddenError";
   }
 }
@@ -151,8 +151,8 @@ export async function createTask(input: CreateTaskInput): Promise<{ task_id: str
 
 // Book must first authorize and resolve the task with getTaskById(projectId, taskId).
 // With `actor`, the task must belong to actor.project_id and the caller must remain a project member.
-// After locking the project and task, only an Owner or an existing assignee may write. Lost membership
-// returns false; a current Member without assignment throws TaskEditForbiddenError. Both leave data unchanged.
+// After locking the project and task, only an Owner or an existing assignee may write, and only an Owner
+// may replace assignees. Lost membership returns false and an unauthorized edit throws TaskEditForbiddenError.
 export interface TaskWriteActor { project_id: number; user_id: number }
 
 export async function updateTask(taskId: number, changes: TaskChanges, actor?: TaskWriteActor): Promise<boolean> {
@@ -188,7 +188,9 @@ export async function updateTask(taskId: number, changes: TaskChanges, actor?: T
     const found = await client.query<{ project_id: string }>("SELECT project_id FROM tasks WHERE task_id = $1 FOR UPDATE", [taskId]);
     if (found.rowCount === 0) return false;
     if (actor && !actorIsOwner) {
-      // Authorize against the stored assignment set before applying any requested replacement.
+      if (changes.assignee_ids !== undefined) {
+        throw new TaskEditForbiddenError("Only a project Owner can change task assignees");
+      }
       const assigned = await client.query(`SELECT 1 FROM task_assignees WHERE task_id = $1 AND user_id = $2`,
         [taskId, actor.user_id]);
       if (assigned.rowCount === 0) throw new TaskEditForbiddenError();

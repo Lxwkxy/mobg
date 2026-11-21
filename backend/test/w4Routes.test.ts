@@ -477,7 +477,7 @@ test("PATCH task by a caller removed from the project while waiting for the proj
       ORDER BY user_id) AS assignees
     FROM tasks t JOIN task_statuses s USING (status_id) WHERE t.task_id = $1`, [taskId])).rows[0];
   const edit = { taskTitle: "Edited while removed", taskDescription: "changed", priority: 3, status: "Done",
-    dueDate: bangkokDatePlus(60), assigneeIds: [ids.member] };
+    dueDate: bangkokDatePlus(60) };
 
   // Control: the same lock wait without a membership change lets the assigned Member's PATCH through.
   const control = await newProject("owner", [ids.member]);

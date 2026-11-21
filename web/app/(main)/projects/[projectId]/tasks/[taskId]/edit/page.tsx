@@ -180,6 +180,8 @@ function EditTaskForm({
     sessionRef.current = session;
   }, [session]);
 
+  const isProjectOwner = data.project.myRole?.toLowerCase() === 'owner';
+
   const currentMemberIds = useMemo(
     () => new Set(data.members.map((member) => member.userId)),
     [data.members],
@@ -534,7 +536,7 @@ function EditTaskForm({
   }
 
   function toggleAssignee(assigneeUserId: number) {
-    if (isSaving || !currentMemberIds.has(assigneeUserId)) {
+    if (!isProjectOwner || isSaving || !currentMemberIds.has(assigneeUserId)) {
       return;
     }
 
@@ -611,6 +613,7 @@ function EditTaskForm({
     }
 
     if (
+      isProjectOwner &&
       !haveSameAssigneeSet(
         validAssigneeIds,
         initialSnapshot.assigneeIds,
@@ -690,6 +693,16 @@ function EditTaskForm({
       ) {
         setErrors({
           general: 'You do not have permission to edit this task.',
+        });
+        return;
+      }
+
+      if (
+        patchInput.assigneeIds !== undefined &&
+        latestProject.myRole?.toLowerCase() !== 'owner'
+      ) {
+        setErrors({
+          general: 'Only the project owner can update task assignees.',
         });
         return;
       }
@@ -1395,15 +1408,17 @@ function EditTaskForm({
             </div>
 
             {/* ASSIGNEE SELECTOR */}
-            <div className="mb-7">
-              <AssigneeSelector
-                members={data.members}
-                selectedIds={validAssigneeIds}
-                error={errors.assigneeIds}
-                disabled={isSaving}
-                onToggle={toggleAssignee}
-              />
-            </div>
+            {isProjectOwner && (
+              <div className="mb-7">
+                <AssigneeSelector
+                  members={data.members}
+                  selectedIds={validAssigneeIds}
+                  error={errors.assigneeIds}
+                  disabled={isSaving}
+                  onToggle={toggleAssignee}
+                />
+              </div>
+            )}
 
             {/* FORM ACTIONS */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-3 border-t border-[#ece8f8] pt-6">

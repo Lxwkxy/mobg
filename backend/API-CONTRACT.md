@@ -426,7 +426,7 @@ For validation errors the top-level message may be generic ("Request validation 
 | GET | `/api/projects/:projectId/overview/tasks` | Owner, Member | Overview preview: top 5 tasks, priority (High first) then nearest due date | `findProjectMembership`, `listOverviewTasks` |
 | POST | `/api/projects/:projectId/tasks` | Owner, Member | Create task | `findProjectMembership`, `listProjectMembers`, `createTask`, `getTaskById` |
 | GET | `/api/projects/:projectId/tasks/:taskId` | Owner, Member | Task details | `findProjectMembership`, `getTaskById` |
-| PATCH | `/api/projects/:projectId/tasks/:taskId` | Owner or assigned Member | Edit task, change status, change assignees | `findProjectMembership`, `getTaskById`, `listProjectMembers`, `updateTask` |
+| PATCH | `/api/projects/:projectId/tasks/:taskId` | Owner or assigned Member; Owner only for assignee changes | Edit task details, status, or assignees | `findProjectMembership`, `getTaskById`, `listProjectMembers`, `updateTask` |
 | DELETE | `/api/projects/:projectId/tasks/:taskId` | Owner | Delete task | `findProjectMembership`, `getTaskById`, `deleteTask` |
 | GET | `/api/tasks/mine` | Logged in | My Tasks (assigned to me) | `listTasksForAssignee` |
 | GET | `/api/projects/:projectId/tasks/:taskId/comments` | Owner, Member | Comments of a task | `findProjectMembership`, `getTaskById`, `listCommentsByTask` |
@@ -610,7 +610,7 @@ Task object:
 
 - Editable: `taskTitle`, `taskDescription`, `priority`, `dueDate`, `status`, `assigneeIds`.
 - A project Owner may edit any task. A Member must already be assigned to that task; otherwise `403 FORBIDDEN`. Adding yourself in the request does not grant permission. The service rechecks the current role and stored assignment under the project/task locks before writing. Losing project membership still returns `404 NOT_FOUND`.
-- `assigneeIds` replaces the whole assignee list and follows the same rules as create. `dueDate` cannot be `null`.
+- Only a project Owner may send `assigneeIds`. A valid request from a Member that includes this field returns `403 FORBIDDEN` without applying any fields. For an Owner, `assigneeIds` replaces the whole list and follows the same rules as create. `dueDate` cannot be `null`.
 - After a status change the frontend must re-fetch the project (`derivedStatus` and `progressPercent` change).
 
 `DELETE /api/projects/:projectId/tasks/:taskId` (Owner only) → `200` `{ "success": true, "message": "Task deleted" }`
@@ -741,7 +741,7 @@ Backend validates membership and minimum assignees first. Task creation and upda
 | `listTasksForAssignee({ user_id, status_name })` | as above | `[task]` ordered by `due_date`, `task_id` |
 | `listHighPriorityTasks(user_id, limit = 5)` | linked session MobG ID; limit integer 1–100 | `[task]` in current member projects, priority 1, excluding Done; ordered by `due_date`, `task_id`, then limited |
 | `createTask({ project_id, task_title, task_description, priority, due_date, created_by, assignee_ids })` | `assignee_ids`: array of ids | `{ task_id }`. Resolves the `To Do` `status_id` by name; inserts the task and its assignees in one transaction. The backend validates membership and the minimum of one assignee first (section 6). After taking the project lock, `created_by` must still be Owner/Member in the same transaction; otherwise it throws `TaskCreatorNotMemberError`, nothing is written, and POST answers `404`. |
-| `updateTask(task_id, changes, actor?)` | `changes`: any of `task_title`, `task_description`, `priority`, `due_date`, `status_name`, `assignee_ids`; optional `actor: { project_id, user_id }` | `true` if updated, else `false` for a missing task, wrong project, or lost membership (PATCH → `404`). With `actor` (the PATCH route always passes it), project/task locks protect a fresh authorization check: the caller must be an Owner or existing task assignee. A current Member without assignment throws `TaskEditForbiddenError` (PATCH → `403`); nothing changes. `status_name` is resolved to `status_id` by name. `assignee_ids` replaces the whole set only after authorization against the stored assignment. Omitting `actor` is reserved for trusted internal callers. |
+| `updateTask(task_id, changes, actor?)` | `changes`: any of `task_title`, `task_description`, `priority`, `due_date`, `status_name`, `assignee_ids`; optional `actor: { project_id, user_id }` | `true` if updated, else `false` for a missing task, wrong project, or lost membership (PATCH → `404`). With `actor` (the PATCH route always passes it), the service rechecks authorization under project/task locks. An Owner can edit all fields, and a current assignee can edit fields other than `assignee_ids`. Unauthorized edits throw `TaskEditForbiddenError` (PATCH → `403`) before writing. `status_name` is resolved to `status_id` by name. `assignee_ids` replaces the whole set. Omitting `actor` is reserved for trusted internal callers. |
 | `deleteTask(task_id)` | task id | `true` if deleted, else `false`. Removes `task_assignees` rows and the task; comments are removed by `ON DELETE CASCADE`. |
 
 `is_overdue` = `due_date` is before today in `Asia/Bangkok` and `status_name` is not `Done`.
